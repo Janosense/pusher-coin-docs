@@ -8,6 +8,7 @@ Project-owned code under `wp-content/` (the custom `pc` theme) is fully expanded
 pusher-coin/
 ├── ARCHITECTURE.md
 ├── PROJECT-TREE.md
+├── PUSHER-COIN-COMMANDS.txt                   # Home Assistant API for the physical machine
 │
 ├── backend/                                   # WordPress installation (separate git repo)
 │   ├── .ddev/
