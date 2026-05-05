@@ -1,0 +1,62 @@
+Включить питание автомата:
+
+headers = {
+    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI1ZWU1NDlkNmRhYTk0ODVhYTg4N2Y4YmExODc2MDkxYyIsImlhdCI6MTc0NzIxNjUyNSwiZXhwIjoyMDYyNTc2NTI1fQ.g7ZCU1ks1AnkeMDiTf5vLQEvTF8de3nnPw_M_3oxmvA",
+    "Content-Type": "application/json"
+}
+
+response = requests.post(
+        "https://developer-it.com/api/services/switch/turn_on",
+        headers=headers,
+        json={"entity_id": "switch.sonoff_10024fb618"}
+    )
+
+Выключить питание автомата:
+response = requests.post(
+        "https://developer-it.com/api/services/switch/turn_off",
+        headers=headers,
+        json={"entity_id": "switch.sonoff_10024fb618"}
+    )
+
+Бросить монетку:
+response = requests.post(
+        "https://developer-it.com/api/services/input_button/press",
+        headers=headers,
+        json={"entity_id": "input_button.toss_a_coin"}
+    )
+
+Сколько монет выпало:
+response = requests.get("https://developer-it.com/api/states/sensor.coin", headers=headers)
+data = response.json()
+print(f"Состояние {ENTITY_ID}: {data['state']}")
+
+Какое число засветилось на круговом табло:
+response = requests.get("https://developer-it.com/api/states/sensor.lc01_12", headers=headers)
+data = response.json()
+print(f"Состояние {ENTITY_ID}: {data['state']}")
+
+
+Состояние табло Light_B_T побитово 0…3бит чила :
+response = requests.get("https://developer-it.com/api/states/sensor.light_b_t", headers=headers)
+data = response.json()
+print(f"Состояние {ENTITY_ID}: {data['state']}")
+
+
+Состояние реле замкнутости контактов sw_b_t:
+response = requests.get("https://developer-it.com/api/states/sensor.relay_on", headers=headers)
+data = response.json()
+print(f"Состояние {ENTITY_ID}: {data['state']}")
+
+Замкнуть реле контактов sw_b_t:
+response = requests.post(
+        "https://developer-it.com/api/services/input_button/press",
+        headers=headers,
+        json={"entity_id": "input_button.relay_on"}
+    )
+
+Разомкнуть реле контактов sw_b_t:
+response = requests.post(
+        "https://developer-it.com/api/services/input_button/press",
+        headers=headers,
+        json={"entity_id": "input_button.relay_off"}
+    )
