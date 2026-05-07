@@ -39,35 +39,42 @@ and a green CI pipeline on both repos.
 
 ---
 
-## Phase 1 — Authentication & session hardening `[#1, #2]`
+## Phase 1 — Authentication & session hardening `[#1, #2]` — DONE
 
 Finish the auth surface so every later feature can rely on a verified, uniquely
 identified player.
 
-1. **Email/password login** `[done]` — already issues a JWT after the email
-   verification code step. Keep but harden (rate-limit code requests,
-   single-use codes, audit logs).
-2. **Google sign-in** `[partial]` — `GoogleAuthController` exists; finish the
-   end-to-end flow on the SPA (`GoogleSignInButton.vue` → store → backend) and
-   confirm Google 2FA is *required* before any play / top-up action `[#1]`.
-3. **Apple sign-in** `[todo]` — add `AppleAuthController` mirroring the Google
-   flow; add an `AppleSignInButton.vue`.
-4. **Terms-and-conditions checkbox** `[todo]` — required at sign-up *and* at
-   first social login. Persist `terms_accepted_at` on the user. Block all
-   protected actions until accepted.
-5. **Unique nickname** `[partial]` — already required at email sign-up.
-   Extend: enforce uniqueness for social logins by prompting for a nickname
-   on first login, with a fallback auto-generator (`User-<random>`).
-6. **Logout with confirmation** `[todo]` — confirm modal in the SPA, server
-   should invalidate the JWT (introduce a token blacklist or short-lived
-   access token + refresh token pair).
-7. **Inactivity auto-logout** `[todo]` — frontend timer + visibility / focus
-   listeners; backend short access-token TTL with a refresh endpoint so a
-   long-idle tab cannot continue playing.
+1. **Email/password login** `[done]` — JWT issued after email verification.
+   Phase 1 added rate-limiting (5 / 15min per IP for code requests; 10 / 24h
+   per IP for sign-up), an audit table, and the refresh-token rotation.
+2. **Google sign-in** `[done]` — end-to-end flow lands the user on
+   `/choose-nickname` on first login; the email-code 2FA is mandatory.
+3. **Apple sign-in** `[partial]` — `AppleAuthController` and
+   `AppleSignInButton.vue` ship; gated on `APPLE_CLIENT_ID` /
+   `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY`. Returns
+   `apple_not_configured` until Apple Developer enrollment is complete;
+   the SPA hides the button when `VITE_APPLE_CLIENT_ID` is empty.
+4. **Terms-and-conditions checkbox** `[done]` — required at sign-up and via
+   the blocking `/accept-terms` view on first social login. `terms_accepted_at`
+   and `terms_accepted_version` user meta plus the `pc_terms_current_version`
+   option drive the gate.
+5. **Unique nickname** `[done]` — first-time social-login users land on a
+   blocking `/choose-nickname` view (auto-suggesting `User-<6 hex>`,
+   server-side uniqueness check). `nickname_chosen` user meta marks
+   completion.
+6. **Logout with confirmation** `[done]` — `LogoutConfirmModal.vue` opens
+   from the navigation; `/auth/logout` revokes the refresh token in
+   `wp_pc_refresh_tokens`.
+7. **Inactivity auto-logout** `[done]` — `services/sessionService.js` runs a
+   15-minute idle timer (mouse / keyboard / click / focus / visibility);
+   on timeout it calls `authStore.logout(true)`. Access-token TTL is now
+   15 minutes (`pc_access_token_ttl_seconds`); 401s trigger a single
+   transparent refresh in `services/api.js`.
 
-Exit criteria: a guest can sign up via email, Google, or Apple; cannot reach
-play / top-up screens without 2FA + accepted terms + unique nickname; can log
-out explicitly and is logged out automatically after inactivity.
+Exit criteria: a guest can sign up via email, Google, or (stub) Apple;
+cannot reach play / top-up screens without 2FA + accepted terms + unique
+nickname; can log out explicitly with confirmation and is logged out
+automatically after 15 minutes of inactivity.
 
 ---
 
@@ -298,8 +305,12 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 
 - Streaming provider and target latency.
 - Payment provider(s) and KYC requirements per jurisdiction.
-- Whether the admin panel stays inside WP admin or becomes a separate SPA.
-- Apple Sign-In: do we need Apple Developer Program enrollment now?
+- ~~Whether the admin panel stays inside WP admin or becomes a separate SPA.~~
+  Resolved Phase 0: separate admin SPA (see `ADMIN-DECISION.md`).
+- ~~Apple Sign-In: do we need Apple Developer Program enrollment now?~~
+  Resolved Phase 1: ship the stub now; flip on when enrollment completes.
+  Backend returns `apple_not_configured` until `APPLE_CLIENT_ID` etc.
+  are populated.
 - Source of truth for the machine bearer token and rotation policy.
 - Walk through `PUSHER-COIN-COMMANDS.txt` with Dima to confirm sensor
   semantics and edge cases (relay/bonus ordering, debounce, offline machine).

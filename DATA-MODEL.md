@@ -33,36 +33,64 @@ literals.
 | `GOOGLE_ID` | `google_id` | string | google-auth/authentication | Google `sub` claim. |
 | `GOOGLE_VERIFICATION_CODE` | `google_verification_code` | string (6 digits) | google-auth/authentication | Cleared on success/expiry. |
 | `GOOGLE_VERIFICATION_CODE_EXPIRY` | `google_verification_code_expiry` | int (unix timestamp) | google-auth/authentication | 15-minute TTL. |
+| `TERMS_ACCEPTED_AT` | `terms_accepted_at` | int (unix timestamp) | sign-up, accept-terms | Phase 1. Required before play / top-up. |
+| `TERMS_ACCEPTED_VERSION` | `terms_accepted_version` | string | sign-up, accept-terms | Phase 1. Compared against `pc_terms_current_version` option. |
+| `NICKNAME_CHOSEN` | `nickname_chosen` | string `'1'` | sign-up, set-nickname | Phase 1. Absent for first-time social-login users until they pick a nickname. |
+| `APPLE_ID` | `apple_id` | string | apple-auth (stub) | Phase 1. Apple `sub` claim. Used when Apple is enabled. |
+| `APPLE_VERIFICATION_CODE` | `apple_verification_code` | string | apple-auth (stub) | Phase 1. Mirrors Google flow. |
+| `APPLE_VERIFICATION_CODE_EXPIRY` | `apple_verification_code_expiry` | int | apple-auth (stub) | Phase 1. |
 
----
+### WP options (Phase 1)
 
-## Phase 1 — auth hardening
-
-### User meta — additions
-
-Add to `User_Meta_Keys`:
-
-| Constant | Storage key | Type | Notes |
+| Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `TERMS_ACCEPTED_AT` | `terms_accepted_at` | int (unix timestamp) | Set on sign-up + first social login + explicit accept. Required before play / top-up. |
-| `APPLE_ID` | `apple_id` | string | Apple `sub` claim. |
-| `APPLE_VERIFICATION_CODE` | `apple_verification_code` | string | Mirrors Google flow. |
-| `APPLE_VERIFICATION_CODE_EXPIRY` | `apple_verification_code_expiry` | int | |
+| `pc_db_version` | string | `'1.0.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. |
+| `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
+| `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
+| `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
 
-### `wp_pc_jwt_blacklist` (custom table)
+### `wp_pc_refresh_tokens` (custom table — Phase 1)
 
-Token revocation list for explicit logout. Storage form: custom table —
-high write rate, append-only, no need for CPT semantics.
+Active refresh tokens. One row per issued token; `revoked_at` is set on
+explicit logout, on rotation, and on reuse-detection cascade. The
+plaintext token is never stored — only its SHA-256.
 
 ```
-id              BIGINT   PK
-jti             VARCHAR(64) UNIQUE  -- JWT id claim
-user_id         BIGINT
-revoked_at      DATETIME
-expires_at      DATETIME            -- garbage collection
+id            BIGINT       PK, AUTO_INCREMENT
+user_id       BIGINT       INDEX
+token_hash    CHAR(64)     UNIQUE   -- SHA-256
+issued_at     DATETIME
+expires_at    DATETIME     INDEX
+revoked_at    DATETIME     NULL
+replaced_by   CHAR(64)     NULL     -- token_hash of the rotation successor
+user_agent    VARCHAR(512)
+ip            VARBINARY(16) NULL
 ```
 
-A daily WP-Cron job purges rows past `expires_at`.
+Replaces the placeholder `wp_pc_jwt_blacklist` reserved in earlier
+drafts of this doc — we model active refresh tokens directly rather
+than blacklisting access JWTs.
+
+### `wp_pc_auth_audit_log` (custom table — Phase 1)
+
+Append-only event log for auth events. Used by Phase 7's ops dashboard;
+no admin viewer ships in Phase 1.
+
+```
+id            BIGINT       PK, AUTO_INCREMENT
+event_type    VARCHAR(64)  INDEX
+user_id       BIGINT       NULL INDEX
+email         VARCHAR(255) NULL
+ip            VARBINARY(16) NULL
+user_agent    VARCHAR(512)
+metadata      LONGTEXT     NULL    -- JSON
+created_at    DATETIME(6)  INDEX
+```
+
+Event types written today: `signup`, `request_verification`,
+`request_verification_failed`, `verify_success`, `verify_failure`,
+`refresh`, `refresh_reuse`, `logout`, `accept_terms`, `set_nickname`,
+`rate_limited`.
 
 ---
 

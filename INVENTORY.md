@@ -1,7 +1,11 @@
-# Pusher Coin — Phase 0 Inventory
+# Pusher Coin — Inventory
 
-Frozen snapshot captured during Phase 0. This is a checklist Phase 1+ can
-diff against, not a design document. Source files referenced by `path:line`.
+Snapshot of the REST surface, persistence, and frontend stub state.
+Updated by every phase that lands. Source files referenced by `path:line`.
+
+History:
+- Phase 0 — captured the original audit (5 endpoints, drift fixes, meta-key registry).
+- Phase 1 — added auth hardening (logout, refresh, accept-terms, set-nickname, Apple stub), refresh-token store, audit log, terms gate, blocking nickname picker, inactivity timer, server-side logout.
 
 Status legend (matching `ROADMAP.md`):
 
@@ -13,28 +17,33 @@ Status legend (matching `ROADMAP.md`):
 
 ## REST surface (`pc/v1`)
 
-All five endpoints are registered through `backend/wp-content/themes/pc/app/rest-api.php`
-and live in two controllers. Every route currently uses
-`__return_true` / `check_permission` returning `true` — there is no
-permission gating today. Phase 1 hardens this.
+Endpoints are registered through `backend/wp-content/themes/pc/app/rest-api.php`
+and live in four controllers. Public auth endpoints are gated by
+`Rate_Limiter`; bearer-required endpoints use `Permissions::*` callbacks.
 
 | Method | Path | Callback | Status |
 | --- | --- | --- | --- |
-| `POST` | `/pc/v1/user/sign-up/` | `UserController::create_user` (`UserController.php:55`) | `[done]` |
-| `POST` | `/pc/v1/user/request-verification/` | `UserController::request_verification_code` (`UserController.php:199`) | `[done]` |
-| `POST` | `/pc/v1/user/verify-code/` | `UserController::verify_code` (`UserController.php:270`) | `[done]` |
-| `POST` | `/pc/v1/google-auth/authentication` | `GoogleAuthController::authenticate_with_google` (`GoogleAuthController.php:63`) | `[partial]` — `verify_google_token` instantiates `Google_Client` before checking `$google_client_id` is set (`GoogleAuthController.php:285-295`) |
-| `POST` | `/pc/v1/google-auth/verify-code` | `GoogleAuthController::verify_google_code` (`GoogleAuthController.php:176`) | `[done]` |
+| `POST` | `/pc/v1/user/sign-up/` | `UserController::create_user` | `[done]` (Phase 1: T&C gate, rate limit, audit) |
+| `POST` | `/pc/v1/user/request-verification/` | `UserController::request_verification_code` | `[done]` (Phase 1: rate limit, audit) |
+| `POST` | `/pc/v1/user/verify-code/` | `UserController::verify_code` | `[done]` (Phase 1: returns auth envelope) |
+| `POST` | `/pc/v1/user/accept-terms` | `UserController::accept_terms` | `[done]` (Phase 1) |
+| `POST` | `/pc/v1/user/set-nickname` | `UserController::set_nickname` | `[done]` (Phase 1) |
+| `POST` | `/pc/v1/google-auth/authentication` | `GoogleAuthController::authenticate_with_google` | `[done]` (Phase 1: rate limit, audit, ordering bug fixed) |
+| `POST` | `/pc/v1/google-auth/verify-code` | `GoogleAuthController::verify_google_code` | `[done]` (Phase 1: returns auth envelope, sets `nickname_required`) |
+| `POST` | `/pc/v1/apple-auth/authentication` | `AppleAuthController::authenticate_with_apple` | `[partial]` — stub returning `apple_not_configured` until Apple Developer enrollment |
+| `POST` | `/pc/v1/apple-auth/verify-code` | `AppleAuthController::verify_apple_code` | `[partial]` — same gate |
+| `POST` | `/pc/v1/auth/logout` | `AuthController::logout` | `[done]` (Phase 1) |
+| `POST` | `/pc/v1/auth/refresh` | `AuthController::refresh` | `[done]` (Phase 1; rotates refresh tokens, detects reuse) |
 
 JWT issuance/validation delegates to the bundled
-`jwt-authentication-for-wp-rest-api` plugin and the `firebase/php-jwt`
-library. The custom theme hooks `jwt_auth_expire`,
-`jwt_auth_token_before_sign`, and `jwt_auth_token_before_dispatch` filters
-in the verification endpoints.
+`jwt-authentication-for-wp-rest-api` plugin and the `Tmeister\Firebase\JWT`
+library. Phase 1 introduces a 15-minute access TTL (controlled by the
+`pc_access_token_ttl_seconds` option, read by both
+`AuthController::issue_access_token` and the `jwt_auth_expire` filter).
+Refresh tokens are stored hashed in `wp_pc_refresh_tokens`.
 
-Apple sign-in: not implemented. Logout, refresh, terms-acceptance,
-account-page endpoints, rooms, wallet, transactions, support: not
-implemented.
+Account-page endpoints, rooms, wallet, transactions, support: still
+deferred to later phases.
 
 ## Player role
 
@@ -60,9 +69,20 @@ constants only.
 | `User_Meta_Keys::GOOGLE_ID` | `google_id` | `GoogleAuthController` | Google account `sub`. |
 | `User_Meta_Keys::GOOGLE_VERIFICATION_CODE` | `google_verification_code` | `GoogleAuthController` | 6-digit email-code 2FA for Google flow. |
 | `User_Meta_Keys::GOOGLE_VERIFICATION_CODE_EXPIRY` | `google_verification_code_expiry` | `GoogleAuthController` | Unix timestamp, 15-minute TTL. |
+| `User_Meta_Keys::TERMS_ACCEPTED_AT` | `terms_accepted_at` | `UserController` (Phase 1) | Unix timestamp; required for play / top-up. |
+| `User_Meta_Keys::TERMS_ACCEPTED_VERSION` | `terms_accepted_version` | `UserController` (Phase 1) | Compared against `pc_terms_current_version` option. |
+| `User_Meta_Keys::NICKNAME_CHOSEN` | `nickname_chosen` | `UserController` (Phase 1) | `'1'` once user has picked a nickname. |
+| `User_Meta_Keys::APPLE_ID` | `apple_id` | `AppleAuthController` (stub) | Apple `sub` claim. |
+| `User_Meta_Keys::APPLE_VERIFICATION_CODE` | `apple_verification_code` | `AppleAuthController` (stub) | Mirrors Google. |
+| `User_Meta_Keys::APPLE_VERIFICATION_CODE_EXPIRY` | `apple_verification_code_expiry` | `AppleAuthController` (stub) | |
 
-Future keys (terms acceptance, email confirmation, Apple ID, etc.) must be
-added to `User_Meta_Keys` and to `DATA-MODEL.md`.
+New custom tables (Phase 1):
+
+- `wp_pc_refresh_tokens` — active refresh tokens (hashed). Installed by `Install_Schema`.
+- `wp_pc_auth_audit_log` — append-only auth event log. Installed by `Install_Schema`.
+
+Future keys (email confirmation, etc.) must be added to `User_Meta_Keys`
+and to `DATA-MODEL.md`.
 
 ## Frontend stub inventory
 
@@ -94,6 +114,25 @@ Both fixes landed during Phase 0 — listed here for the audit trail.
 | Path | `POST /google-auth/verify` (`services/authService.js`) | `POST /google-auth/verify-code` (`GoogleAuthController.php:37`) | SPA renamed to `verify-code`. |
 | Body field | `{ id_token, code }` (`services/authService.js`) | `{ id_token, verification_code }` (`GoogleAuthController.php:178`) | SPA now sends `verification_code`. |
 | Response flag | `requires_2fa \|\| requires_verification` (`services/googleAuthService.js`) | `requires_verification` only (`GoogleAuthController.php:163`) | SPA reads `requires_verification`; internal alias renamed to `requiresVerification`; emit/event renamed to `requires-verification`. |
+
+## Phase 1 highlights
+
+- **Auth envelope** — `verify-code`, `google-auth/verify-code`,
+  `apple-auth/verify-code` (stub), and `auth/refresh` all return
+  `{ access_token, access_token_expires_in, refresh_token,
+  refresh_token_expires_in, user_*, terms_accepted, nickname_required }`.
+  The legacy single-`token` field is gone.
+- **Refresh-on-401** — `frontend/src/services/api.js` performs a single
+  refresh attempt on every 401, retrying the failing request once.
+  Concurrent 401s share the in-flight refresh.
+- **Inactivity timer** — `services/sessionService.js` watches mouse,
+  keyboard, click, focus, and visibility; 15-minute idle window calls
+  `authStore.logout(true)`.
+- **Server-side logout** — `authStore.logout` calls `/auth/logout` with
+  the refresh token, then clears local state.
+- **Router gates** — guard redirects authenticated users to
+  `/choose-nickname` when `nickname_required`, then `/accept-terms` when
+  `!terms_accepted`, before any other authenticated route is reachable.
 
 ## CI status
 

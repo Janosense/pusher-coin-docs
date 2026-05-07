@@ -21,15 +21,23 @@ phase-by-phase stubs for what's coming).
 ### Authentication
 
 - Bearer JWT in the `Authorization` header: `Authorization: Bearer <token>`.
-- Tokens are issued by either `POST /pc/v1/user/verify-code/` or
-  `POST /pc/v1/google-auth/verify-code`. Both use HS256, signed with
-  `JWT_AUTH_SECRET_KEY` (server config), 7-day TTL.
-- Token validation is delegated to the
+- Tokens come in pairs (Phase 1):
+  - **Access JWT** — HS256, signed with `JWT_AUTH_SECRET_KEY`, TTL controlled
+    by the `pc_access_token_ttl_seconds` WP option (default 900 = 15min).
+  - **Refresh token** — opaque 256-bit random string, rotates on every
+    `/auth/refresh`, stored server-side hashed in `wp_pc_refresh_tokens`,
+    TTL controlled by `pc_refresh_token_ttl_seconds` (default 7 days).
+- Token pairs are issued by `verify-code`, `google-auth/verify-code`,
+  `apple-auth/verify-code` (when configured), and `/auth/refresh`. All
+  return the same envelope (see "Auth response envelope" below).
+- Access-token validation is delegated to the
   `jwt-authentication-for-wp-rest-api` plugin (`/wp-json/jwt-auth/v1/*`).
   The custom theme hooks the plugin's `jwt_auth_expire` /
   `jwt_auth_token_before_sign` / `jwt_auth_token_before_dispatch` filters.
-- The SPA stores the token under `localStorage['pusher_coin_auth_token']`
-  and the user shape under `localStorage['pusher_coin_user_data']`.
+- The SPA stores the access token under
+  `localStorage['pusher_coin_auth_token']` and a JSON bundle (user,
+  refresh token, expiry, terms-accepted, nickname-required) under
+  `localStorage['pusher_coin_user_data']`.
 
 ### Success envelope
 
@@ -103,11 +111,13 @@ Phase 4):
 ### Permission callbacks
 
 - Public routes: `permission_callback` returns `true` (sign-up,
-  request-verification, verify-code, google-auth/*). Phase 1 adds
-  rate-limiting / captcha here.
-- Authenticated routes: `permission_callback` calls
-  `is_user_logged_in()` (the JWT plugin populates this when a valid
-  bearer token is present).
+  request-verification, verify-code, google-auth/*, apple-auth/*,
+  auth/refresh). All public auth endpoints carry `Rate_Limiter` checks
+  (5 / 15min per IP; 10 / 24h per IP for sign-up).
+- Authenticated routes use `Permissions::require_logged_in` (auth/logout,
+  user/accept-terms, user/set-nickname, plus future Phase 2+ endpoints).
+- Play / top-up routes will use `Permissions::require_play_ready` —
+  composes logged-in + terms-accepted + nickname-chosen.
 - Admin routes (under `pc/v1/admin/...`): `permission_callback` calls
   `current_user_can( 'manage_options' )`.
 - The custom `play` capability gates room/play endpoints in Phase 6.
@@ -124,33 +134,67 @@ Phase 4):
 
 ## Endpoints — current
 
-All five endpoints are registered in
-`backend/wp-content/themes/pc/app/rest-api/UserController.php` and
-`GoogleAuthController.php`. Bodies and responses are quoted faithfully.
+Endpoints are registered across
+`backend/wp-content/themes/pc/app/rest-api/UserController.php`,
+`GoogleAuthController.php`, `AppleAuthController.php` (Apple is stubbed
+behind `apple_not_configured` until Apple Developer enrollment), and
+`AuthController.php` (logout / refresh and the shared token-pair helpers).
+Bodies and responses are quoted faithfully.
+
+### Auth response envelope
+
+`verify-code`, `google-auth/verify-code`, `apple-auth/verify-code` (when
+configured), and `auth/refresh` all return the same shape:
+
+```json
+{
+  "access_token": "<jwt, ~15min TTL>",
+  "access_token_expires_in": 900,
+  "refresh_token": "<opaque, rotates on every refresh>",
+  "refresh_token_expires_in": 604800,
+  "user_id": 42,
+  "user_email": "...",
+  "user_nicename": "...",
+  "user_display_name": "...",
+  "terms_accepted": true,
+  "nickname_required": false
+}
+```
+
+`terms_accepted` is `true` only when the stored
+`terms_accepted_version` matches the current `pc_terms_current_version`
+WP option. `nickname_required` is `true` when `nickname_chosen` user
+meta is unset (i.e. the social-login auto-generated `User-<n>` is still
+in place).
 
 ### `POST /pc/v1/user/sign-up/`
 
-Create a new account. Public.
+Create a new account. Public. Rate limit: 10 / 24h per IP.
 
 Request:
 ```json
-{ "email": "...", "nickname": "...", "phone": "...", "password": "..." }
+{ "email": "...", "nickname": "...", "phone": "...", "password": "...", "terms_accepted": true }
 ```
-`phone` optional; the others required.
+`phone` optional; the others required. `terms_accepted` must be `true`
+or the request is rejected with `terms_not_accepted`.
 
 Response (`201`):
 ```json
 { "id": 42, "email": "...", "nickname": "...", "phone": "..." }
 ```
 
+On success the server stores `terms_accepted_at`,
+`terms_accepted_version`, and `nickname_chosen=1` user meta.
+
 Errors: `missing_required_fields` 400, `invalid_email` 400,
-`email_exists` 409, `username_exists` 409, `weak_password` 400 (<6 chars),
+`weak_password` 400 (<6 chars), `terms_not_accepted` 403,
+`email_exists` 409, `username_exists` 409, `rate_limited` 429,
 `user_creation_failed` 500.
 
 ### `POST /pc/v1/user/request-verification/`
 
 Step 1 of email/password 2FA: validate credentials, mail a 6-digit code
-(15-minute TTL). Public.
+(15-minute TTL). Public. Rate limit: 5 / 15min per IP.
 
 Request:
 ```json
@@ -163,35 +207,65 @@ Response (`200`):
 ```
 
 Errors: `missing_required_fields` 400, `authentication_failed` 401,
-`email_send_failed` 500.
+`rate_limited` 429, `email_send_failed` 500.
 
 ### `POST /pc/v1/user/verify-code/`
 
-Step 2: redeem the code, return a JWT. Public.
+Step 2: redeem the code, return the auth envelope. Public.
 
 Request:
 ```json
 { "login": "...", "password": "...", "code": "123456" }
 ```
 
-Response (`200`):
-```json
-{
-  "token": "<jwt>",
-  "user_email": "...",
-  "user_nicename": "...",
-  "user_display_name": "..."
-}
-```
+Response (`200`): the canonical auth envelope (see top of this section).
 
 Errors: `missing_required_fields` 400, `authentication_failed` 401,
 `no_verification_code` 404, `verification_code_expired` 401,
-`invalid_verification_code` 401, `jwt_auth_bad_config` 403.
+`invalid_verification_code` 401, `jwt_not_configured` 500,
+`jwt_library_missing` 500, `jwt_encoding_failed` 500.
+
+### `POST /pc/v1/user/accept-terms`
+
+Record acceptance of the current Terms & Conditions version.
+Bearer auth.
+
+Request:
+```json
+{ "version": "2026-05" }
+```
+
+Response (`200`):
+```json
+{ "terms_accepted_at": 1714905600, "terms_accepted_version": "2026-05" }
+```
+
+Errors: `rest_forbidden` 401, `invalid_terms_version` 400.
+
+### `POST /pc/v1/user/set-nickname`
+
+Pick a unique nickname (required after first social login). Bearer auth.
+
+Request:
+```json
+{ "nickname": "..." }
+```
+
+Response (`200`):
+```json
+{ "nickname": "..." }
+```
+
+Server-side: 3–20 chars matching `^[A-Za-z0-9_]+$`, unique across
+`wp_users.user_login` and `nickname` user meta. Sets `nickname_chosen=1`
+on success.
+
+Errors: `rest_forbidden` 401, `invalid_nickname` 400, `nickname_taken` 409.
 
 ### `POST /pc/v1/google-auth/authentication`
 
 Step 1 of Google OAuth: verify ID token, create/find user, mail a
-6-digit code. Public.
+6-digit code. Public. Rate limit: 5 / 15min per IP.
 
 Request:
 ```json
@@ -210,31 +284,77 @@ Response (`200`):
 Errors: `missing_id_token` 400, `invalid_token_data` 400,
 `email_not_verified` 403, `google_not_configured` 500,
 `invalid_id_token` 401, `token_verification_failed` 401,
-`user_creation_failed` 500, `email_send_failed` 500.
+`rate_limited` 429, `user_creation_failed` 500, `email_send_failed` 500.
 
 ### `POST /pc/v1/google-auth/verify-code`
 
-Step 2: redeem the code, return a JWT. Public.
+Step 2: redeem the code, return the auth envelope. Public.
 
 Request:
 ```json
 { "id_token": "<google jwt>", "verification_code": "123456" }
 ```
 
-Response (`200`):
-```json
-{
-  "token": "<jwt>",
-  "user_id": 42,
-  "user_email": "...",
-  "user_nicename": "...",
-  "user_display_name": "..."
-}
-```
+Response (`200`): the canonical auth envelope (see top of this section).
+First-time Google users get `nickname_required: true` and must POST
+`/user/set-nickname` before any gated endpoint succeeds.
 
 Errors: `missing_required_fields` 400, `invalid_token_data` 400,
 `user_not_found` 404, `no_verification_code` 404,
 `verification_code_expired` 401, `invalid_verification_code` 401,
+`jwt_not_configured` 500, `jwt_library_missing` 500,
+`jwt_encoding_failed` 500.
+
+### `POST /pc/v1/apple-auth/authentication` (stub)
+
+Mirror of `/google-auth/authentication`, gated on
+`APPLE_CLIENT_ID` / `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY`
+constants or matching options. Until those are set, every call returns
+`apple_not_configured` (500). Same rate limit as Google.
+
+When configured: request `{ id_token }`, response
+`{ requires_verification, success, message }` (mirrors Google).
+
+### `POST /pc/v1/apple-auth/verify-code` (stub)
+
+Same configuration gate. When configured: request
+`{ id_token, verification_code }`, response is the canonical auth envelope.
+
+### `POST /pc/v1/auth/logout`
+
+Revoke the supplied refresh token (and any descendants). Bearer auth.
+
+Request:
+```json
+{ "refresh_token": "..." }
+```
+
+Response (`200`):
+```json
+{ "success": true }
+```
+
+`refresh_token` is optional — clients without one (e.g. the access token
+already expired) can still call this to record a `logout` audit event.
+Errors: `rest_forbidden` 401.
+
+### `POST /pc/v1/auth/refresh`
+
+Rotate the refresh token, return a fresh auth envelope. Public (the
+refresh token is the credential).
+
+Request:
+```json
+{ "refresh_token": "..." }
+```
+
+Response (`200`): the canonical auth envelope. Each redeem rotates: the
+presented token's row is marked `revoked_at` and `replaced_by`; a new
+row is written. Reuse of an already-revoked token revokes the entire
+descendant chain and returns `token_revoked`.
+
+Errors: `missing_required_fields` 400, `token_invalid` 401,
+`token_expired` 401, `token_revoked` 401, `user_not_found` 404,
 `jwt_not_configured` 500, `jwt_library_missing` 500,
 `jwt_encoding_failed` 500.
 
@@ -244,23 +364,6 @@ Errors: `missing_required_fields` 400, `invalid_token_data` 400,
 
 Stub shapes only. These are not implemented; they are the contract Phase
 1+ work will satisfy.
-
-### Phase 1 — auth hardening
-
-- `POST /pc/v1/apple-auth/authentication` — request `{ id_token }`,
-  response `{ requires_verification, success, message }` (mirrors Google).
-- `POST /pc/v1/apple-auth/verify-code` — request
-  `{ id_token, verification_code }`, response token bundle.
-- `POST /pc/v1/auth/logout` — Bearer auth required. Response
-  `{ success: true }`. Server invalidates the token (blacklist or
-  refresh-token rotation).
-- `POST /pc/v1/auth/refresh` — Bearer auth required. Response
-  `{ token, token_expires }`.
-- `POST /pc/v1/user/accept-terms` — Bearer auth required. Response
-  `{ terms_accepted_at }`. Required before any play / top-up endpoint.
-
-Errors introduced: `terms_not_accepted` 403, `token_revoked` 401,
-`apple_not_configured` 500, `apple_token_invalid` 401.
 
 ### Phase 2 — account & verification gates
 
@@ -353,43 +456,48 @@ One canonical code per failure mode — do not invent variants.
 
 | Code | HTTP | Owning endpoint(s) |
 | --- | --- | --- |
-| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, planned auth/* |
+| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh |
 | `missing_id_token` | 400 | google-auth/authentication |
 | `invalid_email` | 400 | sign-up |
 | `invalid_token_data` | 400 | google-auth/* |
+| `invalid_nickname` | 400 | user/set-nickname |
+| `invalid_terms_version` | 400 | user/accept-terms |
 | `weak_password` | 400 | sign-up, change-password (planned) |
 | `coin_price_out_of_bounds` | 400 | wallet/topup (planned) |
-| `token_invalid` | 400 | confirm-email (planned) |
+| `token_invalid` | 401 | auth/refresh, confirm-email (planned) |
 | `authentication_failed` | 401 | request-verification, verify-code |
 | `invalid_verification_code` | 401 | verify-code, google-auth/verify-code |
 | `verification_code_expired` | 401 | verify-code, google-auth/verify-code |
 | `invalid_id_token` | 401 | google-auth/* |
 | `token_verification_failed` | 401 | google-auth/* |
-| `token_expired` | 401 | confirm-email (planned) |
-| `token_revoked` | 401 | auth/refresh (planned) |
+| `token_expired` | 401 | auth/refresh, confirm-email (planned) |
+| `token_revoked` | 401 | auth/refresh |
 | `password_mismatch` | 401 | change-password (planned) |
-| `apple_token_invalid` | 401 | apple-auth/* (planned) |
+| `apple_token_invalid` | 401 | apple-auth/* (when configured) |
+| `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname |
 | `captcha_failed` | 401 | support/tickets (planned, guest path) |
 | `email_not_verified` | 403 | google-auth/authentication, gated endpoints (planned) |
-| `terms_not_accepted` | 403 | gated endpoints (planned) |
+| `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
+| `nickname_required` | 403 | gated play endpoints |
 | `not_player_turn` | 403 | rooms/{id}/play (planned) |
-| `jwt_auth_bad_config` | 403 | verify-code |
+| `jwt_auth_bad_config` | 403 | verify-code (legacy; replaced by `jwt_not_configured` in new endpoints) |
 | `no_verification_code` | 404 | verify-code, google-auth/verify-code |
-| `user_not_found` | 404 | google-auth/verify-code |
+| `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
 | `subject_not_found` | 404 | support/tickets (planned) |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |
-| `nickname_taken` | 409 | user/me PATCH (planned) |
+| `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
 | `insufficient_balance` | 409 | wallet, rooms/play (planned) |
 | `queue_locked` | 409 | rooms/queue (planned) |
 | `relay_closed` | 423 | rooms/play (planned) |
+| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication |
 | `google_not_configured` | 500 | google-auth/* |
-| `apple_not_configured` | 500 | apple-auth/* (planned) |
-| `jwt_not_configured` | 500 | google-auth/verify-code, planned |
-| `jwt_library_missing` | 500 | google-auth/verify-code |
-| `jwt_encoding_failed` | 500 | google-auth/verify-code |
+| `apple_not_configured` | 500 | apple-auth/* |
+| `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh |
+| `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh |
+| `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh |
 | `payment_failed` | 502 | wallet/topup (planned) |
 | `machine_call_failed` | 502 | admin/machine/* (planned) |
 | `machine_offline` | 503 | admin/machine/* (planned) |

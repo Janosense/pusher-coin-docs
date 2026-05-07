@@ -46,11 +46,19 @@ pusher-coin/
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
 │   │       │   │   ├── rest-api/
+│   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
+│   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   └── UserController.php
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
-│   │       │   │       └── role-player.php    # Registers `player` role
+│   │       │   │       ├── audit-log.php       # Audit_Log writer
+│   │       │   │       ├── install-schema.php  # Custom-table installer
+│   │       │   │       ├── permissions.php     # Permission_callback helpers
+│   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
+│   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
+│   │       │   │       ├── role-player.php     # Registers `player` role
+│   │       │   │       └── user-meta-keys.php  # User_Meta_Keys registry
 │   │       │   ├── composer.json
 │   │       │   ├── functions.php              # Theme bootstrap
 │   │       │   ├── index.php
@@ -103,10 +111,12 @@ pusher-coin/
     │   │       │   └── wrapper.css
     │   │       └── colors.css
     │   ├── components/
+    │   │   ├── AppleSignInButton.vue          # Apple Sign-In (renders only when configured)
     │   │   ├── Chat.vue
     │   │   ├── GoogleSignInButton.vue
     │   │   ├── HelloWorld.vue
     │   │   ├── LanguageSwitcher.vue
+    │   │   ├── LogoutConfirmModal.vue          # Confirm-before-logout overlay
     │   │   ├── Navigation.vue
     │   │   ├── NavigationToggle.vue
     │   │   ├── Overlay.vue
@@ -135,9 +145,11 @@ pusher-coin/
     │   ├── router/
     │   │   └── index.js                       # Routes + auth guard
     │   ├── services/
-    │   │   ├── api.js                         # Axios instance + JWT interceptors
-    │   │   ├── authService.js
+    │   │   ├── api.js                         # Axios instance + refresh-on-401 interceptor
+    │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
+    │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
     │   │   ├── googleAuthService.js
+    │   │   ├── sessionService.js              # Inactivity timer
     │   │   └── userService.js
     │   ├── stores/
     │   │   ├── authentication.js              # Token, user, Google 2FA state
@@ -147,7 +159,9 @@ pusher-coin/
     │   │   └── user.js
     │   └── views/
     │       ├── AboutView.vue
+    │       ├── AcceptTermsView.vue            # Phase 1 gate view
     │       ├── AccountView.vue
+    │       ├── ChooseNicknameView.vue         # Phase 1 gate view (after first social login)
     │       ├── HistoryView.vue
     │       ├── RoomView.vue
     │       ├── RoomsView.vue
