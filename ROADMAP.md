@@ -78,26 +78,38 @@ automatically after 15 minutes of inactivity.
 
 ---
 
-## Phase 2 — Player account & verification gates `[#3, #14]`
+## Phase 2 — Player account & verification gates `[#3, #14]` — DONE
 
 Build the account page and the verification rules that gate play and top-ups.
 
-1. **Account page** `[partial]` — `AccountView.vue` exists; flesh out:
-   - Faceless avatar (abstract generated tile per user).
-   - Editable, unique nickname.
-   - Current balance + "Top up" button (top-up itself in Phase 4).
-   - Withdrawal button (withdrawal flow in Phase 4).
-2. **Email verification** `[todo]` — confirmation link with 24h TTL; resend
-   action; status badge (verified / not). Backend: add a token table or use
-   user meta with expiry; controller endpoints `request-email-confirmation`
-   and `confirm-email`.
-3. **Google 2FA status** `[todo]` — show whether Google 2FA is enabled, and a
-   link / instructions to enable it.
-4. **Password change** `[todo]` — requires email confirmation + 2FA code
-   before applying.
-5. **Verification gates** `[#14]` `[todo]` — if email/phone is unverified, show
-   a red status dot and **block** play and top-up. Enforce both server-side
-   (REST permission callback) and in the SPA UI.
+1. **Account page** `[done]` — `AccountView.vue` rewritten against
+   `/user/me`. Ships:
+   - Faceless avatar (`FacelessAvatar.vue`, deterministic 5×5 SVG mosaic).
+   - Click-to-edit nickname (server-side uniqueness via Phase 1
+     `/user/set-nickname`).
+   - Balance + "Add balance" button (disabled until email-verified;
+     destination wired in Phase 4).
+   - Withdrawal button (same gate; flow in Phase 4).
+2. **Email verification** `[done]` — link-based confirmation with 24-hour TTL.
+   `request-email-confirmation` mails a `pc_spa_base_url`-rooted link;
+   `confirm-email` redeems it. `ConfirmEmailView.vue` handles the
+   redemption and offers "Send a new link" on failure.
+3. **Google 2FA status** `[done]` — static info panel + outbound link to
+   `https://myaccount.google.com/security`. We can't query Google for
+   the user's 2FA state; the panel sets the requirement and points the
+   user at the right settings page.
+4. **Password change** `[done]` — inline two-step on the Account page.
+   `request-password-change` mails a 6-digit code;
+   `confirm-password-change` validates current password + code, sets the
+   new password, revokes every other refresh token for the user, and
+   returns a freshly-issued auth envelope.
+5. **Verification gates** `[#14]` `[done]` — `Permissions::require_play_ready`
+   now also enforces `email_verified_at > 0`. The router redirects
+   `meta.requiresPlayReady` routes to `/account?reason=verify-email` for
+   unverified users; the page scrolls to a red banner that explains how
+   to fix it. Phone verification is intentionally deferred — the field
+   carries a neutral "Not yet supported" badge and is not part of the
+   gate this phase.
 
 Exit criteria: an unverified user sees an account page that explicitly tells
 them what to fix and cannot play or top up until they fix it.

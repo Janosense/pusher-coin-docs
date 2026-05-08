@@ -113,6 +113,7 @@ pusher-coin/
     │   ├── components/
     │   │   ├── AppleSignInButton.vue          # Apple Sign-In (renders only when configured)
     │   │   ├── Chat.vue
+    │   │   ├── FacelessAvatar.vue              # Deterministic SVG identicon (Phase 2)
     │   │   ├── GoogleSignInButton.vue
     │   │   ├── HelloWorld.vue
     │   │   ├── LanguageSwitcher.vue
@@ -145,6 +146,7 @@ pusher-coin/
     │   ├── router/
     │   │   └── index.js                       # Routes + auth guard
     │   ├── services/
+    │   │   ├── accountService.js              # /user/me + email/password change endpoints (Phase 2)
     │   │   ├── api.js                         # Axios instance + refresh-on-401 interceptor
     │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
     │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
@@ -160,8 +162,9 @@ pusher-coin/
     │   └── views/
     │       ├── AboutView.vue
     │       ├── AcceptTermsView.vue            # Phase 1 gate view
-    │       ├── AccountView.vue
+    │       ├── AccountView.vue                # Data-driven account surface (Phase 2)
     │       ├── ChooseNicknameView.vue         # Phase 1 gate view (after first social login)
+    │       ├── ConfirmEmailView.vue           # Email-confirmation landing page (Phase 2)
     │       ├── HistoryView.vue
     │       ├── RoomView.vue
     │       ├── RoomsView.vue

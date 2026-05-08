@@ -6,6 +6,7 @@ Updated by every phase that lands. Source files referenced by `path:line`.
 History:
 - Phase 0 — captured the original audit (5 endpoints, drift fixes, meta-key registry).
 - Phase 1 — added auth hardening (logout, refresh, accept-terms, set-nickname, Apple stub), refresh-token store, audit log, terms gate, blocking nickname picker, inactivity timer, server-side logout.
+- Phase 2 — wired the account page to real data, added email confirmation (link-based, 24h TTL), inline two-step password change, email-verified gate in `Permissions::require_play_ready`, faceless SVG avatar, Google 2FA static info panel.
 
 Status legend (matching `ROADMAP.md`):
 
@@ -34,6 +35,11 @@ and live in four controllers. Public auth endpoints are gated by
 | `POST` | `/pc/v1/apple-auth/verify-code` | `AppleAuthController::verify_apple_code` | `[partial]` — same gate |
 | `POST` | `/pc/v1/auth/logout` | `AuthController::logout` | `[done]` (Phase 1) |
 | `POST` | `/pc/v1/auth/refresh` | `AuthController::refresh` | `[done]` (Phase 1; rotates refresh tokens, detects reuse) |
+| `GET` / `PATCH` | `/pc/v1/user/me` | `UserController::get_me` / `patch_me` | `[done]` (Phase 2; canonical account shape) |
+| `POST` | `/pc/v1/user/request-email-confirmation` | `UserController::request_email_confirmation` | `[done]` (Phase 2; rate-limited) |
+| `POST` | `/pc/v1/user/confirm-email` | `UserController::confirm_email` | `[done]` (Phase 2; public, token-as-credential) |
+| `POST` | `/pc/v1/user/request-password-change` | `UserController::request_password_change` | `[done]` (Phase 2; rate-limited) |
+| `POST` | `/pc/v1/user/confirm-password-change` | `UserController::confirm_password_change` | `[done]` (Phase 2; revokes other refresh tokens, returns new pair) |
 
 JWT issuance/validation delegates to the bundled
 `jwt-authentication-for-wp-rest-api` plugin and the `Tmeister\Firebase\JWT`
@@ -75,6 +81,11 @@ constants only.
 | `User_Meta_Keys::APPLE_ID` | `apple_id` | `AppleAuthController` (stub) | Apple `sub` claim. |
 | `User_Meta_Keys::APPLE_VERIFICATION_CODE` | `apple_verification_code` | `AppleAuthController` (stub) | Mirrors Google. |
 | `User_Meta_Keys::APPLE_VERIFICATION_CODE_EXPIRY` | `apple_verification_code_expiry` | `AppleAuthController` (stub) | |
+| `User_Meta_Keys::EMAIL_VERIFIED_AT` | `email_verified_at` | `UserController` (Phase 2) | Unix timestamp; required by `Permissions::require_play_ready`. |
+| `User_Meta_Keys::EMAIL_CONFIRMATION_TOKEN` | `email_confirmation_token` | `UserController` (Phase 2) | URL-safe base64; cleared on confirm/expiry. |
+| `User_Meta_Keys::EMAIL_CONFIRMATION_EXPIRY` | `email_confirmation_expiry` | `UserController` (Phase 2) | 24-hour TTL. |
+| `User_Meta_Keys::PASSWORD_CHANGE_CODE` | `password_change_code` | `UserController` (Phase 2) | 6-digit code; cleared on confirm/expiry. |
+| `User_Meta_Keys::PASSWORD_CHANGE_CODE_EXPIRY` | `password_change_code_expiry` | `UserController` (Phase 2) | 15-minute TTL. |
 
 New custom tables (Phase 1):
 
@@ -90,8 +101,10 @@ Pages and components in `frontend/src/` that render placeholder data and
 are not yet wired to the API. Phase 4–7 owners will replace these with
 real API calls.
 
-- `views/AccountView.vue` — hardcoded nickname/balance, forms have no
-  submission handlers, no `/me`-style fetch.
+- ~~`views/AccountView.vue` — hardcoded nickname/balance, forms have no
+  submission handlers, no `/me`-style fetch.~~ Replaced in Phase 2 with a
+  full data-driven page (avatar, editable nickname, email-verify flow,
+  inline two-step password change, Google 2FA panel, gated balance buttons).
 - `views/HistoryView.vue` — table renders 50 empty placeholder rows,
   no fetch.
 - `views/RoomView.vue` — embedded YouTube iframe stand-in for the live
@@ -133,6 +146,29 @@ Both fixes landed during Phase 0 — listed here for the audit trail.
 - **Router gates** — guard redirects authenticated users to
   `/choose-nickname` when `nickname_required`, then `/accept-terms` when
   `!terms_accepted`, before any other authenticated route is reachable.
+
+## Phase 2 highlights
+
+- **Account page wired to real data.** `AccountView.vue` calls
+  `accountService.getMe()` on mount; nickname is click-to-edit; balances
+  pull from the (placeholder) wallet fields; the email verify badge
+  reflects `email_verified`.
+- **Faceless avatar** — `FacelessAvatar.vue` renders a deterministic
+  5×5 SVG mosaic seeded from `user.id`. No new dependency.
+- **Email confirmation** — link-based, 24-hour TTL. Outbound link is
+  built from `pc_spa_base_url` + `/confirm-email?token=…`. `ConfirmEmailView.vue`
+  handles the redemption and offers a "Send a new link" button on
+  failure.
+- **Inline two-step password change** — Account page submits current +
+  new password, mails a 6-digit code, then redeems on the same page.
+  Successful change revokes all other refresh tokens; the SPA gets a new
+  pair in the response and applies it via `authStore.applyEnvelope`.
+- **Email-verified gate.** `Permissions::require_play_ready` now also
+  enforces `email_verified_at > 0`. The router refuses
+  `meta.requiresPlayReady` routes for unverified users, redirecting to
+  `/account?reason=verify-email` (the page scrolls to the red banner).
+- **Auth envelope** — adds `email_verified` so the SPA can render the
+  red dot on first login without an extra fetch.
 
 ## CI status
 

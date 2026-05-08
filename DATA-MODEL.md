@@ -39,15 +39,23 @@ literals.
 | `APPLE_ID` | `apple_id` | string | apple-auth (stub) | Phase 1. Apple `sub` claim. Used when Apple is enabled. |
 | `APPLE_VERIFICATION_CODE` | `apple_verification_code` | string | apple-auth (stub) | Phase 1. Mirrors Google flow. |
 | `APPLE_VERIFICATION_CODE_EXPIRY` | `apple_verification_code_expiry` | int | apple-auth (stub) | Phase 1. |
+| `EMAIL_VERIFIED_AT` | `email_verified_at` | int (unix timestamp) | confirm-email | Phase 2. Required for `Permissions::require_play_ready`. |
+| `EMAIL_CONFIRMATION_TOKEN` | `email_confirmation_token` | string | request-email-confirmation | Phase 2. URL-safe base64; cleared on confirm/expiry. |
+| `EMAIL_CONFIRMATION_EXPIRY` | `email_confirmation_expiry` | int | request-email-confirmation | Phase 2. 24-hour TTL. |
+| `PASSWORD_CHANGE_CODE` | `password_change_code` | string (6 digits) | request-password-change | Phase 2. Cleared on confirm/expiry. |
+| `PASSWORD_CHANGE_CODE_EXPIRY` | `password_change_code_expiry` | int | request-password-change | Phase 2. 15-minute TTL. |
 
-### WP options (Phase 1)
+### WP options (Phase 1+2)
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.0.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. |
+| `pc_db_version` | string | `'1.1.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0. |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
+| `pc_email_confirmation_ttl_seconds` | int | `86400` | 24h. Phase 2. Read by `request-email-confirmation`. |
+| `pc_password_change_ttl_seconds` | int | `900` | 15min. Phase 2. Read by `request-password-change`. |
+| `pc_spa_base_url` | string | `home_url()` | Phase 2. Operator-set; used to build outbound email links such as `/confirm-email?token=…`. |
 
 ### `wp_pc_refresh_tokens` (custom table — Phase 1)
 
@@ -94,20 +102,11 @@ Event types written today: `signup`, `request_verification`,
 
 ---
 
-## Phase 2 — account & verification gates
+## Phase 2 — avatar (no persistence)
 
-### User meta — additions
-
-| Constant | Storage key | Type | Notes |
-| --- | --- | --- | --- |
-| `EMAIL_VERIFIED_AT` | `email_verified_at` | int (unix timestamp) | Null until confirm-email succeeds. |
-| `EMAIL_CONFIRMATION_TOKEN` | `email_confirmation_token` | string | 24-hour TTL; cleared on confirm. |
-| `EMAIL_CONFIRMATION_EXPIRY` | `email_confirmation_expiry` | int | |
-
-### Avatar generation
-
-Faceless / abstract tile. Stored as a deterministic seed on the user
-(`avatar_seed`, user meta) and rendered client-side (no image stored).
+Faceless / abstract avatar tiles are rendered client-side from a
+deterministic FNV-1a hash of the user ID. No DB column or meta key — see
+`frontend/src/components/FacelessAvatar.vue`.
 
 ---
 

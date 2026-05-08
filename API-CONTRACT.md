@@ -157,7 +157,8 @@ configured), and `auth/refresh` all return the same shape:
   "user_nicename": "...",
   "user_display_name": "...",
   "terms_accepted": true,
-  "nickname_required": false
+  "nickname_required": false,
+  "email_verified": true
 }
 ```
 
@@ -165,7 +166,8 @@ configured), and `auth/refresh` all return the same shape:
 `terms_accepted_version` matches the current `pc_terms_current_version`
 WP option. `nickname_required` is `true` when `nickname_chosen` user
 meta is unset (i.e. the social-login auto-generated `User-<n>` is still
-in place).
+in place). `email_verified` is `true` when `email_verified_at > 0` (set
+by `/user/confirm-email`).
 
 ### `POST /pc/v1/user/sign-up/`
 
@@ -261,6 +263,107 @@ Server-side: 3–20 chars matching `^[A-Za-z0-9_]+$`, unique across
 on success.
 
 Errors: `rest_forbidden` 401, `invalid_nickname` 400, `nickname_taken` 409.
+
+### `GET /pc/v1/user/me`
+
+Return the canonical user shape for the account page. Bearer auth.
+
+Response (`200`):
+```json
+{
+  "id": 42,
+  "email": "...",
+  "email_verified": true,
+  "email_verified_at": 1714905600,
+  "nickname": "...",
+  "phone": "+1...",
+  "phone_verified": false,
+  "terms_accepted": true,
+  "terms_accepted_version": "2026-05",
+  "google_linked": true,
+  "apple_linked": false,
+  "balance_money": 0,
+  "balance_coins": 0
+}
+```
+
+`balance_*` are zero placeholders until Phase 4 wires the wallet.
+
+### `PATCH /pc/v1/user/me`
+
+Update mutable profile fields. Bearer auth. Phase 2 ships only `phone`;
+nickname mutations remain on `/user/set-nickname` for the uniqueness
+check.
+
+Request:
+```json
+{ "phone": "+1 555 010 1234" }
+```
+
+Empty string clears the phone meta. Response: same shape as `GET /user/me`.
+
+Errors: `rest_forbidden` 401, `invalid_phone` 400.
+
+### `POST /pc/v1/user/request-email-confirmation`
+
+Mail a confirmation link to the user's email
+(`{pc_spa_base_url}/confirm-email?token=...`) with a 24-hour TTL.
+Bearer auth. Rate limit: 5 / 15min per user.
+
+Response (`200`):
+```json
+{ "success": true, "message": "A confirmation link has been sent to your email address." }
+```
+
+Errors: `rest_forbidden` 401, `rate_limited` 429, `email_send_failed` 500.
+
+### `POST /pc/v1/user/confirm-email`
+
+Redeem the confirmation token from the emailed link. Public — the token
+is the credential.
+
+Request:
+```json
+{ "token": "..." }
+```
+
+Response (`200`):
+```json
+{ "success": true, "email_verified_at": 1714905600 }
+```
+
+Errors: `token_invalid` 401, `token_expired` 401.
+
+### `POST /pc/v1/user/request-password-change`
+
+Mail a 6-digit code to the user's email (15-minute TTL). Bearer auth.
+Rate limit: 5 / 15min per user.
+
+Response (`200`):
+```json
+{ "success": true, "message": "A 6-digit code has been sent to your email address." }
+```
+
+Errors: `rest_forbidden` 401, `rate_limited` 429, `email_send_failed` 500.
+
+### `POST /pc/v1/user/confirm-password-change`
+
+Validate the current password + 6-digit code, set the new password,
+revoke every other active refresh token for the user, and return a
+freshly-issued auth envelope. Bearer auth.
+
+Request:
+```json
+{ "current_password": "...", "new_password": "...", "code": "######" }
+```
+
+Response (`200`): the canonical auth envelope.
+
+Errors: `missing_required_fields` 400, `weak_password` 400,
+`authentication_failed` 401 (wrong current password),
+`no_verification_code` 404, `verification_code_expired` 401,
+`invalid_verification_code` 401, `jwt_not_configured` 500,
+`jwt_library_missing` 500, `jwt_encoding_failed` 500.
 
 ### `POST /pc/v1/google-auth/authentication`
 
@@ -365,22 +468,6 @@ Errors: `missing_required_fields` 400, `token_invalid` 401,
 Stub shapes only. These are not implemented; they are the contract Phase
 1+ work will satisfy.
 
-### Phase 2 — account & verification gates
-
-- `GET /pc/v1/user/me` — Bearer. Response: `{ id, email, email_verified,
-  nickname, phone, terms_accepted_at, google_2fa_enabled,
-  balance: { coins, money } }`.
-- `PATCH /pc/v1/user/me` — Bearer. Editable fields: `nickname` (unique).
-- `POST /pc/v1/user/request-email-confirmation` — Bearer. Response
-  `{ success, message }`. 24-hour token TTL.
-- `POST /pc/v1/user/confirm-email` — request `{ token }`. Response
-  `{ email_verified: true }`.
-- `POST /pc/v1/user/change-password` — request
-  `{ current_password, new_password, verification_code }`. Bearer.
-
-Errors introduced: `email_not_verified` 403, `nickname_taken` 409,
-`token_invalid` 400, `token_expired` 401, `password_mismatch` 401.
-
 ### Phase 3 — rooms & schedules
 
 - `GET /pc/v1/rooms` — public. Paginated. Item: `{ id, name, status,
@@ -456,32 +543,33 @@ One canonical code per failure mode — do not invent variants.
 
 | Code | HTTP | Owning endpoint(s) |
 | --- | --- | --- |
-| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh |
+| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `missing_id_token` | 400 | google-auth/authentication |
 | `invalid_email` | 400 | sign-up |
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
+| `invalid_phone` | 400 | user/me PATCH |
 | `invalid_terms_version` | 400 | user/accept-terms |
-| `weak_password` | 400 | sign-up, change-password (planned) |
+| `weak_password` | 400 | sign-up, confirm-password-change |
 | `coin_price_out_of_bounds` | 400 | wallet/topup (planned) |
-| `token_invalid` | 401 | auth/refresh, confirm-email (planned) |
-| `authentication_failed` | 401 | request-verification, verify-code |
-| `invalid_verification_code` | 401 | verify-code, google-auth/verify-code |
-| `verification_code_expired` | 401 | verify-code, google-auth/verify-code |
+| `token_invalid` | 401 | auth/refresh, confirm-email |
+| `authentication_failed` | 401 | request-verification, verify-code, confirm-password-change |
+| `invalid_verification_code` | 401 | verify-code, google-auth/verify-code, confirm-password-change |
+| `verification_code_expired` | 401 | verify-code, google-auth/verify-code, confirm-password-change |
 | `invalid_id_token` | 401 | google-auth/* |
 | `token_verification_failed` | 401 | google-auth/* |
-| `token_expired` | 401 | auth/refresh, confirm-email (planned) |
+| `token_expired` | 401 | auth/refresh, confirm-email |
 | `token_revoked` | 401 | auth/refresh |
 | `password_mismatch` | 401 | change-password (planned) |
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
-| `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname |
+| `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change |
 | `captcha_failed` | 401 | support/tickets (planned, guest path) |
-| `email_not_verified` | 403 | google-auth/authentication, gated endpoints (planned) |
+| `email_not_verified` | 403 | google-auth/authentication, play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
 | `nickname_required` | 403 | gated play endpoints |
 | `not_player_turn` | 403 | rooms/{id}/play (planned) |
 | `jwt_auth_bad_config` | 403 | verify-code (legacy; replaced by `jwt_not_configured` in new endpoints) |
-| `no_verification_code` | 404 | verify-code, google-auth/verify-code |
+| `no_verification_code` | 404 | verify-code, google-auth/verify-code, confirm-password-change |
 | `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
 | `subject_not_found` | 404 | support/tickets (planned) |
 | `email_exists` | 409 | sign-up |
@@ -490,14 +578,14 @@ One canonical code per failure mode — do not invent variants.
 | `insufficient_balance` | 409 | wallet, rooms/play (planned) |
 | `queue_locked` | 409 | rooms/queue (planned) |
 | `relay_closed` | 423 | rooms/play (planned) |
-| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication |
+| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
-| `email_send_failed` | 500 | request-verification, google-auth/authentication |
+| `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
-| `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh |
-| `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh |
-| `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh |
+| `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
+| `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
+| `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `payment_failed` | 502 | wallet/topup (planned) |
 | `machine_call_failed` | 502 | admin/machine/* (planned) |
 | `machine_offline` | 503 | admin/machine/* (planned) |
