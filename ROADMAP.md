@@ -120,20 +120,29 @@ them what to fix and cannot play or top up until they fix it.
 
 Make the room a real domain object with a schedule and a live stream.
 
-1. **Room CPT / table** `[todo]` — fields: name, status (`available`,
-   `maintenance`, `unavailable`), theme song, stream URL, machine binding.
-2. **Schedule model** `[todo]` — weekly recurring rules per room with
-   `weekday`, `start_time`, `end_time`, `recurrence` (`always` / `once`).
-   Computed "next live window" exposed via the API.
-3. **Guest browsing** `[#9]` `[partial]` — `RoomsView` + `RoomView` exist.
-   Add: room status badges; countdown timer until next broadcast; "watch
-   only" mode when guest is logged out.
-4. **Live streaming** `[#10]` `[todo]` — pick a transport (HLS via a CDN,
-   WebRTC via a media server, or third-party like Mux/Cloudflare Stream).
-   Embed in `RoomView`. Decide on latency target (<2s for a coin pusher feels
-   right; HLS is too laggy — favour WebRTC/LL-HLS).
-5. **Guest "Play" CTA** `[todo]` — clicking Play in the room as a guest sends
-   them to sign-in / sign-up.
+1. **Room CPT / table** `[partial]` — `pc_room` CPT and the four post-meta
+   keys (`pc_room_status`, `pc_room_theme_song_url`, `pc_room_stream_url`,
+   `pc_room_machine_id`) registered in `app/utils/cpt-room.php` /
+   `Post_Meta_Keys`. Storage exists and is read by the public endpoints;
+   admin write surface lands with sub-item 6.
+2. **Schedule model** `[partial]` — `wp_pc_room_schedules` installed
+   (Install_Schema 1.2.0); `Room_Schedule_Calculator` computes
+   `current_window` / `next_window` from `always` / `once` rules.
+   Exposed via `GET /pc/v1/rooms/{id}/schedule`; admin write surface
+   lands with sub-item 6.
+3. **Guest browsing** `[#9]` `[done]` — `Rooms.vue` now consumes
+   `useRoomsStore()` (`/rooms` list, 30s cache), renders
+   `RoomStatusBadge` + `NextBroadcastCountdown` per tile, and shows
+   loading / error / empty states. `RoomView` is public and renders
+   `LiveStream` + read-only `Chat` for guests.
+4. **Live streaming** `[#10]` `[partial]` — `LiveStream.vue` ships as a
+   transport-agnostic shell (iframe for embed URLs, `<video>` for
+   `.m3u8` / `.mp4` / `.webm`, poster otherwise). Choosing the provider
+   (Mux / Cloudflare Stream / WebRTC) and dropping in the matching
+   client library remains open — see the open-questions block.
+5. **Guest "Play" CTA** `[done]` — `RoomView` shows a "Sign in to play"
+   button for guests; clicking either it or the read-only chat opens the
+   in-page sign-in overlay seeded with a redirect back to the same room.
 6. **Admin scheduling UI** `[todo]` — admin can edit weekly plan from the WP
    admin; Phase 0 decided whether this is WP-native or standalone.
 

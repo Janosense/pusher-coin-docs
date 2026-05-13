@@ -121,6 +121,7 @@ pusher-coin/
     │   │   ├── GoogleSignInButton.vue
     │   │   ├── HelloWorld.vue
     │   │   ├── LanguageSwitcher.vue
+    │   │   ├── LiveStream.vue                  # Transport-agnostic stream container (Phase 3)
     │   │   ├── LogoutConfirmModal.vue          # Confirm-before-logout overlay
     │   │   ├── Navigation.vue
     │   │   ├── NavigationToggle.vue

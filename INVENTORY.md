@@ -107,16 +107,24 @@ real API calls.
   inline two-step password change, Google 2FA panel, gated balance buttons).
 - `views/HistoryView.vue` — table renders 50 empty placeholder rows,
   no fetch.
-- `views/RoomView.vue` — embedded YouTube iframe stand-in for the live
-  broadcast; no room-data fetch.
+- ~~`views/RoomView.vue` — embedded YouTube iframe stand-in for the live
+  broadcast; no room-data fetch.~~ Replaced in Phase 3: fetches the room
+  via `useRoomsStore`, renders the transport-agnostic `LiveStream`
+  component, and is guest-aware (read-only chat + "Sign in to play"
+  CTA). Choosing the streaming provider and dropping in the matching
+  client library remains an open question (see `ROADMAP.md`).
 - `views/SupportView.vue` — form has `action=""` and no handler.
 - `components/Chat.vue` — six hardcoded messages; `sendMessage` mutates
-  a local array.
+  a local array. Phase 3 added a `readonly` prop + `send-attempted`
+  emit so `RoomView` can show the chat to guests without letting them
+  send; the underlying message data is still placeholder.
 - `components/Queue.vue` — 24 fake users, two with hardcoded balance.
 - `components/ReplenishmentBalance.vue` — input is wired (IMask), the
   submit button has no handler.
 - `components/PlaceBet.vue` — same as above.
-- `components/Rooms.vue` — placeholder list (rooms data is hardcoded).
+- ~~`components/Rooms.vue` — placeholder list (rooms data is hardcoded).~~
+  Replaced in Phase 3: fetches via `useRoomsStore`, renders real room
+  names + `RoomStatusBadge` + `NextBroadcastCountdown` per tile.
 
 ## Frontend ↔ backend contract drift (resolved in Phase 0)
 
