@@ -1,27 +1,36 @@
 # Pusher Coin — Architecture
 
-Pusher Coin is a real-time, browser-based gambling/slot-machine application split into two independent applications that live side by side in this repository:
+Pusher Coin is a real-time, browser-based gambling/slot-machine application split into three independent applications that live side by side in this repository:
 
 - `frontend/` — a Vue 3 single-page application (SPA) that the player interacts with.
-- `backend/` — a WordPress installation that exposes a JSON REST API used by the frontend (the WordPress admin/HTML side is not the user-facing product).
+- `admin/` — a separate Vue 3 SPA used by operators to manage rooms, schedules, and (in later phases) machine state and support tickets. Introduced in Phase 3. See `ADMIN-DECISION.md` for the rationale.
+- `backend/` — a WordPress installation that exposes a JSON REST API used by both SPAs (the WordPress admin/HTML side is not the user-facing product).
 
-The two apps are decoupled: they have separate `.git` repositories, separate deploy pipelines, and communicate exclusively over HTTPS/JSON.
+The three apps are decoupled: separate `.git` repositories, separate deploy pipelines, and communication exclusively over HTTPS/JSON.
 
 ---
 
 ## High-level shape
 
 ```
-┌──────────────────────────┐         HTTPS / JSON          ┌─────────────────────────────┐
-│  Browser (Vue 3 SPA)     │  ───────────────────────────▶ │  WordPress (DDEV / FTP)     │
-│  Vite build, deployed    │  ◀───────────────────────────  │  Custom `pc` theme exposes  │
-│  to Vercel               │     JWT bearer auth             │  /wp-json/pc/v1 endpoints   │
-└──────────────────────────┘                                └─────────────────────────────┘
+┌──────────────────────────┐
+│  Player SPA (frontend/)  │ ─┐
+└──────────────────────────┘  │      HTTPS / JSON          ┌─────────────────────────────┐
+                              ├───────────────────────────▶│  WordPress (DDEV / FTP)     │
+┌──────────────────────────┐  │ ◀──────────────────────────│  Custom `pc` theme exposes  │
+│  Admin SPA (admin/)      │ ─┘    JWT bearer auth         │  /wp-json/pc/v1 endpoints   │
+└──────────────────────────┘                               └─────────────────────────────┘
                                                                        │
                                                                        │ JWT plugin
                                                                        ▼
                                                             /wp-json/jwt-auth/v1
 ```
+
+Both SPAs share the same auth primitives (JWT pair, refresh rotation,
+2FA-by-email-code) but live behind distinct localStorage keys
+(`pusher_coin_*` for the player, `pc_admin_*` for the admin). The admin
+SPA additionally probes `GET /pc/v1/admin/me` after sign-in to bounce
+non-admins.
 
 Data flow at a glance:
 
@@ -71,6 +80,39 @@ A Vue 3 + Vite SPA. Uses the Composition API throughout.
 
 ---
 
+## Admin SPA (`admin/`)
+
+Introduced in Phase 3. Same stack as `frontend/` (Vue 3 + Vite + Pinia
++ Vue Router + Axios + ESLint/Prettier). Runs on port 5174 in dev so
+both SPAs can run side-by-side. Does **not** include IMask (no masked
+inputs yet).
+
+**Auth.** Reuses the player 2FA flow (`/user/request-verification` →
+`/user/verify-code`) to issue a JWT pair, then probes
+`GET /pc/v1/admin/me` to confirm `manage_options`. Non-admins are
+signed out server-side (refresh-token revoked) before the SPA shows the
+error. Distinct localStorage keys (`pc_admin_auth_token`,
+`pc_admin_user_data`) so the two SPAs can coexist on the same origin
+during dev.
+
+**Views shipped (Phase 3 step 5c)**
+- `SignInView` — two-step email/password + 6-digit code form.
+- `RoomListView` — table with status badge + per-row Edit / Schedule /
+  Trash actions.
+- `RoomFormView` — shared create / edit form. Discriminates on
+  `route.name`.
+- `RoomScheduleView` — weekly rules editor. Save calls
+  `PUT /admin/rooms/{id}/schedule` which replaces the rule set in a
+  single transaction; the response returns the freshly-recomputed
+  `next_window`.
+
+**Deferred.** No `vercel.json` yet (no deploy target chosen); no shared
+component package with `frontend/` (`ADMIN-DECISION.md` accepts some
+duplication for now); no inactivity timer (planned, tighter timeout
+than the player SPA's 15 minutes).
+
+---
+
 ## Backend (`backend/`)
 
 A standard WordPress installation. The product code lives only in two places; everything else is unmodified WordPress core or third-party plugins.
@@ -89,24 +131,55 @@ themes/pc/
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
     ├── rest-api/
-    │   ├── UserController.php          # POST sign-up, request-verification, verify-code (issues JWT)
-    │   └── GoogleAuthController.php    # Google OAuth token exchange / 2FA
+    │   ├── UserController.php          # Phase 1+2 — sign-up, 2FA, /user/me, email/password change
+    │   ├── AuthController.php          # Phase 1 — /auth/logout, /auth/refresh, token-pair helpers
+    │   ├── GoogleAuthController.php    # Google OAuth token exchange / 2FA
+    │   ├── AppleAuthController.php     # Apple Sign-In (stub until enrollment)
+    │   ├── RoomController.php          # Phase 3 — public /rooms read endpoints
+    │   ├── AdminController.php         # Phase 3 — /admin/me capability probe
+    │   └── AdminRoomController.php     # Phase 3 — admin /rooms CRUD + schedule replace
     ├── utils.php
     └── utils/
-        └── role-player.php  # Registers a custom `player` role with a `play` capability
+        ├── role-player.php             # Registers a custom `player` role with a `play` capability
+        ├── user-meta-keys.php          # User_Meta_Keys registry
+        ├── post-meta-keys.php          # Post_Meta_Keys registry (Phase 3 — pc_room meta)
+        ├── permissions.php             # Permission_callback helpers (logged-in / play-ready / admin)
+        ├── install-schema.php          # Custom-table installer (pc_db_version tracking)
+        ├── audit-log.php               # Audit_Log writer
+        ├── rate-limiter.php            # Transient-based rate limiter
+        ├── refresh-tokens.php          # Refresh-token issuance / rotation
+        ├── cpt-room.php                # Registers pc_room CPT (Phase 3)
+        ├── room-schedule-calculator.php# Computes current_window / next_window
+        └── cli/
+            └── seed-rooms.php          # `wp pc seed-rooms` — demo data for local dev
 ```
 
 **REST API surface (namespace `pc/v1`)**
 
-Registered in `UserController::register_routes()`:
+The complete catalogue lives in `API-CONTRACT.md`. At a glance the
+namespace currently spans:
 
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `POST` | `/pc/v1/user/sign-up/` | Create a new user (email/nickname/password, optional phone). Assigns the custom `player` role. |
-| `POST` | `/pc/v1/user/request-verification/` | Authenticate credentials and email a 6-digit code (15-minute TTL stored in user meta). |
-| `POST` | `/pc/v1/user/verify-code/` | Validate the code and return a signed JWT (HS256, 7-day expiry, signed with `JWT_AUTH_SECRET_KEY`). |
+- **Auth** — `POST /user/sign-up`, `/user/request-verification`,
+  `/user/verify-code`; `POST /google-auth/*`, `/apple-auth/*` (stub);
+  `POST /auth/logout`, `/auth/refresh`.
+- **Account (Phase 2)** — `GET/PATCH /user/me`,
+  `POST /user/request-email-confirmation`, `/user/confirm-email`,
+  `/user/request-password-change`, `/user/confirm-password-change`,
+  plus `POST /user/accept-terms` and `/user/set-nickname`.
+- **Rooms (Phase 3, public)** — `GET /rooms`, `GET /rooms/{id}`,
+  `GET /rooms/{id}/schedule`.
+- **Admin (Phase 3)** — `GET /admin/me`; `GET/POST /admin/rooms`,
+  `GET/PUT/DELETE /admin/rooms/{id}`,
+  `PUT /admin/rooms/{id}/schedule` (atomic replace in a transaction).
 
-`GoogleAuthController` registers parallel routes for Google sign-in / linking. The JWT itself is issued using the `firebase/php-jwt` library bundled via Composer and is compatible with the `jwt-authentication-for-wp-rest-api` plugin's filters (`jwt_auth_expire`, `jwt_auth_token_before_sign`, `jwt_auth_token_before_dispatch`).
+Two JWTs are involved: a short-lived **access token** (HS256, 15-min
+default, signed with `JWT_AUTH_SECRET_KEY`) and an opaque **refresh
+token** stored hashed in `wp_pc_refresh_tokens`. Rotation happens on
+every `/auth/refresh`; reuse detection revokes the whole descendant
+chain. The access JWT is issued via `firebase/php-jwt` and validated by
+the `jwt-authentication-for-wp-rest-api` plugin's filters
+(`jwt_auth_expire`, `jwt_auth_token_before_sign`,
+`jwt_auth_token_before_dispatch`).
 
 **Plugins (`wp-content/plugins/`)**
 - `jwt-authentication-for-wp-rest-api` — provides `/wp-json/jwt-auth/v1/*` endpoints, validates incoming bearer tokens, and exposes the filters the custom theme leans on.
@@ -126,8 +199,20 @@ Registered in `UserController::register_routes()`:
 - Custom `player` role is added at `init`; administrators get a `play` capability for parity.
 
 **Configuration / environments**
-- Local: DDEV (`https://pusher-coin.ddev.site`) drives the backend; the frontend's `.env` points at it.
-- Production: backend is deployed via FTP from `main`; frontend builds via Vite and deploys to Vercel using `.env.production` values (separate `VITE_API_BASE_URL`, `VITE_JWT_BASE_URL`, `VITE_GOOGLE_CLIENT_ID`).
+- Local: DDEV (`https://pusher-coin.ddev.site`) drives the backend; both SPAs' `.env` files point at it.
+- Production: backend is deployed via FTP from `main`; the player SPA builds via Vite and deploys to Vercel using `.env.production`. The admin SPA does **not** have a deploy target yet — it's local-only as of Phase 3.
+
+**Live streaming**
+
+`frontend/src/components/LiveStream.vue` sniffs the room's
+`stream_url` to pick a transport: iframe for embed-style URLs
+(YouTube / Vimeo / `/embed/...`), `<video>` for direct video files,
+**Mux LL-HLS via `hls.js`** for `.m3u8` URLs (the production path).
+`hls.js` is dynamically imported so it ships as its own ~162KB gzipped
+chunk, only loaded when an HLS stream is about to play. Safari skips
+the library and uses its native HLS support directly. RTMP ingest from
+the venue → Mux → LL-HLS playback URL persisted in the room's
+`pc_room_stream_url` post meta.
 
 **Trust boundaries**
 - The browser is untrusted; only the JWT travels back to identify the user.

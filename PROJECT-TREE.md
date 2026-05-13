@@ -56,6 +56,8 @@ pusher-coin/
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
+│   │       │   │       ├── cli/
+│   │       │   │       │   └── seed-rooms.php  # `wp pc seed-rooms` (Phase 3)
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
 │   │       │   │       ├── permissions.php     # Permission_callback helpers

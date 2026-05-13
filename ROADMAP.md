@@ -116,7 +116,7 @@ them what to fix and cannot play or top up until they fix it.
 
 ---
 
-## Phase 3 — Rooms, schedules & live broadcast `[#4, #9, #10]`
+## Phase 3 — Rooms, schedules & live broadcast `[#4, #9, #10]` — DONE
 
 Make the room a real domain object with a schedule and a live stream.
 
@@ -135,11 +135,11 @@ Make the room a real domain object with a schedule and a live stream.
    `RoomStatusBadge` + `NextBroadcastCountdown` per tile, and shows
    loading / error / empty states. `RoomView` is public and renders
    `LiveStream` + read-only `Chat` for guests.
-4. **Live streaming** `[#10]` `[partial]` — `LiveStream.vue` ships as a
-   transport-agnostic shell (iframe for embed URLs, `<video>` for
-   `.m3u8` / `.mp4` / `.webm`, poster otherwise). Choosing the provider
-   (Mux / Cloudflare Stream / WebRTC) and dropping in the matching
-   client library remains open — see the open-questions block.
+4. **Live streaming** `[#10]` `[done]` — Mux LL-HLS picked. `.m3u8`
+   URLs route through hls.js (dynamically imported — own 162KB gzipped
+   chunk, only loaded when an HLS stream actually plays). Safari uses
+   native HLS and skips the library entirely. Iframe embeds still
+   honoured for one-off event streams.
 5. **Guest "Play" CTA** `[done]` — `RoomView` shows a "Sign in to play"
    button for guests; clicking either it or the read-only chat opens the
    in-page sign-in overlay seeded with a redirect back to the same room.
@@ -328,7 +328,9 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 
 ## Open questions to resolve before / during planning
 
-- Streaming provider and target latency.
+- ~~Streaming provider and target latency.~~ Resolved Phase 3: **Mux
+  LL-HLS** via `hls.js` (lazy-loaded). Safari uses native HLS. Iframe
+  embeds (YouTube/Vimeo) still supported for one-off events.
 - Payment provider(s) and KYC requirements per jurisdiction.
 - ~~Whether the admin panel stays inside WP admin or becomes a separate SPA.~~
   Resolved Phase 0: separate admin SPA (see `ADMIN-DECISION.md`).
