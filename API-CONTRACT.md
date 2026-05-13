@@ -287,7 +287,9 @@ Response (`200`):
 }
 ```
 
-`balance_*` are zero placeholders until Phase 4 wires the wallet.
+`balance_money` and `balance_coins` are read from `wp_pc_wallets` (Phase
+4, Step 1). Users with no wallet row yet get `"0.00"` / `0` —
+`Wallet_Service` lazy-creates the row on first credit.
 
 ### `PATCH /pc/v1/user/me`
 
@@ -499,6 +501,32 @@ Response (`200`):
 
 Errors: `room_not_found` 404.
 
+### `GET /pc/v1/wallet`
+
+Bearer auth (`Permissions::require_logged_in`). Phase 4.
+
+Response (`200`):
+```json
+{
+  "balance_money": "0.00",
+  "balance_coins": 0,
+  "lots": [
+    { "qty": 5, "unit_price": "40.00" },
+    { "qty": 3, "unit_price": "45.00" }
+  ]
+}
+```
+
+`balance_money` is a decimal string (UAH) so JS doesn't introduce
+floating-point rounding when totalling. `lots` are returned oldest
+first — the same FIFO order they're consumed in.
+
+A user with no wallet row yet returns the zero state. The row is
+created lazily by `Wallet_Service::credit_lot` on the first top-up
+settlement (Step 2).
+
+Errors: `rest_forbidden` 401.
+
 ### `GET /pc/v1/admin/me`
 
 Probe used by the admin SPA to verify the current session is both
@@ -636,19 +664,29 @@ the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
-- `GET /pc/v1/wallet` — Bearer. Response: `{ balance_money,
-  balance_coins, lots: [{ qty, unit_price }] }`.
-- `POST /pc/v1/wallet/topup` — Bearer. Request `{ amount, unit_price,
-  payment_method_id }`. Response: `{ transaction_id, status }`.
-- `POST /pc/v1/wallet/withdraw` — Bearer. Request `{ amount,
-  destination }`. Response: `{ transaction_id, status }`.
-- `GET /pc/v1/transactions` — Bearer. Paginated. Filters: `type`
-  (`topup`, `withdraw`), `from`, `to`. Item: `{ id, type, amount,
-  unit_price, status, created_at }`. Top-ups and withdrawals only —
-  game results stay out.
+`GET /pc/v1/wallet` ships in the current section (Step 1). The rest of
+the Phase 4 surface is still planned:
 
-Errors introduced: `insufficient_balance` 409, `payment_failed` 502,
-`coin_price_out_of_bounds` 400.
+- `POST /pc/v1/wallet/topup` — Bearer. Request `{ coin_qty, unit_price }`.
+  Response: `{ transaction_id, liqpay: { data, signature } }`. The SPA
+  POSTs `{ data, signature }` to `https://www.liqpay.ua/api/3/checkout`.
+- `POST /pc/v1/payments/liqpay/callback` — public, signature-validated,
+  idempotent on `(order_id, status)`. On `success`: marks the
+  transaction `completed`, creates a coin lot, increments the wallet.
+- `POST /pc/v1/wallet/withdraw` — Bearer. Request `{ coin_qty }`.
+  Debits FIFO into a pending transaction; admin approves out-of-band.
+- `GET /pc/v1/transactions` — Bearer. Paginated. Filters: `type`
+  (`topup`, `withdraw`), `from`, `to`. Item: `{ id, type, amount_money,
+  amount_coins, unit_price, status, created_at }`. Top-ups and
+  withdrawals only — game results stay out.
+- `GET /pc/v1/admin/coin-pricing`, `PUT /pc/v1/admin/coin-pricing` —
+  admin. Reads / writes `pc_coin_price_default`, `pc_coin_price_min`,
+  `pc_coin_price_max` WP options.
+- `GET /pc/v1/admin/withdrawals`,
+  `POST /pc/v1/admin/withdrawals/{id}/approve|reject` — admin queue.
+
+Errors planned: `insufficient_balance` 409, `coin_price_out_of_bounds`
+400, `payment_failed` 502, `liqpay_signature_invalid` 401.
 
 ### Phase 5 — machine (admin)
 

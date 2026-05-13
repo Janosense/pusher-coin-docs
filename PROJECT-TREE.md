@@ -52,7 +52,8 @@ pusher-coin/
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
-│   │       │   │   │   └── UserController.php
+│   │       │   │   │   ├── UserController.php
+│   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet (top-up/withdraw land later)
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
@@ -66,7 +67,8 @@ pusher-coin/
 │   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
 │   │       │   │       ├── role-player.php     # Registers `player` role
 │   │       │   │       ├── room-schedule-calculator.php  # Computes current/next broadcast windows
-│   │       │   │       └── user-meta-keys.php  # User_Meta_Keys registry
+│   │       │   │       ├── user-meta-keys.php  # User_Meta_Keys registry
+│   │       │   │       └── wallet-service.php # Phase 4: atomic wallet / lot / transaction ops
 │   │       │   ├── composer.json
 │   │       │   ├── functions.php              # Theme bootstrap
 │   │       │   ├── index.php

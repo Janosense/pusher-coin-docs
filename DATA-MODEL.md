@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.2.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`). |
+| `pc_db_version` | string | `'1.3.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -162,10 +162,12 @@ Computed `next_window` is derived at query time — not stored.
 
 ## Phase 4 — wallet, coin lots, transactions
 
-### `wp_pc_wallets` (custom table)
+### `wp_pc_wallets` (custom table — Phase 4 Step 1)
 
 One row per user. Custom table because `wp_usermeta` cannot atomically
-update two fields.
+update two fields. Row is lazy-created by `Wallet_Service::credit_lot`
+on the first top-up settlement; readers fall back to `0.00 / 0` if
+absent.
 
 ```
 user_id        BIGINT   PK, FK → wp_users.ID
@@ -174,11 +176,13 @@ balance_coins  INT            DEFAULT 0
 updated_at     DATETIME
 ```
 
-### `wp_pc_coin_lots` (custom table)
+### `wp_pc_coin_lots` (custom table — Phase 4 Step 1)
 
 Required by `ROADMAP.md` §4.2: coins purchased carry their price; a
 winning coin pays back at the price it was bought at. Modelled as a
-stack of `(qty, unit_price)` lots, FIFO consumption per toss.
+stack of `(qty, unit_price)` lots, FIFO consumption per toss /
+withdrawal. `Wallet_Service::debit_fifo` decrements `qty` on the oldest
+lot first; rows with `qty = 0` linger but are filtered out by readers.
 
 ```
 id            BIGINT   PK
@@ -189,34 +193,45 @@ acquired_at   DATETIME
 source_txn_id BIGINT   FK → wp_pc_transactions.id
 ```
 
-### `wp_pc_transactions` (custom table)
+### `wp_pc_transactions` (custom table — Phase 4 Step 1)
 
 Append-only ledger for top-ups and withdrawals only. Game results stay
 out of this table — they are derived from `wp_pc_bet_sessions` (Phase 6)
 and never expose individual coin tosses to the history view.
 
+`type` / `status` are stored as `VARCHAR(16)` (not `ENUM`) because
+`dbDelta`'s diff logic mishandles `ENUM` definitions; constants live on
+`Wallet_Service` (`TYPE_TOPUP` / `TYPE_WITHDRAW`, `STATUS_PENDING` /
+`STATUS_COMPLETED` / `STATUS_FAILED` / `STATUS_REFUNDED`).
+
+A free-form `notes` column was added beyond the original sketch to hold
+admin reasons on `refunded` / `failed` withdrawals.
+
 ```
 id              BIGINT   PK
 user_id         BIGINT
-type            ENUM('topup','withdraw')
+type            VARCHAR(16)    -- 'topup' | 'withdraw'
 amount_money    DECIMAL(12,2)
 amount_coins    INT
 unit_price      DECIMAL(8,2)
-status          ENUM('pending','completed','failed','refunded')
-external_ref    VARCHAR(128)   -- payment provider id
+status          VARCHAR(16)    -- 'pending' | 'completed' | 'failed' | 'refunded'
+external_ref    VARCHAR(128)   -- payment provider id (LiqPay order_id)
+notes           TEXT
 created_at      DATETIME
 settled_at      DATETIME
 ```
 
-### WP options — coin pricing rules
+### WP options — coin pricing & LiqPay (Phase 4 Step 1)
 
-Singleton config; WP options are sufficient.
+Singleton config; WP options are sufficient. Stored as decimal strings
+to avoid PHP float drift.
 
-| Option key | Type | Notes |
-| --- | --- | --- |
-| `pc_coin_price_default` | decimal | Initial value: `1.00`. |
-| `pc_coin_price_min` | decimal | |
-| `pc_coin_price_max` | decimal | |
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_coin_price_default` | decimal string | `'40.00'` | Initial value approximates 1 USD in UAH for an operator who hasn't visited the admin SPA yet. |
+| `pc_coin_price_min` | decimal string | `'10.00'` | Floor enforced by `/wallet/topup`. |
+| `pc_coin_price_max` | decimal string | `'500.00'` | Ceiling enforced by `/wallet/topup`. |
+| `pc_liqpay_public_key` | string | `''` | LiqPay merchant public key. Operator-set in the admin SPA (Step 7). The matching **private key** lives in `wp-config.php` as `PC_LIQPAY_PRIVATE_KEY` — never in the DB. |
 
 ---
 
