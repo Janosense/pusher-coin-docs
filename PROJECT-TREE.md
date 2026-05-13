@@ -200,15 +200,20 @@ pusher-coin/
         ├── main.js
         ├── assets/
         │   └── main.css
-        ├── components/                        # (5c populates this)
+        ├── components/
+        │   └── AdminLayout.vue                # Header + nav + slot
         ├── router/
         │   └── index.js                       # Auth guards: requiresAuth / requiresGuest
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
+        │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
-        │   └── auth.js                        # Two-step sign-in + /admin/me gate
+        │   ├── auth.js                        # Two-step sign-in + /admin/me gate
+        │   └── rooms.js                       # Admin rooms CRUD + schedule
         └── views/
-            ├── HomeView.vue                   # Authed shell placeholder (5c fills it in)
+            ├── RoomFormView.vue               # Create / edit room (shared)
+            ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
+            ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
             └── SignInView.vue                 # Email/password + 6-digit code form
 ```

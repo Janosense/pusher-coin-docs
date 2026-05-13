@@ -120,16 +120,16 @@ them what to fix and cannot play or top up until they fix it.
 
 Make the room a real domain object with a schedule and a live stream.
 
-1. **Room CPT / table** `[partial]` — `pc_room` CPT and the four post-meta
+1. **Room CPT / table** `[done]` — `pc_room` CPT and the four post-meta
    keys (`pc_room_status`, `pc_room_theme_song_url`, `pc_room_stream_url`,
    `pc_room_machine_id`) registered in `app/utils/cpt-room.php` /
-   `Post_Meta_Keys`. Storage exists and is read by the public endpoints;
-   admin write surface lands with sub-item 6.
-2. **Schedule model** `[partial]` — `wp_pc_room_schedules` installed
+   `Post_Meta_Keys`. Public reads via `GET /pc/v1/rooms*`; admin CRUD
+   via `GET/POST/PUT/DELETE /pc/v1/admin/rooms*` (`AdminRoomController`).
+2. **Schedule model** `[done]` — `wp_pc_room_schedules` installed
    (Install_Schema 1.2.0); `Room_Schedule_Calculator` computes
    `current_window` / `next_window` from `always` / `once` rules.
-   Exposed via `GET /pc/v1/rooms/{id}/schedule`; admin write surface
-   lands with sub-item 6.
+   Public read via `GET /pc/v1/rooms/{id}/schedule`; atomic admin
+   replace via `PUT /pc/v1/admin/rooms/{id}/schedule`.
 3. **Guest browsing** `[#9]` `[done]` — `Rooms.vue` now consumes
    `useRoomsStore()` (`/rooms` list, 30s cache), renders
    `RoomStatusBadge` + `NextBroadcastCountdown` per tile, and shows
@@ -143,8 +143,12 @@ Make the room a real domain object with a schedule and a live stream.
 5. **Guest "Play" CTA** `[done]` — `RoomView` shows a "Sign in to play"
    button for guests; clicking either it or the read-only chat opens the
    in-page sign-in overlay seeded with a redirect back to the same room.
-6. **Admin scheduling UI** `[todo]` — admin can edit weekly plan from the WP
-   admin; Phase 0 decided whether this is WP-native or standalone.
+6. **Admin scheduling UI** `[done]` — separate Vue 3 admin SPA at
+   `admin/` (Phase 0 picked the standalone-SPA route — see
+   `ADMIN-DECISION.md`). Sign-in reuses the player 2FA flow gated by
+   `GET /admin/me`. Views: `RoomListView` (table + trash), `RoomFormView`
+   (create/edit), `RoomScheduleView` (weekly rules with atomic save).
+   Streaming-provider client library still pending (sub-item 4).
 
 Exit criteria: an unauthenticated user can open any room, see a real
 broadcast (or a countdown if it isn't live), and is invited to register when
