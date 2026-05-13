@@ -124,10 +124,12 @@ pusher-coin/
     │   │   ├── LogoutConfirmModal.vue          # Confirm-before-logout overlay
     │   │   ├── Navigation.vue
     │   │   ├── NavigationToggle.vue
+    │   │   ├── NextBroadcastCountdown.vue      # 1Hz local countdown to next room window (Phase 3)
     │   │   ├── Overlay.vue
     │   │   ├── PlaceBet.vue
     │   │   ├── Queue.vue
     │   │   ├── ReplenishmentBalance.vue
+    │   │   ├── RoomStatusBadge.vue             # Available / maintenance / unavailable chip (Phase 3)
     │   │   ├── Rooms.vue
     │   │   ├── SignInForm.vue
     │   │   ├── SignUpForm.vue
@@ -155,6 +157,7 @@ pusher-coin/
     │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
     │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
     │   │   ├── googleAuthService.js
+    │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
     │   │   └── userService.js
     │   ├── stores/
@@ -162,6 +165,7 @@ pusher-coin/
     │   │   ├── chat.js
     │   │   ├── counter.js
     │   │   ├── navigation.js
+    │   │   ├── rooms.js                       # Rooms list + 30s cache (Phase 3)
     │   │   └── user.js
     │   └── views/
     │       ├── AboutView.vue
