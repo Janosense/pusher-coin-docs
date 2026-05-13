@@ -441,6 +441,64 @@ Response (`200`):
 already expired) can still call this to record a `logout` audit event.
 Errors: `rest_forbidden` 401.
 
+### `GET /pc/v1/rooms`
+
+Paginated list of rooms. Public. Phase 3.
+
+Query: `?page=N&per_page=M` (defaults 1 / 20; `per_page` capped at 100).
+
+Response (`200`):
+```json
+{
+  "items": [
+    {
+      "id": 42,
+      "name": "Sunset Pusher",
+      "status": "available",
+      "theme_song_url": "https://...",
+      "stream_url": "https://...",
+      "current_window": { "start_at": "2026-05-13T18:00:00+00:00", "end_at": "2026-05-13T22:00:00+00:00" },
+      "next_window":    { "start_at": "2026-05-14T18:00:00+00:00", "end_at": "2026-05-14T22:00:00+00:00" }
+    }
+  ],
+  "total": 8,
+  "page": 1,
+  "per_page": 20
+}
+```
+
+`status` is one of `available`, `maintenance`, `unavailable`. `stream_url`
+is `null` unless `status === "available"`. `current_window` is `null`
+when the room is not currently in a broadcast window. `next_window` is
+`null` when no future window is scheduled (and is the *following* window
+when `current_window` is set).
+
+### `GET /pc/v1/rooms/{id}`
+
+Single room. Public. Phase 3. Same item shape as `GET /pc/v1/rooms` (a
+flat object, not wrapped in `items`).
+
+Errors: `room_not_found` 404.
+
+### `GET /pc/v1/rooms/{id}/schedule`
+
+Weekly schedule rules for one room. Public. Phase 3.
+
+Response (`200`):
+```json
+{
+  "rules": [
+    { "weekday": 0, "start_time": "18:00", "end_time": "22:00", "recurrence": "always", "once_date": null }
+  ],
+  "next_window": { "start_at": "2026-05-14T18:00:00+00:00", "end_at": "2026-05-14T22:00:00+00:00" }
+}
+```
+
+`weekday` is 0=Mon..6=Sun (ISO). `recurrence` is `always` or `once`;
+`once_date` is `null` unless `recurrence === "once"`.
+
+Errors: `room_not_found` 404.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -470,12 +528,15 @@ Stub shapes only. These are not implemented; they are the contract Phase
 
 ### Phase 3 — rooms & schedules
 
-- `GET /pc/v1/rooms` — public. Paginated. Item: `{ id, name, status,
-  theme_song_url, stream_url, current_window, next_window }`.
-- `GET /pc/v1/rooms/{id}` — public.
-- `GET /pc/v1/rooms/{id}/schedule` — public. Response: `{ rules: [{
-  weekday, start_time, end_time, recurrence }], next_window }`.
-- `PUT /pc/v1/admin/rooms/{id}/schedule` — admin. Replaces the rules set.
+Public read endpoints ship in the current section (`GET /pc/v1/rooms`,
+`GET /pc/v1/rooms/{id}`, `GET /pc/v1/rooms/{id}/schedule`). Admin write
+endpoints are still planned and land with the admin SPA scaffold:
+
+- `GET /pc/v1/admin/rooms` — admin. Paginated. Includes `draft` rooms.
+- `POST /pc/v1/admin/rooms` — admin. Create.
+- `GET/PUT/DELETE /pc/v1/admin/rooms/{id}` — admin. Per-room CRUD.
+- `PUT /pc/v1/admin/rooms/{id}/schedule` — admin. Atomically replaces
+  the rules set for one room.
 
 ### Phase 4 — wallet & transactions
 
@@ -571,6 +632,7 @@ One canonical code per failure mode — do not invent variants.
 | `jwt_auth_bad_config` | 403 | verify-code (legacy; replaced by `jwt_not_configured` in new endpoints) |
 | `no_verification_code` | 404 | verify-code, google-auth/verify-code, confirm-password-change |
 | `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
+| `room_not_found` | 404 | rooms/{id}, rooms/{id}/schedule |
 | `subject_not_found` | 404 | support/tickets (planned) |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |

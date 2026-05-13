@@ -49,6 +49,7 @@ pusher-coin/
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
+│   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
 │   │       │   │   │   └── UserController.php
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
@@ -60,6 +61,7 @@ pusher-coin/
 │   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
 │   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
 │   │       │   │       ├── role-player.php     # Registers `player` role
+│   │       │   │       ├── room-schedule-calculator.php  # Computes current/next broadcast windows
 │   │       │   │       └── user-meta-keys.php  # User_Meta_Keys registry
 │   │       │   ├── composer.json
 │   │       │   ├── functions.php              # Theme bootstrap
