@@ -87,3 +87,19 @@ Phase 0 records the decision and stops. Scaffolding the admin SPA
 (directory layout under `admin/`, deploy config, shared component story)
 is **not** part of Phase 0. The earliest concrete need is Phase 3's room
 scheduling UI; that work scaffolds the admin SPA when it lands.
+
+### Update — Phase 3, Step 5b
+
+The admin SPA is scaffolded at the top-level `admin/` directory: Vite +
+Vue 3 + Pinia + Vue Router, mirroring `frontend/`'s tooling. It runs on
+port 5174 by default so both SPAs can run side-by-side in dev. Auth
+reuses the existing `/user/request-verification` → `/user/verify-code`
+2FA flow and then probes `GET /admin/me` to bounce non-admins at
+sign-in. Token storage uses distinct localStorage keys
+(`pc_admin_auth_token` / `pc_admin_user_data`). Views shipped:
+`SignInView` (two-step form) and `HomeView` (placeholder shell — Step
+5c populates the room list + schedule editor).
+
+Deploy target: still expected to be a separate Vercel project once it
+gets a `vercel.json`; not configured yet because there's no need until
+the SPA has product value to deploy.

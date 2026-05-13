@@ -83,7 +83,7 @@ pusher-coin/
 │   ├── wp-trackback.php                       # WordPress
 │   └── xmlrpc.php                             # WordPress
 │
-└── frontend/                                  # Vue 3 + Vite SPA (separate git repo)
+├── frontend/                                  # Vue 3 + Vite SPA (separate git repo)
     ├── .env                                   # Local (DDEV) API endpoints
     ├── .env.production                        # Production endpoints
     ├── .eslintrc.cjs
@@ -184,4 +184,31 @@ pusher-coin/
     │       └── SupportView.vue
     ├── vercel.json                            # Vercel deploy config
     └── vite.config.js                         # `@` → `src/` alias, Vue plugin
+
+└── admin/                                     # Vue 3 + Vite admin SPA (Phase 3, separate deploy)
+    ├── .env.example                           # VITE_API_BASE_URL → same pc/v1 backend
+    ├── .eslintrc.cjs
+    ├── .gitignore
+    ├── .prettierrc.json
+    ├── index.html
+    ├── jsconfig.json
+    ├── package.json
+    ├── vite.config.js                         # Port 5174 so player + admin can run side-by-side
+    ├── public/
+    └── src/
+        ├── App.vue
+        ├── main.js
+        ├── assets/
+        │   └── main.css
+        ├── components/                        # (5c populates this)
+        ├── router/
+        │   └── index.js                       # Auth guards: requiresAuth / requiresGuest
+        ├── services/
+        │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
+        │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
+        ├── stores/
+        │   └── auth.js                        # Two-step sign-in + /admin/me gate
+        └── views/
+            ├── HomeView.vue                   # Authed shell placeholder (5c fills it in)
+            └── SignInView.vue                 # Email/password + 6-digit code form
 ```
