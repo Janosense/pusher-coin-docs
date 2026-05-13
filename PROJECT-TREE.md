@@ -46,6 +46,8 @@ pusher-coin/
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
 │   │       │   │   ├── rest-api/
+│   │       │   │   │   ├── AdminController.php      # Phase 3: /admin/me probe
+│   │       │   │   │   ├── AdminRoomController.php  # Phase 3: /admin/rooms CRUD + schedule replace
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php

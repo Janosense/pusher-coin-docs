@@ -499,6 +499,108 @@ Response (`200`):
 
 Errors: `room_not_found` 404.
 
+### `GET /pc/v1/admin/me`
+
+Probe used by the admin SPA to verify the current session is both
+authenticated and has `manage_options`. Bearer auth + admin gate.
+
+Response (`200`):
+```json
+{
+  "id": 1,
+  "email": "admin@example.com",
+  "display_name": "Ops Admin",
+  "capabilities": { "manage_options": true }
+}
+```
+
+Errors: `rest_forbidden` 401 (not logged in), `rest_forbidden` 403 (not admin).
+
+### `GET /pc/v1/admin/rooms`
+
+Paginated list including drafts. Bearer auth + admin gate. Same item
+shape as the public `GET /pc/v1/rooms`, with two extra fields admins
+need: `machine_id` and `post_status`.
+
+Response (`200`): standard pagination envelope.
+
+### `POST /pc/v1/admin/rooms`
+
+Create a room. Bearer auth + admin gate.
+
+Request:
+```json
+{
+  "name": "Sunset Pusher",
+  "status": "available",
+  "stream_url": "https://...",
+  "theme_song_url": "https://...",
+  "machine_id": "sonoff_10024fb618"
+}
+```
+`name` required; the rest are optional (status defaults to `unavailable`).
+
+Response (`201`): the admin-room shape.
+
+Errors: `invalid_room_name` 400, `invalid_room_status` 400,
+`invalid_room_url` 400, `invalid_room_machine_id` 400,
+`room_create_failed` 500.
+
+### `GET /pc/v1/admin/rooms/{id}`
+
+Single room, including drafts. Bearer auth + admin gate. Errors:
+`room_not_found` 404.
+
+### `PUT /pc/v1/admin/rooms/{id}`
+
+Partial update — omitted fields are left untouched. Bearer auth + admin
+gate.
+
+Request: any subset of the create payload.
+
+Response (`200`): the updated admin-room shape.
+
+Errors: `room_not_found` 404, plus the create-time validation errors.
+
+### `DELETE /pc/v1/admin/rooms/{id}`
+
+Trashes (soft-deletes) the room. Bearer auth + admin gate. Reads stop
+returning trashed rooms; restore via WP admin if needed.
+
+Response (`200`): `{ "deleted": true, "id": 42 }`.
+
+Errors: `room_not_found` 404.
+
+### `PUT /pc/v1/admin/rooms/{id}/schedule`
+
+Atomic replace of the room's schedule rules. The previous rule set is
+deleted and the supplied set is inserted in a single transaction.
+Bearer auth + admin gate.
+
+Request:
+```json
+{
+  "rules": [
+    { "weekday": 0, "start_time": "18:00", "end_time": "22:00", "recurrence": "always" },
+    { "weekday": 5, "start_time": "20:00", "end_time": "23:30", "recurrence": "once", "once_date": "2026-06-12" }
+  ]
+}
+```
+`weekday` 0=Mon..6=Sun. `start_time < end_time` (cross-midnight windows
+must be split into two rules). `once_date` is required iff
+`recurrence === "once"`.
+
+Response (`200`):
+```json
+{
+  "rules": [ ... ],
+  "next_window": { "start_at": "...", "end_at": "..." }
+}
+```
+
+Errors: `room_not_found` 404, `invalid_schedule_rule` 400,
+`schedule_write_failed` 500.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -528,15 +630,9 @@ Stub shapes only. These are not implemented; they are the contract Phase
 
 ### Phase 3 — rooms & schedules
 
-Public read endpoints ship in the current section (`GET /pc/v1/rooms`,
-`GET /pc/v1/rooms/{id}`, `GET /pc/v1/rooms/{id}/schedule`). Admin write
-endpoints are still planned and land with the admin SPA scaffold:
-
-- `GET /pc/v1/admin/rooms` — admin. Paginated. Includes `draft` rooms.
-- `POST /pc/v1/admin/rooms` — admin. Create.
-- `GET/PUT/DELETE /pc/v1/admin/rooms/{id}` — admin. Per-room CRUD.
-- `PUT /pc/v1/admin/rooms/{id}/schedule` — admin. Atomically replaces
-  the rules set for one room.
+All Phase 3 endpoints (public read + admin CRUD + admin schedule
+replace) ship in the current section. The admin SPA that consumes
+the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
@@ -610,6 +706,11 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
 | `invalid_phone` | 400 | user/me PATCH |
+| `invalid_room_name` | 400 | admin/rooms POST/PUT |
+| `invalid_room_status` | 400 | admin/rooms POST/PUT |
+| `invalid_room_url` | 400 | admin/rooms POST/PUT |
+| `invalid_room_machine_id` | 400 | admin/rooms POST/PUT |
+| `invalid_schedule_rule` | 400 | admin/rooms/{id}/schedule PUT |
 | `invalid_terms_version` | 400 | user/accept-terms |
 | `weak_password` | 400 | sign-up, confirm-password-change |
 | `coin_price_out_of_bounds` | 400 | wallet/topup (planned) |
@@ -623,7 +724,7 @@ One canonical code per failure mode — do not invent variants.
 | `token_revoked` | 401 | auth/refresh |
 | `password_mismatch` | 401 | change-password (planned) |
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
-| `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change |
+| `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (planned, guest path) |
 | `email_not_verified` | 403 | google-auth/authentication, play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
@@ -641,6 +742,8 @@ One canonical code per failure mode — do not invent variants.
 | `queue_locked` | 409 | rooms/queue (planned) |
 | `relay_closed` | 423 | rooms/play (planned) |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change |
+| `room_create_failed` | 500 | admin/rooms POST |
+| `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
