@@ -53,8 +53,10 @@ pusher-coin/
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
+│   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
 │   │       │   │       ├── permissions.php     # Permission_callback helpers
+│   │       │   │       ├── post-meta-keys.php  # Post_Meta_Keys registry
 │   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
 │   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
 │   │       │   │       ├── role-player.php     # Registers `player` role

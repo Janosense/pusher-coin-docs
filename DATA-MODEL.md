@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.1.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0. |
+| `pc_db_version` | string | `'1.2.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -118,20 +118,27 @@ Room is a content-y entity (name, description, theme song, stream URL)
 that admins author one at a time — CPT semantics fit. Stored under
 `wp_posts` / `wp_postmeta`.
 
+Registered in `backend/wp-content/themes/pc/app/utils/cpt-room.php`. The
+CPT is **not** `public` and **not** exposed via the default WP REST
+namespace (`show_in_rest=false`) — rooms are read through the custom
+`pc/v1/rooms` controllers so the response shape stays in
+`API-CONTRACT.md`'s control.
+
 Post fields:
 
 - `post_title` → room name.
 - `post_status` → `publish` for available, `draft` for unavailable;
   the `status` post-meta below carries the more specific state.
 
-Post meta:
+Post meta (constants in `Post_Meta_Keys`,
+`backend/wp-content/themes/pc/app/utils/post-meta-keys.php`):
 
-| Key | Type | Notes |
-| --- | --- | --- |
-| `pc_room_status` | enum (`available`, `maintenance`, `unavailable`) | |
-| `pc_room_theme_song_url` | string (URL) | Optional. |
-| `pc_room_stream_url` | string (URL) | HLS / WebRTC / LL-HLS endpoint. Phase 3 picks the transport. |
-| `pc_room_machine_id` | string | Maps the room to a Home Assistant machine. |
+| Constant | Storage key | Type | Notes |
+| --- | --- | --- | --- |
+| `ROOM_STATUS` | `pc_room_status` | enum (`available`, `maintenance`, `unavailable`) | Enum values exposed as `ROOM_STATUS_*` constants. |
+| `ROOM_THEME_SONG_URL` | `pc_room_theme_song_url` | string (URL) | Optional. |
+| `ROOM_STREAM_URL` | `pc_room_stream_url` | string (URL) | HLS / WebRTC / LL-HLS endpoint. Phase 3 picks the transport. |
+| `ROOM_MACHINE_ID` | `pc_room_machine_id` | string | Maps the room to a Home Assistant machine. |
 
 ### `wp_pc_room_schedules` (custom table)
 
