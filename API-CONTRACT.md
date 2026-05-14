@@ -522,10 +522,80 @@ floating-point rounding when totalling. `lots` are returned oldest
 first — the same FIFO order they're consumed in.
 
 A user with no wallet row yet returns the zero state. The row is
-created lazily by `Wallet_Service::credit_lot` on the first top-up
-settlement (Step 2).
+created lazily on the first top-up settlement.
 
 Errors: `rest_forbidden` 401.
+
+### `POST /pc/v1/wallet/topup`
+
+Begin a top-up. Bearer auth + `Permissions::require_play_ready`. Phase
+4.
+
+Request:
+```json
+{ "coin_qty": 5, "unit_price": "40.00" }
+```
+`coin_qty` is a positive integer; `unit_price` is a decimal string
+within `[pc_coin_price_min, pc_coin_price_max]` (UAH). The amount sent
+to LiqPay is `coin_qty * unit_price` (UAH).
+
+Response (`200`):
+```json
+{
+  "transaction_id": 17,
+  "order_id": "pc-topup-17",
+  "amount": "200.00",
+  "checkout_url": "https://www.liqpay.ua/api/3/checkout",
+  "liqpay": {
+    "data": "<base64 params>",
+    "signature": "<base64 sha1>"
+  }
+}
+```
+
+The SPA POSTs `liqpay.data` + `liqpay.signature` as form fields to
+`checkout_url` (`<form method="POST" action="…">` works in any
+browser — LiqPay's hosted page renders next).
+
+A pending row is written to `wp_pc_transactions` immediately so the
+LiqPay callback has something to look up via `external_ref = order_id`.
+Settlement (status → `completed`, lot creation, wallet credit) happens
+**only** from the callback, never from the redirect back to the SPA.
+
+Errors: `rest_forbidden` 401 (not authed); `email_not_verified` /
+`terms_not_accepted` / `nickname_required` 403; `invalid_coin_qty` 400;
+`coin_price_out_of_bounds` 400; `liqpay_not_configured` 500.
+
+### `POST /pc/v1/payments/liqpay/callback`
+
+LiqPay webhook. Public route; the signed payload is the credential.
+Phase 4.
+
+Request (form-encoded by LiqPay):
+```
+data=<base64 params>
+signature=<base64 sha1>
+```
+
+Always returns 200 on a valid signature even for unrecoverable
+conditions (unknown `order_id`, already-settled txn). LiqPay treats
+non-2xx as a delivery failure and retries indefinitely, so the
+controller swallows recoverable surprises and writes them to
+`wp_pc_auth_audit_log` instead. The body's `note` field disambiguates:
+`already_settled`, `unknown_order`, or absent on first-time success.
+
+State machine:
+- LiqPay `success` / `sandbox` → `Wallet_Service::settle_topup` (atomic
+  transaction-status flip + lot insert + wallet credit).
+- LiqPay `failure` / `error` / `reversed` → mark transaction `failed`.
+- Anything else (`processing`, `wait_secure`, `wait_accept`, …) →
+  leave `pending`, wait for the next callback.
+- Re-delivery of the same final status is a no-op (idempotent via the
+  `pending`-status check).
+
+Errors: `missing_required_fields` 400 (no `data`/`signature` in body);
+`liqpay_signature_invalid` 401; `liqpay_payload_invalid` 400;
+`liqpay_not_configured` 500.
 
 ### `GET /pc/v1/admin/me`
 
@@ -664,15 +734,10 @@ the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
-`GET /pc/v1/wallet` ships in the current section (Step 1). The rest of
-the Phase 4 surface is still planned:
+`GET /pc/v1/wallet` (Step 1), `POST /pc/v1/wallet/topup` (Step 2), and
+`POST /pc/v1/payments/liqpay/callback` (Step 2) ship in the current
+section. Still planned:
 
-- `POST /pc/v1/wallet/topup` — Bearer. Request `{ coin_qty, unit_price }`.
-  Response: `{ transaction_id, liqpay: { data, signature } }`. The SPA
-  POSTs `{ data, signature }` to `https://www.liqpay.ua/api/3/checkout`.
-- `POST /pc/v1/payments/liqpay/callback` — public, signature-validated,
-  idempotent on `(order_id, status)`. On `success`: marks the
-  transaction `completed`, creates a coin lot, increments the wallet.
 - `POST /pc/v1/wallet/withdraw` — Bearer. Request `{ coin_qty }`.
   Debits FIFO into a pending transaction; admin approves out-of-band.
 - `GET /pc/v1/transactions` — Bearer. Paginated. Filters: `type`
@@ -685,8 +750,7 @@ the Phase 4 surface is still planned:
 - `GET /pc/v1/admin/withdrawals`,
   `POST /pc/v1/admin/withdrawals/{id}/approve|reject` — admin queue.
 
-Errors planned: `insufficient_balance` 409, `coin_price_out_of_bounds`
-400, `payment_failed` 502, `liqpay_signature_invalid` 401.
+Errors planned: `insufficient_balance` 409.
 
 ### Phase 5 — machine (admin)
 
@@ -751,7 +815,9 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_schedule_rule` | 400 | admin/rooms/{id}/schedule PUT |
 | `invalid_terms_version` | 400 | user/accept-terms |
 | `weak_password` | 400 | sign-up, confirm-password-change |
-| `coin_price_out_of_bounds` | 400 | wallet/topup (planned) |
+| `invalid_coin_qty` | 400 | wallet/topup |
+| `coin_price_out_of_bounds` | 400 | wallet/topup |
+| `liqpay_payload_invalid` | 400 | payments/liqpay/callback |
 | `token_invalid` | 401 | auth/refresh, confirm-email |
 | `authentication_failed` | 401 | request-verification, verify-code, confirm-password-change |
 | `invalid_verification_code` | 401 | verify-code, google-auth/verify-code, confirm-password-change |
@@ -764,6 +830,7 @@ One canonical code per failure mode — do not invent variants.
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (planned, guest path) |
+| `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
 | `email_not_verified` | 403 | google-auth/authentication, play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
 | `nickname_required` | 403 | gated play endpoints |
@@ -786,6 +853,7 @@ One canonical code per failure mode — do not invent variants.
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
+| `liqpay_not_configured` | 500 | wallet/topup, payments/liqpay/callback |
 | `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |

@@ -51,9 +51,10 @@ pusher-coin/
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
+│   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
 │   │       │   │   │   ├── UserController.php
-│   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet (top-up/withdraw land later)
+│   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
@@ -61,6 +62,7 @@ pusher-coin/
 │   │       │   │       │   └── seed-rooms.php  # `wp pc seed-rooms` (Phase 3)
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
+│   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
 │   │       │   │       ├── permissions.php     # Permission_callback helpers
 │   │       │   │       ├── post-meta-keys.php  # Post_Meta_Keys registry
 │   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
