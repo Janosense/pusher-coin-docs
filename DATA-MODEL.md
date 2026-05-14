@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.3.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`). |
+| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -207,6 +207,12 @@ and never expose individual coin tosses to the history view.
 A free-form `notes` column was added beyond the original sketch to hold
 admin reasons on `refunded` / `failed` withdrawals.
 
+`consumed_lots` (added Phase 4 Step 4) is a JSON array of
+`[{ qty, unit_price }, ...]` written when a withdrawal is requested.
+On reject, the values are re-credited as new lots — preserving the
+player's value even though the original lot rows may have been
+deleted (qty=0). Null for top-up rows.
+
 ```
 id              BIGINT   PK
 user_id         BIGINT
@@ -217,6 +223,7 @@ unit_price      DECIMAL(8,2)
 status          VARCHAR(16)    -- 'pending' | 'completed' | 'failed' | 'refunded'
 external_ref    VARCHAR(128)   -- payment provider id (LiqPay order_id)
 notes           TEXT
+consumed_lots   LONGTEXT       -- JSON [{qty,unit_price},...], withdrawals only
 created_at      DATETIME
 settled_at      DATETIME
 ```

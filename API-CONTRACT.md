@@ -574,6 +574,39 @@ Errors: `rest_forbidden` 401 (not authed); `email_not_verified` /
 `terms_not_accepted` / `nickname_required` 403; `invalid_coin_qty` 400;
 `coin_price_out_of_bounds` 400; `liqpay_not_configured` 500.
 
+### `POST /pc/v1/wallet/withdraw`
+
+Request a coin withdrawal. Bearer auth + `Permissions::require_play_ready`.
+Phase 4.
+
+Request:
+```json
+{ "coin_qty": 5 }
+```
+
+The server FIFO-consumes `coin_qty` from the player's lots and parks a
+`pending` withdrawal transaction with the consumed `(qty, unit_price)`
+slices stored on `consumed_lots` (so a later rejection can re-credit
+at the original prices). The actual payout is out-of-band — admins
+approve in the admin SPA after paying the player by bank transfer.
+
+A player can only have one pending withdrawal at a time; submitting a
+second returns `withdrawal_already_pending` 409.
+
+Response (`200`):
+```json
+{
+  "transaction_id": 18,
+  "status": "pending",
+  "amount_coins": 5,
+  "amount_money": "200.00"
+}
+```
+
+Errors: `rest_forbidden` 401; `email_not_verified` / `terms_not_accepted`
+/ `nickname_required` 403; `invalid_coin_qty` 400; `insufficient_balance`
+409; `withdrawal_already_pending` 409.
+
 ### `POST /pc/v1/payments/liqpay/callback`
 
 LiqPay webhook. Public route; the signed payload is the credential.
@@ -707,6 +740,72 @@ Response (`200`):
 Errors: `room_not_found` 404, `invalid_schedule_rule` 400,
 `schedule_write_failed` 500.
 
+### `GET /pc/v1/admin/withdrawals`
+
+Admin queue. Bearer + admin gate. Phase 4.
+
+Query: `?status=pending|completed|refunded|failed|all` (default
+`pending`), `?page=N&per_page=M` (default 1 / 50).
+
+Response (`200`):
+```json
+{
+  "items": [
+    {
+      "id": 18,
+      "user_id": 42,
+      "user_email": "player@example.com",
+      "user_nickname": "Coin Tosser",
+      "amount_money": "200.00",
+      "amount_coins": 5,
+      "status": "pending",
+      "notes": null,
+      "created_at": "2026-05-14 18:00:00",
+      "settled_at": null,
+      "consumed_lots": [ { "qty": 5, "unit_price": "40.00" } ]
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "per_page": 50
+}
+```
+
+### `POST /pc/v1/admin/withdrawals/{id}/approve`
+
+Mark a pending withdrawal `completed`. Bearer + admin gate. The actual
+money payout happens out-of-band (bank transfer, etc.) — this endpoint
+only records the decision and writes a `withdrawal_approved` audit log
+entry.
+
+Request:
+```json
+{ "notes": "Paid via Privat24 #ABC123" }
+```
+`notes` is optional, max 2000 characters.
+
+Response (`200`): the updated withdrawal row (same shape as the list
+item above).
+
+Errors: `withdrawal_not_found` 404; `withdrawal_not_pending` 409.
+
+### `POST /pc/v1/admin/withdrawals/{id}/reject`
+
+Mark a pending withdrawal `refunded` and re-credit the originally-
+consumed coin lots back to the player's wallet at their original unit
+prices. Atomic. Bearer + admin gate.
+
+Request:
+```json
+{ "notes": "KYC pending — please contact support." }
+```
+
+Response (`200`): the updated withdrawal row, now `status: refunded`
+with `settled_at` populated.
+
+Errors: `withdrawal_not_found` 404; `withdrawal_not_pending` 409;
+`wallet_write_failed` 500.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -742,12 +841,11 @@ the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
-`GET /pc/v1/wallet` (Step 1), `POST /pc/v1/wallet/topup` (Step 2), and
-`POST /pc/v1/payments/liqpay/callback` (Step 2) ship in the current
-section. Still planned:
+Steps 1–4 of Phase 4 ship in the current section
+(`GET /wallet`, `POST /wallet/topup`, `POST /wallet/withdraw`,
+LiqPay callback, admin withdrawals queue + approve/reject). Still
+planned:
 
-- `POST /pc/v1/wallet/withdraw` — Bearer. Request `{ coin_qty }`.
-  Debits FIFO into a pending transaction; admin approves out-of-band.
 - `GET /pc/v1/transactions` — Bearer. Paginated. Filters: `type`
   (`topup`, `withdraw`), `from`, `to`. Item: `{ id, type, amount_money,
   amount_coins, unit_price, status, created_at }`. Top-ups and
@@ -755,10 +853,6 @@ section. Still planned:
 - `GET /pc/v1/admin/coin-pricing`, `PUT /pc/v1/admin/coin-pricing` —
   admin. Reads / writes `pc_coin_price_default`, `pc_coin_price_min`,
   `pc_coin_price_max` WP options.
-- `GET /pc/v1/admin/withdrawals`,
-  `POST /pc/v1/admin/withdrawals/{id}/approve|reject` — admin queue.
-
-Errors planned: `insufficient_balance` 409.
 
 ### Phase 5 — machine (admin)
 
@@ -847,16 +941,21 @@ One canonical code per failure mode — do not invent variants.
 | `no_verification_code` | 404 | verify-code, google-auth/verify-code, confirm-password-change |
 | `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
 | `room_not_found` | 404 | rooms/{id}, rooms/{id}/schedule |
+| `withdrawal_not_found` | 404 | admin/withdrawals/{id}/approve, /reject |
 | `subject_not_found` | 404 | support/tickets (planned) |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
+| `insufficient_balance` | 409 | wallet/withdraw |
+| `withdrawal_already_pending` | 409 | wallet/withdraw |
+| `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/play (planned) |
 | `queue_locked` | 409 | rooms/queue (planned) |
 | `relay_closed` | 423 | rooms/play (planned) |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
+| `wallet_write_failed` | 500 | wallet/withdraw, admin/withdrawals/{id}/reject |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |

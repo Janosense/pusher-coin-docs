@@ -46,8 +46,9 @@ pusher-coin/
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
 │   │       │   │   ├── rest-api/
-│   │       │   │   │   ├── AdminController.php      # Phase 3: /admin/me probe
-│   │       │   │   │   ├── AdminRoomController.php  # Phase 3: /admin/rooms CRUD + schedule replace
+│   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
+│   │       │   │   │   ├── AdminRoomController.php      # Phase 3: /admin/rooms CRUD + schedule replace
+│   │       │   │   │   ├── AdminWithdrawalController.php # Phase 4: /admin/withdrawals queue + approve/reject
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
@@ -143,6 +144,7 @@ pusher-coin/
     │   │   ├── SignInForm.vue
     │   │   ├── SignUpForm.vue
     │   │   ├── UserControls.vue
+    │   │   ├── WithdrawalRequest.vue           # Phase 4: player coin withdrawal form (overlay body)
     │   │   └── icons/
     │   │       ├── IconAccount.vue
     │   │       ├── IconChat.vue
@@ -216,13 +218,16 @@ pusher-coin/
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
+        │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
         │   ├── auth.js                        # Two-step sign-in + /admin/me gate
-        │   └── rooms.js                       # Admin rooms CRUD + schedule
+        │   ├── rooms.js                       # Admin rooms CRUD + schedule
+        │   └── withdrawals.js                 # Phase 4: queue + approve/reject
         └── views/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
-            └── SignInView.vue                 # Email/password + 6-digit code form
+            ├── SignInView.vue                 # Email/password + 6-digit code form
+            └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```
