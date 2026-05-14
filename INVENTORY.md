@@ -125,7 +125,12 @@ real API calls.
   operator-set bounds, and submits a hidden form POST to LiqPay's
   hosted checkout. Settlement happens via the webhook in
   `PaymentController`; the SPA only refreshes the wallet on return.
-- `components/PlaceBet.vue` — same as above.
+- ~~`components/PlaceBet.vue` — same as above.~~ Rewritten in Phase 4
+  Step 5: reads `useWalletStore`, clamps the coin-quantity input to
+  the player's balance, +/- buttons disable at the bounds, empty
+  balance shows an inline "Add balance" link that switches overlays.
+  The submit button is still a placeholder — the actual toss / wallet
+  debit / machine call lands in Phase 6.
 - ~~`components/Rooms.vue` — placeholder list (rooms data is hardcoded).~~
   Replaced in Phase 3: fetches via `useRoomsStore`, renders real room
   names + `RoomStatusBadge` + `NextBroadcastCountdown` per tile.

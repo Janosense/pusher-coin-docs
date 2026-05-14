@@ -173,15 +173,17 @@ The economic core. Don't ship anything beyond this without Phase 1 + 2 done.
    record a `transaction` row, settle into the wallet.
 4. **Withdrawal flow** `[#3]` `[todo]` — request → admin approval (or
    automatic if KYC permits) → payout → transaction row.
-5. **Play-button balance rules**:
-   - Balance 0 → Play redirects to top-up `[#11]` `[todo]`.
-   - Balance ≥ 1 coin → opens a coin selector preset to 1 `[#12]` `[todo]`.
-   - `+` button caps at the player's coin balance and disables when reached
-     `[#12]` `[todo]`.
-   - Manual numeric input clamps to the balance and rejects non-digits
-     `[#12]` `[todo]`.
-6. **Balance display** `[#13]` `[todo]` — the in-game "Balance" field shows
-   total coins owned by the player.
+5. **Play-button balance rules** `[done]` — `RoomView.onPlayClick`
+   routes a zero-balance Play directly to the top-up overlay. `PlaceBet`
+   uses `useWalletStore`: preset coin quantity = 1, `+` button caps at
+   `balance_coins` and disables on reach, manual input is numeric-only
+   and clamped on input + blur. The submit button stays a Phase 6
+   placeholder (the toss flow is Phase 6).
+6. **Balance display** `[#13]` `[done]` — `UserControls.vue` reads
+   `balance_coins` from `useWalletStore` (replacing the hardcoded
+   `1000`) and the player nickname from `useAuthenticationStore`
+   (replacing `Player 17`). The "Winning" counter is hidden until
+   Phase 6 wires it (per ROADMAP §6.1: "winnings hidden when zero").
 7. **Transaction history** `[#15, #16]` `[todo]` — `HistoryView.vue` exists;
    list top-ups and withdrawals only. Game results stay out of this view.
    Server-side pagination + filtering by type / date.
