@@ -54,8 +54,9 @@ pusher-coin/
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
+│   │       │   │   │   ├── TransactionsController.php # Phase 4: GET /transactions
 │   │       │   │   │   ├── UserController.php
-│   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup
+│   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup + /withdraw
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
@@ -168,11 +169,12 @@ pusher-coin/
     │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
     │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
     │   │   ├── googleAuthService.js
+    │   │   ├── historyService.js              # Phase 4: GET /transactions
     │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
     │   │   ├── userService.js
-    │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup
+    │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup + /withdraw
     │   ├── stores/
     │   │   ├── authentication.js              # Token, user, Google 2FA state
     │   │   ├── chat.js

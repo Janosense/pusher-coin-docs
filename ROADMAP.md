@@ -184,9 +184,12 @@ The economic core. Don't ship anything beyond this without Phase 1 + 2 done.
    `1000`) and the player nickname from `useAuthenticationStore`
    (replacing `Player 17`). The "Winning" counter is hidden until
    Phase 6 wires it (per ROADMAP §6.1: "winnings hidden when zero").
-7. **Transaction history** `[#15, #16]` `[todo]` — `HistoryView.vue` exists;
-   list top-ups and withdrawals only. Game results stay out of this view.
-   Server-side pagination + filtering by type / date.
+7. **Transaction history** `[#15, #16]` `[done]` — `GET /pc/v1/transactions`
+   (scoped to the current user, paginated, filterable by type +
+   from/to date). `HistoryView.vue` rewritten against it: filter row
+   (type + date pickers + clear), credit/debit colouring, status
+   badges, Prev/Next pagination. Game results stay out (Phase 6's
+   `wp_pc_bet_sessions` will drive a separate session-history view).
 
 Exit criteria: players can top up, the play button respects balance rules,
 and transactions are auditable.

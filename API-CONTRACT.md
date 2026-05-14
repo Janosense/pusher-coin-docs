@@ -607,6 +607,47 @@ Errors: `rest_forbidden` 401; `email_not_verified` / `terms_not_accepted`
 / `nickname_required` 403; `invalid_coin_qty` 400; `insufficient_balance`
 409; `withdrawal_already_pending` 409.
 
+### `GET /pc/v1/transactions`
+
+Player transaction history. Bearer auth (`require_logged_in`).
+Scoped to the current user. Phase 4.
+
+Query:
+- `?page=N&per_page=M` (default 1 / 20; per_page capped at 100).
+- `?type=topup|withdraw` — optional, filters by type.
+- `?from=YYYY-MM-DD` / `?to=YYYY-MM-DD` — optional, inclusive of both
+  endpoints (`from` snapped to 00:00:00, `to` snapped to 23:59:59 in
+  the site timezone).
+
+Response (`200`):
+```json
+{
+  "items": [
+    {
+      "id": 17,
+      "type": "topup",
+      "amount_money": "200.00",
+      "amount_coins": 5,
+      "unit_price": "40.00",
+      "status": "completed",
+      "created_at": "2026-05-13 18:00:00",
+      "settled_at": "2026-05-13 18:00:30"
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "per_page": 20
+}
+```
+
+Top-ups and withdrawals only. Game results live on `wp_pc_bet_sessions`
+(Phase 6) and are deliberately excluded from this view. `external_ref`
+(LiqPay order_id) and `consumed_lots` are admin-only audit data and
+are not exposed here.
+
+Errors: `rest_forbidden` 401; `invalid_transaction_type` 400;
+`invalid_date` 400.
+
 ### `POST /pc/v1/payments/liqpay/callback`
 
 LiqPay webhook. Public route; the signed payload is the credential.
@@ -841,15 +882,11 @@ the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
-Steps 1–4 of Phase 4 ship in the current section
-(`GET /wallet`, `POST /wallet/topup`, `POST /wallet/withdraw`,
-LiqPay callback, admin withdrawals queue + approve/reject). Still
-planned:
+Steps 1–6 of Phase 4 ship in the current section
+(`GET /wallet`, `POST /wallet/topup`, `POST /wallet/withdraw`, LiqPay
+callback, admin withdrawals queue + approve/reject,
+`GET /transactions`). Still planned for Step 7:
 
-- `GET /pc/v1/transactions` — Bearer. Paginated. Filters: `type`
-  (`topup`, `withdraw`), `from`, `to`. Item: `{ id, type, amount_money,
-  amount_coins, unit_price, status, created_at }`. Top-ups and
-  withdrawals only — game results stay out.
 - `GET /pc/v1/admin/coin-pricing`, `PUT /pc/v1/admin/coin-pricing` —
   admin. Reads / writes `pc_coin_price_default`, `pc_coin_price_min`,
   `pc_coin_price_max` WP options.
@@ -916,6 +953,8 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_room_machine_id` | 400 | admin/rooms POST/PUT |
 | `invalid_schedule_rule` | 400 | admin/rooms/{id}/schedule PUT |
 | `invalid_terms_version` | 400 | user/accept-terms |
+| `invalid_transaction_type` | 400 | transactions |
+| `invalid_date` | 400 | transactions |
 | `weak_password` | 400 | sign-up, confirm-password-change |
 | `invalid_coin_qty` | 400 | wallet/topup |
 | `coin_price_out_of_bounds` | 400 | wallet/topup |

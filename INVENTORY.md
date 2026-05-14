@@ -105,8 +105,10 @@ real API calls.
   submission handlers, no `/me`-style fetch.~~ Replaced in Phase 2 with a
   full data-driven page (avatar, editable nickname, email-verify flow,
   inline two-step password change, Google 2FA panel, gated balance buttons).
-- `views/HistoryView.vue` — table renders 50 empty placeholder rows,
-  no fetch.
+- ~~`views/HistoryView.vue` — table renders 50 empty placeholder rows,
+  no fetch.~~ Replaced in Phase 4 Step 6: paginated table backed by
+  `GET /pc/v1/transactions`, with type + date-range filters,
+  credit/debit colouring, status badges, and Prev/Next paging.
 - ~~`views/RoomView.vue` — embedded YouTube iframe stand-in for the live
   broadcast; no room-data fetch.~~ Replaced in Phase 3: fetches the room
   via `useRoomsStore`, renders the transport-agnostic `LiveStream`
