@@ -847,6 +847,34 @@ with `settled_at` populated.
 Errors: `withdrawal_not_found` 404; `withdrawal_not_pending` 409;
 `wallet_write_failed` 500.
 
+### `GET /pc/v1/admin/coin-pricing`
+
+Read the operator-tunable per-coin price bounds. Bearer + admin gate.
+Phase 4.
+
+Response (`200`):
+```json
+{ "default": "40.00", "min": "10.00", "max": "500.00" }
+```
+
+### `PUT /pc/v1/admin/coin-pricing`
+
+Update the bounds. Bearer + admin gate. Phase 4.
+
+Request:
+```json
+{ "default": "45.00", "min": "10.00", "max": "500.00" }
+```
+
+All three fields required. Validation:
+- Each value must be a positive decimal (`> 0.00`, two decimals).
+- `min <= max`.
+- `min <= default <= max`.
+
+Response (`200`): same shape as GET.
+
+Errors: `invalid_coin_price` 400; `coin_price_bounds_invalid` 400.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -882,14 +910,7 @@ the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
 
 ### Phase 4 — wallet & transactions
 
-Steps 1–6 of Phase 4 ship in the current section
-(`GET /wallet`, `POST /wallet/topup`, `POST /wallet/withdraw`, LiqPay
-callback, admin withdrawals queue + approve/reject,
-`GET /transactions`). Still planned for Step 7:
-
-- `GET /pc/v1/admin/coin-pricing`, `PUT /pc/v1/admin/coin-pricing` —
-  admin. Reads / writes `pc_coin_price_default`, `pc_coin_price_min`,
-  `pc_coin_price_max` WP options.
+All Phase 4 endpoints ship in the current section.
 
 ### Phase 5 — machine (admin)
 
@@ -957,7 +978,9 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_date` | 400 | transactions |
 | `weak_password` | 400 | sign-up, confirm-password-change |
 | `invalid_coin_qty` | 400 | wallet/topup |
+| `invalid_coin_price` | 400 | admin/coin-pricing PUT |
 | `coin_price_out_of_bounds` | 400 | wallet/topup |
+| `coin_price_bounds_invalid` | 400 | admin/coin-pricing PUT |
 | `liqpay_payload_invalid` | 400 | payments/liqpay/callback |
 | `token_invalid` | 401 | auth/refresh, confirm-email |
 | `authentication_failed` | 401 | request-verification, verify-code, confirm-password-change |

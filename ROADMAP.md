@@ -156,23 +156,32 @@ they try to interact.
 
 ---
 
-## Phase 4 — Coins, wallet & transactions `[#8, #11, #12, #13, #15, #16]`
+## Phase 4 — Coins, wallet & transactions `[#8, #11, #12, #13, #15, #16]` — DONE
 
 The economic core. Don't ship anything beyond this without Phase 1 + 2 done.
 
-1. **Wallet model** `[todo]` — `wallet { user_id, balance_money, balance_coins }`.
-   Coins and money are tracked separately because coin price can vary.
-2. **Coin pricing rules** `[#8]` `[todo]`:
-   - Admin sets default price (initial `$1`), upper and lower bounds.
-   - Player can override per-purchase within bounds.
-   - Coins purchased *carry their price*: a winning coin pays back at the
-     same price it was bought at. Implies coins are stored as a stack of
-     `{ qty, unit_price }` lots, or each lot is its own row.
-3. **Top-up flow** `[#3, #11]` `[partial]` — `ReplenishmentBalance.vue`
-   exists; integrate a real payment provider (Stripe / local processor),
-   record a `transaction` row, settle into the wallet.
-4. **Withdrawal flow** `[#3]` `[todo]` — request → admin approval (or
-   automatic if KYC permits) → payout → transaction row.
+1. **Wallet model** `[done]` — `wp_pc_wallets` (one row per user,
+   lazy-created), `wp_pc_coin_lots` (FIFO stack of
+   `{qty, unit_price}`), `wp_pc_transactions` (append-only ledger with
+   `consumed_lots` JSON for refundable withdrawals). All mutations
+   gated by `Wallet_Service` with `SELECT … FOR UPDATE` row locking.
+2. **Coin pricing rules** `[#8]` `[done]`:
+   - Admin sets default + min + max via the admin SPA
+     `SettingsView` → `PUT /admin/coin-pricing`. Stored as decimal
+     strings in WP options.
+   - Player overrides per-purchase within bounds (server re-checks on
+     every `POST /wallet/topup`).
+   - Lots carry their `unit_price`; FIFO consumption preserves the
+     original price for win-payout (Phase 6) and withdrawal refunds.
+3. **Top-up flow** `[#3, #11]` `[done]` — `ReplenishmentBalance.vue`
+   rewritten against `POST /wallet/topup` (LiqPay Checkout). Settlement
+   happens via the signed `POST /payments/liqpay/callback` webhook —
+   atomic on `(transaction-status, coin-lot insert, wallet credit)`.
+4. **Withdrawal flow** `[#3]` `[done]` — player FIFO-debits via
+   `POST /wallet/withdraw` (one pending at a time); admin reviews in
+   `admin/WithdrawalsView` and approves (out-of-band payout) or
+   rejects (re-credits coins at original prices). `consumed_lots` JSON
+   makes refunds atomic and idempotent.
 5. **Play-button balance rules** `[done]` — `RoomView.onPlayClick`
    routes a zero-balance Play directly to the top-up overlay. `PlaceBet`
    uses `useWalletStore`: preset coin quantity = 1, `+` button caps at
@@ -336,7 +345,10 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 - ~~Streaming provider and target latency.~~ Resolved Phase 3: **Mux
   LL-HLS** via `hls.js` (lazy-loaded). Safari uses native HLS. Iframe
   embeds (YouTube/Vimeo) still supported for one-off events.
-- Payment provider(s) and KYC requirements per jurisdiction.
+- ~~Payment provider(s) and KYC requirements per jurisdiction.~~
+  Resolved Phase 4: **LiqPay Checkout** (UAH). Withdrawals are manual
+  admin approval + out-of-band payout (no automated KYC pipeline);
+  Stripe Connect-style automation deferred until legal requires it.
 - ~~Whether the admin panel stays inside WP admin or becomes a separate SPA.~~
   Resolved Phase 0: separate admin SPA (see `ADMIN-DECISION.md`).
 - ~~Apple Sign-In: do we need Apple Developer Program enrollment now?~~

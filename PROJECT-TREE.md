@@ -46,6 +46,7 @@ pusher-coin/
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
 │   │       │   │   ├── rest-api/
+│   │       │   │   │   ├── AdminCoinPricingController.php # Phase 4: /admin/coin-pricing read/write
 │   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
 │   │       │   │   │   ├── AdminRoomController.php      # Phase 3: /admin/rooms CRUD + schedule replace
 │   │       │   │   │   ├── AdminWithdrawalController.php # Phase 4: /admin/withdrawals queue + approve/reject
@@ -219,6 +220,7 @@ pusher-coin/
         │   └── index.js                       # Auth guards: requiresAuth / requiresGuest
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
+        │   ├── adminCoinPricingService.js     # Phase 4: GET/PUT /admin/coin-pricing
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
@@ -230,6 +232,7 @@ pusher-coin/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
+            ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints
             ├── SignInView.vue                 # Email/password + 6-digit code form
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```

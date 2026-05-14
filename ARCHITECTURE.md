@@ -202,6 +202,33 @@ the `jwt-authentication-for-wp-rest-api` plugin's filters
 - Local: DDEV (`https://pusher-coin.ddev.site`) drives the backend; both SPAs' `.env` files point at it.
 - Production: backend is deployed via FTP from `main`; the player SPA builds via Vite and deploys to Vercel using `.env.production`. The admin SPA does **not** have a deploy target yet — it's local-only as of Phase 3.
 
+**Wallet & payments (Phase 4)**
+
+The economic surface is split across three custom tables (`wp_pc_wallets`,
+`wp_pc_coin_lots`, `wp_pc_transactions`) and a single
+`Wallet_Service` class that owns all atomic mutations. Coins are stored
+as a FIFO stack of `(qty, unit_price)` lots so a winning coin pays
+back at the same price it was bought at (Phase 6 will be the first
+consumer of `debit_fifo`; Phase 4 uses it for withdrawals).
+
+Top-ups flow through **LiqPay** Checkout: the SPA calls
+`POST /wallet/topup`, gets a signed `{ data, signature }` envelope,
+form-POSTs it to `liqpay.ua/api/3/checkout`, and on settlement LiqPay
+calls back `POST /payments/liqpay/callback`. The webhook handler is
+the only place that flips a transaction `pending → completed`,
+inserts the coin lot, and credits the wallet — atomic and idempotent
+on `(order_id, status)`. The merchant's **private key lives in
+`wp-config.php`** (`PC_LIQPAY_PRIVATE_KEY`) and never touches the DB.
+
+Withdrawals are manual: `POST /wallet/withdraw` FIFO-debits the lots
+into a `pending` transaction (consumed slices preserved on
+`consumed_lots` for refunds). An admin then approves (out-of-band
+payout, mark `completed`) or rejects (re-credit at original prices,
+mark `refunded`) from the admin SPA's withdrawals queue.
+
+The currency is UAH; money columns are `DECIMAL(12,2)` and all
+serialisation goes through decimal strings to avoid JS float drift.
+
 **Live streaming**
 
 `frontend/src/components/LiveStream.vue` sniffs the room's
