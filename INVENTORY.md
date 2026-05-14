@@ -119,8 +119,12 @@ real API calls.
   emit so `RoomView` can show the chat to guests without letting them
   send; the underlying message data is still placeholder.
 - `components/Queue.vue` — 24 fake users, two with hardcoded balance.
-- `components/ReplenishmentBalance.vue` — input is wired (IMask), the
-  submit button has no handler.
+- ~~`components/ReplenishmentBalance.vue` — input is wired (IMask), the
+  submit button has no handler.~~ Replaced in Phase 4: form is now
+  backed by `useWalletStore`, validates qty + unit price against
+  operator-set bounds, and submits a hidden form POST to LiqPay's
+  hosted checkout. Settlement happens via the webhook in
+  `PaymentController`; the SPA only refreshes the wallet on return.
 - `components/PlaceBet.vue` — same as above.
 - ~~`components/Rooms.vue` — placeholder list (rooms data is hardcoded).~~
   Replaced in Phase 3: fetches via `useRoomsStore`, renders real room

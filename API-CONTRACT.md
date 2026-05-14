@@ -513,13 +513,21 @@ Response (`200`):
   "lots": [
     { "qty": 5, "unit_price": "40.00" },
     { "qty": 3, "unit_price": "45.00" }
-  ]
+  ],
+  "coin_pricing": {
+    "default": "40.00",
+    "min": "10.00",
+    "max": "500.00"
+  }
 }
 ```
 
 `balance_money` is a decimal string (UAH) so JS doesn't introduce
 floating-point rounding when totalling. `lots` are returned oldest
-first — the same FIFO order they're consumed in.
+first — the same FIFO order they're consumed in. `coin_pricing`
+mirrors the operator-tunable WP options so the top-up form can clamp
+its slider client-side; the server enforces the same bounds on
+`POST /wallet/topup`.
 
 A user with no wallet row yet returns the zero state. The row is
 created lazily on the first top-up settlement.

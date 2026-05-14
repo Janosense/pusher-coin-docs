@@ -166,16 +166,19 @@ pusher-coin/
     │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
     │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
     │   │   ├── googleAuthService.js
+    │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
-    │   │   └── userService.js
+    │   │   ├── userService.js
+    │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup
     │   ├── stores/
     │   │   ├── authentication.js              # Token, user, Google 2FA state
     │   │   ├── chat.js
     │   │   ├── counter.js
     │   │   ├── navigation.js
     │   │   ├── rooms.js                       # Rooms list + 30s cache (Phase 3)
-    │   │   └── user.js
+    │   │   ├── user.js
+    │   │   └── wallet.js                      # Wallet balance, lots, pricing, topup action (Phase 4)
     │   └── views/
     │       ├── AboutView.vue
     │       ├── AcceptTermsView.vue            # Phase 1 gate view
