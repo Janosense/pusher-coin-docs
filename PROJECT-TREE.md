@@ -48,6 +48,7 @@ pusher-coin/
 │   │       │   │   ├── rest-api/
 │   │       │   │   │   ├── AdminCoinPricingController.php # Phase 4: /admin/coin-pricing read/write
 │   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
+│   │       │   │   │   ├── AdminMachineController.php   # Phase 5: /admin/machine power + state
 │   │       │   │   │   ├── AdminRoomController.php      # Phase 3: /admin/rooms CRUD + schedule replace
 │   │       │   │   │   ├── AdminWithdrawalController.php # Phase 4: /admin/withdrawals queue + approve/reject
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
@@ -222,6 +223,7 @@ pusher-coin/
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
         │   ├── adminCoinPricingService.js     # Phase 4: GET/PUT /admin/coin-pricing
+        │   ├── adminMachineService.js         # Phase 5: GET /admin/machine/state + POST /admin/machine/power
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
@@ -230,6 +232,7 @@ pusher-coin/
         │   ├── rooms.js                       # Admin rooms CRUD + schedule
         │   └── withdrawals.js                 # Phase 4: queue + approve/reject
         └── views/
+            ├── MachineView.vue                # Phase 5: connection probe + power toggle + sensor grid (3s poll)
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)

@@ -227,7 +227,14 @@ thin backend service so the rest of the app never talks to it directly.
    2s HTTP timeout. Returns typed `WP_Error` (`machine_not_configured`,
    `machine_offline`, `machine_unauthorized`, `machine_call_failed`,
    `machine_unavailable_state`).
-2. **Admin power switch** `[todo]` — UI for `power_on` / `power_off`.
+2. **Admin power switch** `[done]` — `POST /admin/machine/power` (`{on}`)
+   + `GET /admin/machine/state` (batched soft-fail snapshot). Admin SPA
+   `MachineView` polls every 3s (Step 4's Pusher push replaces the
+   poll), shows connection probe, On/Off buttons (disabled when
+   offline), and a sensor grid (coin counter, last bonus, relay,
+   light-bitfield rendered bit-by-bit). HA errors mapped to gateway
+   statuses so they don't trip the admin SPA's 401-refresh
+   interceptor; admin actions are audited as `machine_power_changed`.
 3. **Bonus mapping** `[todo]` — admin panel sets coins-per-bonus-id (1..12)
    and coins-per-relay-closure. Backend reads sensors and credits the
    player's wallet automatically using these mappings.

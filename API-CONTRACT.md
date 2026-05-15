@@ -875,6 +875,56 @@ Response (`200`): same shape as GET.
 
 Errors: `invalid_coin_price` 400; `coin_price_bounds_invalid` 400.
 
+### `GET /pc/v1/admin/machine/state`
+
+Batched read of the physical machine's state. Bearer + admin gate.
+Phase 5.
+
+Response (`200`):
+```json
+{
+  "online": true,
+  "power_on": true,
+  "coin_count": 1287,
+  "last_bonus_number": 7,
+  "light_state": 5,
+  "relay_closed": false
+}
+```
+
+`online` is a cheap connectivity probe against the HA root. The other
+fields **soft-fail per sensor**: if one sensor is `"unavailable"` its
+field comes back `null` instead of failing the whole call. This is
+deliberate — the admin UI wants partial state; the toss flow (Phase 6)
+will use individual sensor methods that hard-fail.
+
+Errors: `machine_not_configured` 500.
+
+### `POST /pc/v1/admin/machine/power`
+
+Switch the machine on or off. Bearer + admin gate. Phase 5.
+
+Request:
+```json
+{ "on": true }
+```
+
+Response (`200`):
+```json
+{ "ok": true, "on": true }
+```
+
+Writes a `machine_power_changed` audit log entry. Errors map HA
+failures to gateway statuses (the **caller's** auth is fine; failures
+mean the upstream HA is the problem):
+
+- `machine_offline` 503
+- `machine_unavailable_state` 503
+- `machine_unauthorized` 502 (HA rejected our bearer token)
+- `machine_call_failed` 502
+- `machine_not_configured` 500
+- `missing_required_fields` 400 (`on` not boolean)
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -914,15 +964,15 @@ All Phase 4 endpoints ship in the current section.
 
 ### Phase 5 — machine (admin)
 
-All admin-gated. Body / response shapes mirror the Home Assistant
-endpoints in `PUSHER-COIN-COMMANDS.txt`.
+`GET /pc/v1/admin/machine/state` and `POST /pc/v1/admin/machine/power`
+ship in the current section (Step 2). Still planned:
 
-- `POST /pc/v1/admin/machine/power` — `{ on: bool }`.
-- `GET /pc/v1/admin/machine/state` — `{ relay_closed, light_state,
-  coin_count, last_bonus }`.
-- `PUT /pc/v1/admin/machine/bonus-map` — `{ map: { "1": coins, ... }`.
-
-Errors: `machine_offline` 503, `machine_call_failed` 502.
+- `GET /pc/v1/admin/machine/bonus-map` and
+  `PUT /pc/v1/admin/machine/bonus-map` — `{ map: { "1": coins, ... }, relay_coin_count }` (Step 3).
+- `POST /pc/v1/machine/webhook` — HA outbound webhook ingress (Step 5,
+  HMAC-signed payload).
+- `POST /pc/v1/realtime/auth` — Pusher private-channel subscription
+  auth (Step 4).
 
 ### Phase 6 — queue & play
 
@@ -1023,9 +1073,12 @@ One canonical code per failure mode — do not invent variants.
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
 | `liqpay_not_configured` | 500 | wallet/topup, payments/liqpay/callback |
+| `machine_not_configured` | 500 | admin/machine/state, admin/machine/power |
 | `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `payment_failed` | 502 | wallet/topup (planned) |
-| `machine_call_failed` | 502 | admin/machine/* (planned) |
-| `machine_offline` | 503 | admin/machine/* (planned) |
+| `machine_call_failed` | 502 | admin/machine/power |
+| `machine_unauthorized` | 502 | admin/machine/power |
+| `machine_offline` | 503 | admin/machine/power |
+| `machine_unavailable_state` | 503 | admin/machine/power |
