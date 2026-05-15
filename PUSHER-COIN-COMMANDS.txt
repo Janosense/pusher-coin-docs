@@ -1,10 +1,42 @@
+Pusher Coin — Home Assistant API reference
+==========================================
+
+The pusher machine is exposed through a Home Assistant instance at
+https://developer-it.com/api. All calls require a long-lived bearer
+token in the Authorization header.
+
+DO NOT commit a real token to this file. The live token must live in
+`wp-config.php` as a PHP constant `PC_MACHINE_TOKEN` so it stays out of
+the repository, backups, and admin UI. The MachineService PHP class
+(backend/wp-content/themes/pc/app/utils/machine-service.php) reads it
+from there at runtime.
+
+If you need to rotate the token, generate a new one from the HA
+profile page (Long-Lived Access Tokens) and update the constant in
+wp-config.php. Revoke the old token in the same screen.
+
+Entity IDs (operator-tunable WP options; defaults shown):
+
+    pc_machine_endpoint               https://developer-it.com/api
+    pc_machine_power_switch_entity    switch.sonoff_10024fb618
+    pc_machine_toss_button_entity     input_button.toss_a_coin
+    pc_machine_coin_sensor_entity     sensor.coin
+    pc_machine_bonus_sensor_entity    sensor.lc01_12
+    pc_machine_light_sensor_entity    sensor.light_b_t
+    pc_machine_relay_sensor_entity    sensor.relay_on
+    pc_machine_relay_close_entity     input_button.relay_on
+    pc_machine_relay_open_entity      input_button.relay_off
+
+The headers used by every call below:
+
+    headers = {
+        "Authorization": "Bearer <your-long-lived-access-token>",
+        "Content-Type": "application/json"
+    }
+
+----------------------------------------------------------------------
+
 Включить питание автомата:
-
-headers = {
-    "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiI1ZWU1NDlkNmRhYTk0ODVhYTg4N2Y4YmExODc2MDkxYyIsImlhdCI6MTc0NzIxNjUyNSwiZXhwIjoyMDYyNTc2NTI1fQ.g7ZCU1ks1AnkeMDiTf5vLQEvTF8de3nnPw_M_3oxmvA",
-    "Content-Type": "application/json"
-}
-
 response = requests.post(
         "https://developer-it.com/api/services/switch/turn_on",
         headers=headers,

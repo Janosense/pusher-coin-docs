@@ -210,17 +210,23 @@ and transactions are auditable.
 Wrap the Home Assistant API documented in `PUSHER-COIN-COMMANDS.txt` in a
 thin backend service so the rest of the app never talks to it directly.
 
-1. **`MachineService` (PHP)** `[todo]` — single class that owns the bearer
-   token (stored as a WP option or environment variable, not in the repo)
-   and exposes:
-   - `power_on()` / `power_off()` → `switch.sonoff_10024fb618`.
-   - `toss_coin()` → `input_button.toss_a_coin`, expects HTTP 200.
-   - `coins_dropped()` → `sensor.coin` state.
-   - `bonus_number()` → `sensor.lc01_12` state (1–12 mapped to N coins via
-     admin config).
-   - `light_state()` → `sensor.light_b_t` (bitwise 0–3).
-   - `relay_closed()` → `sensor.relay_on` state.
-   - `relay_close()` / `relay_open()` → relay control buttons.
+1. **`MachineService` (PHP)** `[done]` — `app/utils/machine-service.php`.
+   Reads the bearer token from `PC_MACHINE_TOKEN` (wp-config.php, never
+   DB); base URL + entity IDs from operator-tunable WP options with
+   defaults matching `PUSHER-COIN-COMMANDS.txt`. Exposes:
+   - `power_on()` / `power_off()` → switch service calls.
+   - `toss_coin()` → `input_button.press`, enforces HTTP 200.
+   - `get_coin_count()` / `get_bonus_number()` / `get_light_state()` →
+     sensor reads as int.
+   - `get_relay_closed()` / `get_power_on()` → normalised boolean.
+   - `relay_close()` / `relay_open()` → button presses.
+   - `get_state_snapshot()` — batched read for the admin UI; soft-fails
+     per field so one offline sensor doesn't fail the whole snapshot.
+   - `is_online()` — cheap connectivity probe for Phase 7's ops view.
+
+   2s HTTP timeout. Returns typed `WP_Error` (`machine_not_configured`,
+   `machine_offline`, `machine_unauthorized`, `machine_call_failed`,
+   `machine_unavailable_state`).
 2. **Admin power switch** `[todo]` — UI for `power_on` / `power_off`.
 3. **Bonus mapping** `[todo]` — admin panel sets coins-per-bonus-id (1..12)
    and coins-per-relay-closure. Backend reads sensors and credits the

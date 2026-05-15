@@ -246,18 +246,29 @@ to avoid PHP float drift.
 
 ### WP options — machine settings
 
-Singletons; admin-edited from the admin SPA.
+Singletons; admin-edited from the admin SPA. Step 1 reads each value
+with the default below when the option is absent, so a fresh install
+talks to the production HA endpoint without any explicit configuration
+beyond the bearer token.
 
-| Option key | Type | Notes |
-| --- | --- | --- |
-| `pc_machine_bonus_map` | JSON `{ "1": coins, ... "12": coins }` | Coins-per-bonus-id. |
-| `pc_machine_relay_coin_count` | int | Coins credited when the relay closes. |
-| `pc_machine_endpoint` | string (URL) | Home Assistant base URL. |
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_machine_endpoint` | string (URL) | `https://developer-it.com/api` | Home Assistant base URL. |
+| `pc_machine_power_switch_entity` | string | `switch.sonoff_10024fb618` | HA entity for the wall switch. |
+| `pc_machine_toss_button_entity` | string | `input_button.toss_a_coin` | HA entity that fires a coin toss. |
+| `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Cumulative coin counter. |
+| `pc_machine_bonus_sensor_entity` | string | `sensor.lc01_12` | Bonus wheel value 1–12. |
+| `pc_machine_light_sensor_entity` | string | `sensor.light_b_t` | Status-light bitfield. |
+| `pc_machine_relay_sensor_entity` | string | `sensor.relay_on` | Relay-contact state read. |
+| `pc_machine_relay_close_entity` | string | `input_button.relay_on` | Closes the relay. |
+| `pc_machine_relay_open_entity` | string | `input_button.relay_off` | Opens the relay. |
+| `pc_machine_bonus_map` | JSON `{ "1": coins, ... "12": coins }` | _set by admin_ | Coins-per-bonus-id (Phase 5 Step 3). |
+| `pc_machine_relay_coin_count` | int | _set by admin_ | Coins credited when the relay closes (Phase 5 Step 3). |
 
 The Home Assistant **bearer token is not stored in the database**. Keep
-it in `wp-config.php` (`PC_MACHINE_TOKEN`) or env, read by
-`MachineService` only. This keeps the secret out of DB backups and
-admin UI.
+it in `wp-config.php` (`PC_MACHINE_TOKEN`), read by `Machine_Service`
+only. This keeps the secret out of DB backups, the admin UI, and
+`wp db export`. Rotation is a wp-config edit.
 
 ### `wp_pc_machine_events` (custom table)
 

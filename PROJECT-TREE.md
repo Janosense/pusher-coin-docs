@@ -66,6 +66,7 @@ pusher-coin/
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
 │   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
+│   │       │   │       ├── machine-service.php # Phase 5: Home Assistant REST wrapper
 │   │       │   │       ├── permissions.php     # Permission_callback helpers
 │   │       │   │       ├── post-meta-keys.php  # Post_Meta_Keys registry
 │   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
