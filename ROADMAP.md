@@ -235,9 +235,13 @@ thin backend service so the rest of the app never talks to it directly.
    light-bitfield rendered bit-by-bit). HA errors mapped to gateway
    statuses so they don't trip the admin SPA's 401-refresh
    interceptor; admin actions are audited as `machine_power_changed`.
-3. **Bonus mapping** `[todo]` — admin panel sets coins-per-bonus-id (1..12)
-   and coins-per-relay-closure. Backend reads sensors and credits the
-   player's wallet automatically using these mappings.
+3. **Bonus mapping** `[partial]` — `GET` / `PUT /admin/machine/bonus-map`
+   persists the 12-entry bonus payout map + relay coin count to
+   `pc_machine_bonus_map` (JSON option) + `pc_machine_relay_coin_count`.
+   Admin SPA `SettingsView` renders a 4×3 grid editor with the relay
+   field below. Wallet crediting on actual sensor events happens in
+   Step 5 (HA webhook ingress) — Step 3 owns the configuration
+   storage + UI only.
 4. **Coin-throw acknowledgement** `[todo]` — every toss must verify a 200
    response; on failure, do not deduct the coin.
 5. **Relay-closed lock** `[todo]` — when `sensor.relay_on` is closed, the SPA

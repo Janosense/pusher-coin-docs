@@ -925,6 +925,39 @@ mean the upstream HA is the problem):
 - `machine_not_configured` 500
 - `missing_required_fields` 400 (`on` not boolean)
 
+### `GET /pc/v1/admin/machine/bonus-map`
+
+Read the operator-configured coin payouts for each bonus number and
+relay closure. Bearer + admin gate. Phase 5.
+
+Response (`200`):
+```json
+{
+  "map": {
+    "1": 0, "2": 0, "3": 1, "4": 0, "5": 2, "6": 0,
+    "7": 5, "8": 0, "9": 0, "10": 10, "11": 0, "12": 50
+  },
+  "relay_coin_count": 10
+}
+```
+
+The map always has exactly 12 string-keyed entries (`"1"`..`"12"`).
+Missing entries on a fresh install default to `0`.
+
+### `PUT /pc/v1/admin/machine/bonus-map`
+
+Replace the bonus payout configuration. Bearer + admin gate. Phase 5.
+
+Request: same shape as GET. All 12 entries required (a partial map
+returns `invalid_bonus_map`). Values are non-negative integers
+(strings or ints accepted; coerced to int server-side).
+
+Response (`200`): same shape as GET.
+
+Writes a `machine_bonus_map_updated` audit log entry.
+
+Errors: `invalid_bonus_map` 400.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -964,11 +997,11 @@ All Phase 4 endpoints ship in the current section.
 
 ### Phase 5 — machine (admin)
 
-`GET /pc/v1/admin/machine/state` and `POST /pc/v1/admin/machine/power`
-ship in the current section (Step 2). Still planned:
+`GET /pc/v1/admin/machine/state`, `POST /pc/v1/admin/machine/power`,
+`GET /pc/v1/admin/machine/bonus-map`, and
+`PUT /pc/v1/admin/machine/bonus-map` ship in the current section. Still
+planned:
 
-- `GET /pc/v1/admin/machine/bonus-map` and
-  `PUT /pc/v1/admin/machine/bonus-map` — `{ map: { "1": coins, ... }, relay_coin_count }` (Step 3).
 - `POST /pc/v1/machine/webhook` — HA outbound webhook ingress (Step 5,
   HMAC-signed payload).
 - `POST /pc/v1/realtime/auth` — Pusher private-channel subscription
@@ -1026,6 +1059,7 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_terms_version` | 400 | user/accept-terms |
 | `invalid_transaction_type` | 400 | transactions |
 | `invalid_date` | 400 | transactions |
+| `invalid_bonus_map` | 400 | admin/machine/bonus-map PUT |
 | `weak_password` | 400 | sign-up, confirm-password-change |
 | `invalid_coin_qty` | 400 | wallet/topup |
 | `invalid_coin_price` | 400 | admin/coin-pricing PUT |

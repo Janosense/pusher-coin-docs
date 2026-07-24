@@ -48,7 +48,7 @@ pusher-coin/
 │   │       │   │   ├── rest-api/
 │   │       │   │   │   ├── AdminCoinPricingController.php # Phase 4: /admin/coin-pricing read/write
 │   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
-│   │       │   │   │   ├── AdminMachineController.php   # Phase 5: /admin/machine power + state
+│   │       │   │   │   ├── AdminMachineController.php   # Phase 5: /admin/machine power + state + bonus-map
 │   │       │   │   │   ├── AdminRoomController.php      # Phase 3: /admin/rooms CRUD + schedule replace
 │   │       │   │   │   ├── AdminWithdrawalController.php # Phase 4: /admin/withdrawals queue + approve/reject
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
@@ -223,7 +223,7 @@ pusher-coin/
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
         │   ├── adminCoinPricingService.js     # Phase 4: GET/PUT /admin/coin-pricing
-        │   ├── adminMachineService.js         # Phase 5: GET /admin/machine/state + POST /admin/machine/power
+        │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
@@ -236,7 +236,7 @@ pusher-coin/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
-            ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints
+            ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```
