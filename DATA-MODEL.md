@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices). |
+| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -274,16 +274,46 @@ only. This keeps the secret out of DB backups, the admin UI, and
 
 Audit log: every coin-toss / coins-dropped / bonus-won / relay-closed
 event the backend mediates. Source for the operations dashboard alerts
-in Phase 7.
+in Phase 7. Installed by Install_Schema 1.5.0; written through
+`Machine_Event_Log`, never directly.
 
 ```
-id            BIGINT   PK
-machine_id    VARCHAR(64)
-event_type    ENUM('toss','coins_dropped','bonus','relay_closed','offline')
-payload       JSON
-correlation_id BIGINT  NULL  -- FK → wp_pc_bet_sessions.id when applicable
-created_at    DATETIME(6)    -- microsecond precision for ordering
+id             BIGINT   PK
+machine_id     VARCHAR(64)  NOT NULL DEFAULT ''
+event_type     VARCHAR(32)        -- toss|coins_dropped|bonus|relay_closed|offline
+event_key      VARCHAR(191) NULL  -- UNIQUE; idempotency guard, see below
+user_id        BIGINT   NULL      -- player credited, NULL when unattributed
+coins_credited INT      NOT NULL DEFAULT 0
+unit_price     DECIMAL(8,2) NOT NULL DEFAULT 0
+status         VARCHAR(16)        -- recorded|credited|unattributed|failed
+payload        LONGTEXT NULL      -- JSON
+correlation_id BIGINT   NULL      -- FK → wp_pc_bet_sessions.id when applicable
+created_at     DATETIME(6)        -- microsecond precision for ordering
 ```
+
+Three decisions worth keeping:
+
+- **`VARCHAR` over `ENUM`** for `event_type` / `status`. `dbDelta` cannot
+  diff an `ENUM` reliably, so adding a member later would silently skip
+  the migration. The allowed values live on `Machine_Event_Log` constants.
+- **`event_key` is the idempotency guard.** A retried HA webhook or an
+  overlapping poll collides on the unique index and is recorded once,
+  never credited twice. NULL is permitted (MySQL allows repeated NULLs in
+  a unique index) so keyless events still log — but a transport that
+  omits the key gets at-least-once delivery, which for a payout means
+  double credits. Transports must supply one.
+- **Machine credits do not write `wp_pc_transactions`.** They insert a
+  coin lot and move `balance_coins`, and this table is their audit trail.
+  The ledger stays the money trail (top-ups / withdrawals), which is what
+  ROADMAP §4.7 shows in the player's history view. Payouts are priced at
+  the player's FIFO-head lot price — the price of the next coin they
+  would spend — falling back to `pc_coin_price_default` for an empty
+  wallet (`Machine_Ingest_Service::payout_unit_price`).
+
+Attribution — which player a payout belongs to — is a Phase 6 concept
+(`wp_pc_bet_sessions`). Until it lands, the `pc_machine_event_player`
+filter returns null and events log as `unattributed` with no wallet
+movement.
 
 ---
 

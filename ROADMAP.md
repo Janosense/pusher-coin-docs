@@ -229,26 +229,43 @@ thin backend service so the rest of the app never talks to it directly.
    `machine_unavailable_state`).
 2. **Admin power switch** `[done]` — `POST /admin/machine/power` (`{on}`)
    + `GET /admin/machine/state` (batched soft-fail snapshot). Admin SPA
-   `MachineView` polls every 3s (Step 4's Pusher push replaces the
+   `MachineView` polls every 3s (Step 7's push channel replaces the
    poll), shows connection probe, On/Off buttons (disabled when
    offline), and a sensor grid (coin counter, last bonus, relay,
    light-bitfield rendered bit-by-bit). HA errors mapped to gateway
    statuses so they don't trip the admin SPA's 401-refresh
    interceptor; admin actions are audited as `machine_power_changed`.
-3. **Bonus mapping** `[partial]` — `GET` / `PUT /admin/machine/bonus-map`
-   persists the 12-entry bonus payout map + relay coin count to
-   `pc_machine_bonus_map` (JSON option) + `pc_machine_relay_coin_count`.
-   Admin SPA `SettingsView` renders a 4×3 grid editor with the relay
-   field below. Wallet crediting on actual sensor events happens in
-   Step 5 (HA webhook ingress) — Step 3 owns the configuration
-   storage + UI only.
+3. **Bonus mapping** `[partial]` — two halves, both now in the repo:
+   - *Configuration* `[done]` — `GET` / `PUT /admin/machine/bonus-map`
+     persists the 12-entry bonus payout map + relay coin count to
+     `pc_machine_bonus_map` (JSON option) + `pc_machine_relay_coin_count`.
+     Admin SPA `SettingsView` renders a 4×3 grid editor with the relay
+     field below.
+   - *Crediting* `[partial]` — `wp_pc_machine_events` (Install_Schema
+     1.5.0) + `Machine_Event_Log` + `Machine_Ingest_Service`, which
+     turns an event into a wallet credit: `ingest_bonus`,
+     `ingest_relay_closed`, `ingest_coins_dropped`. Events dedupe on
+     `event_key`, price at the player's FIFO-head lot price, and credit
+     via `Wallet_Service::credit_lot` without touching the ledger (see
+     `DATA-MODEL.md`). Deliberately transport-agnostic — Step 7 picks
+     how events arrive. Two gaps remain: attribution goes through the
+     `pc_machine_event_player` filter, which nothing hooks until Phase 6,
+     so events log `unattributed` and pay nobody; and the only caller
+     today is `wp pc machine-ingest`, the manual replay / test command.
 4. **Coin-throw acknowledgement** `[todo]` — every toss must verify a 200
-   response; on failure, do not deduct the coin.
+   response; on failure, do not deduct the coin. `Machine_Service::toss_coin()`
+   already enforces the 200; what's missing is the caller that debits
+   only on success — `POST /rooms/{id}/play`, which is Phase 6 §3.
 5. **Relay-closed lock** `[todo]` — when `sensor.relay_on` is closed, the SPA
    must disable the toss button (real-time push, not polling).
-6. **Documentation walk-through with Dima** `[todo]` — open question to
-   clarify state transitions and edge cases (machine offline, sensor
-   debounce, coins-from-bonus vs coins-from-relay overlap).
+6. **Documentation walk-through with Dima** `[todo]` — **now the
+   critical path**: it gates Step 7's transport choice, which gates the
+   rest of the phase. Needs: can HA push (automation → webhook) or must
+   we poll — `PUSHER-COIN-COMMANDS.txt` documents reads and service
+   calls only, no outbound webhook; sensor semantics and edge cases
+   (machine offline, sensor debounce, coins-from-bonus vs
+   coins-from-relay overlap); and the source of truth / rotation policy
+   for the machine bearer token.
 7. **Machine-event channel** `[todo]` — websocket / SSE feed from the backend
    so the SPA reflects coin drops, bonus events, and relay state without
    polling. Likely Pusher / Ably / a self-hosted Soketi.

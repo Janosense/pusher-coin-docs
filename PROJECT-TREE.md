@@ -63,10 +63,13 @@ pusher-coin/
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
 │   │       │   │       ├── cli/
+│   │       │   │       │   ├── machine-ingest.php # `wp pc machine-ingest` — replay a machine event (Phase 5)
 │   │       │   │       │   └── seed-rooms.php  # `wp pc seed-rooms` (Phase 3)
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
 │   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
+│   │       │   │       ├── machine-events.php  # Phase 5: Machine_Event_Log writer (wp_pc_machine_events)
+│   │       │   │       ├── machine-ingest-service.php # Phase 5: machine event → wallet credit (transport-agnostic)
 │   │       │   │       ├── machine-service.php # Phase 5: Home Assistant REST wrapper
 │   │       │   │       ├── permissions.php     # Permission_callback helpers
 │   │       │   │       ├── post-meta-keys.php  # Post_Meta_Keys registry

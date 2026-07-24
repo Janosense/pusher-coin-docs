@@ -1002,10 +1002,14 @@ All Phase 4 endpoints ship in the current section.
 `PUT /pc/v1/admin/machine/bonus-map` ship in the current section. Still
 planned:
 
-- `POST /pc/v1/machine/webhook` — HA outbound webhook ingress (Step 5,
-  HMAC-signed payload).
-- `POST /pc/v1/realtime/auth` — Pusher private-channel subscription
-  auth (Step 4).
+- `POST /pc/v1/machine/webhook` — HA outbound webhook ingress
+  (HMAC-signed payload). One of the two candidate transports for Step 7;
+  the other is a backend poller and neither is picked until the Step 6
+  walk-through establishes whether HA can push at all. Whichever wins
+  calls `Machine_Ingest_Service`, which already ships — the endpoint is
+  a thin signature-check + `event_key` wrapper over it.
+- `POST /pc/v1/realtime/auth` — private-channel subscription auth for
+  the Step 7 push channel (provider unpicked: Pusher / Ably / Soketi).
 
 ### Phase 6 — queue & play
 
