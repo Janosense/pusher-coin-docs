@@ -48,8 +48,9 @@ library. Phase 1 introduces a 15-minute access TTL (controlled by the
 `AuthController::issue_access_token` and the `jwt_auth_expire` filter).
 Refresh tokens are stored hashed in `wp_pc_refresh_tokens`.
 
-Account-page endpoints, rooms, wallet, transactions, support: still
-deferred to later phases.
+Account-page endpoints, rooms, wallet, transactions, and support all
+shipped in Phases 2–7; the namespace listing above is the Phase 0
+baseline, not the current surface (see `API-CONTRACT.md`).
 
 ## Player role
 
@@ -115,7 +116,11 @@ real API calls.
   component, and is guest-aware (read-only chat + "Sign in to play"
   CTA). Choosing the streaming provider and dropping in the matching
   client library remains an open question (see `ROADMAP.md`).
-- `views/SupportView.vue` — form has `action=""` and no handler.
+- ~~`views/SupportView.vue` — form has `action=""` and no handler.~~
+  Replaced in Phase 7: subjects come from `GET /support/subjects`,
+  submission posts to `POST /support/tickets`, the email field locks for
+  logged-in players, and a captcha mounts for guests when the operator
+  has configured a provider.
 - `components/Chat.vue` — six hardcoded messages; `sendMessage` mutates
   a local array. Phase 3 added a `readonly` prop + `send-attempted`
   emit so `RoomView` can show the chat to guests without letting them

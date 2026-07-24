@@ -50,22 +50,26 @@ pusher-coin/
 │   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
 │   │       │   │   │   ├── AdminMachineController.php   # Phase 5: /admin/machine power + state + bonus-map
 │   │       │   │   │   ├── AdminRoomController.php      # Phase 3: /admin/rooms CRUD + schedule replace
+│   │       │   │   │   ├── AdminSupportController.php   # Phase 7: /admin/support tickets + subjects
 │   │       │   │   │   ├── AdminWithdrawalController.php # Phase 4: /admin/withdrawals queue + approve/reject
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
+│   │       │   │   │   ├── SupportController.php    # Phase 7: public /support subjects + tickets
 │   │       │   │   │   ├── TransactionsController.php # Phase 4: GET /transactions
 │   │       │   │   │   ├── UserController.php
 │   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup + /withdraw
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
+│   │       │   │       ├── captcha-verifier.php # Phase 7: Turnstile / hCaptcha siteverify
 │   │       │   │       ├── cli/
 │   │       │   │       │   ├── machine-ingest.php # `wp pc machine-ingest` — replay a machine event (Phase 5)
 │   │       │   │       │   └── seed-rooms.php  # `wp pc seed-rooms` (Phase 3)
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
+│   │       │   │       ├── cpt-support-subject.php # Registers pc_support_subject CPT (Phase 7)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
 │   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
 │   │       │   │       ├── machine-events.php  # Phase 5: Machine_Event_Log writer (wp_pc_machine_events)
@@ -77,6 +81,7 @@ pusher-coin/
 │   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
 │   │       │   │       ├── role-player.php     # Registers `player` role
 │   │       │   │       ├── room-schedule-calculator.php  # Computes current/next broadcast windows
+│   │       │   │       ├── support-service.php # Phase 7: subjects CPT + tickets table + notify mail
 │   │       │   │       ├── user-meta-keys.php  # User_Meta_Keys registry
 │   │       │   │       └── wallet-service.php # Phase 4: atomic wallet / lot / transaction ops
 │   │       │   ├── composer.json
@@ -179,6 +184,7 @@ pusher-coin/
     │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
+    │   │   ├── supportService.js              # Phase 7: /support subjects + tickets
     │   │   ├── userService.js
     │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup + /withdraw
     │   ├── stores/
@@ -200,7 +206,7 @@ pusher-coin/
     │       ├── RoomsView.vue
     │       ├── SignInView.vue
     │       ├── SignUpView.vue
-    │       └── SupportView.vue
+    │       └── SupportView.vue                # Phase 7: subject dropdown, guest captcha, verified-email gate
     ├── vercel.json                            # Vercel deploy config
     └── vite.config.js                         # `@` → `src/` alias, Vue plugin
 
@@ -228,6 +234,7 @@ pusher-coin/
         │   ├── adminCoinPricingService.js     # Phase 4: GET/PUT /admin/coin-pricing
         │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
+        │   ├── adminSupportService.js         # Phase 7: /admin/support tickets + subjects
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
@@ -241,5 +248,7 @@ pusher-coin/
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
             ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
+            ├── SubjectsView.vue               # Phase 7: subject list editor (reorder / hide / replace-all save)
+            ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```

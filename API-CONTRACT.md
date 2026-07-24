@@ -958,6 +958,140 @@ Writes a `machine_bonus_map_updated` audit log entry.
 
 Errors: `invalid_bonus_map` 400.
 
+### `GET /pc/v1/support/subjects`
+
+Public. The support form's dropdown options plus the captcha challenge
+the guest path will demand — both in one response so the SPA can render
+the whole form after a single request.
+
+Response (`200`):
+```json
+{
+  "items": [ { "id": 7, "label": "Payment problem" } ],
+  "captcha": { "provider": "turnstile", "site_key": "0x4AAA..." }
+}
+```
+
+Only published subjects are listed, in `menu_order`. `captcha` is
+`null` when the operator has not configured a provider — in that mode
+`POST /support/tickets` accepts guests without a token. See
+`Captcha_Verifier`.
+
+### `POST /pc/v1/support/tickets`
+
+Public route, two paths. Rate-limited to 5 per hour per IP
+(`rate_limited` 429).
+
+Request:
+```json
+{
+  "email": "player@example.com",
+  "subject_id": 7,
+  "description": "My top-up did not arrive.",
+  "captcha_token": "..."
+}
+```
+
+- **Guest** (no Bearer) — `email` is required and `captcha_token` is
+  required whenever `captcha` is non-null on the subjects response. The
+  ticket records `email_verified: false`.
+- **Logged in** (Bearer) — `email` and `captcha_token` are ignored. The
+  account email is used, so a ticket cannot be filed under someone
+  else's address, and the account must be email-verified.
+
+`description` is bounded to 10–5000 characters.
+
+Response (`201`):
+```json
+{ "ticket_id": 42 }
+```
+
+Writes a `support_ticket_created` audit log entry and mails
+`pc_support_email` with the submitter as `Reply-To`.
+
+Errors: `invalid_email` 400, `invalid_description` 400,
+`subject_not_found` 404, `captcha_failed` 401, `email_not_verified`
+403, `rate_limited` 429, `ticket_write_failed` 500.
+
+### `GET /pc/v1/admin/support/tickets`
+
+Admin. Paginated (`page`, `per_page`), filterable by `status` and by a
+free-text `search` matched against email + description.
+
+Response (`200`):
+```json
+{
+  "items": [ {
+    "id": 42,
+    "user_id": null,
+    "email": "player@example.com",
+    "subject_id": 7,
+    "subject_label": "Payment problem",
+    "description": "My top-up did not arrive.",
+    "email_verified": false,
+    "status": "open",
+    "ip": "203.0.113.9",
+    "user_agent": "Mozilla/5.0 …",
+    "created_at": "2026-07-24 19:46:18",
+    "updated_at": "2026-07-24 19:46:18"
+  } ],
+  "total": 1,
+  "page": 1,
+  "per_page": 20
+}
+```
+
+`subject_label` resolves even for a retired subject, so old tickets stay
+readable after the list is edited.
+
+Errors: `invalid_ticket_status` 400.
+
+### `PATCH /pc/v1/admin/support/tickets/{id}`
+
+Admin. Status transitions only — replies happen from the operator's mail
+client, since the notification mail sets `Reply-To` to the player.
+
+Request:
+```json
+{ "status": "in_progress" }
+```
+
+`status` ∈ `open` | `in_progress` | `resolved` | `closed`.
+
+Response (`200`): the updated ticket, same shape as the list rows.
+Writes a `support_ticket_updated` audit log entry.
+
+Errors: `invalid_ticket_status` 400, `ticket_not_found` 404.
+
+### `GET /pc/v1/admin/support/subjects`
+
+Admin. Like the public list but includes hidden (draft) subjects and
+carries `hidden` + `order`.
+
+Response (`200`):
+```json
+{ "items": [ { "id": 7, "label": "Payment problem", "hidden": false, "order": 0 } ] }
+```
+
+### `PUT /pc/v1/admin/support/subjects`
+
+Admin. Replaces the whole list in one call.
+
+Request:
+```json
+{ "items": [ { "id": 7, "label": "Payment problem", "hidden": false }, { "label": "Something else" } ] }
+```
+
+Array position becomes `menu_order`. Items with an `id` are updated in
+place so existing tickets keep pointing at a live subject; items without
+one are created; anything absent from the payload is **trashed, not
+deleted**, so an old ticket still resolves its label.
+
+Response (`200`): the resulting list, same shape as GET.
+Writes a `support_subjects_updated` audit log entry.
+
+Errors: `invalid_subject` 400.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -1030,15 +1164,13 @@ Errors: `not_player_turn` 403, `queue_locked` 409,
 
 ### Phase 7 — support
 
-- `GET /pc/v1/support/subjects` — public. Response: `{ items: [{ id, label }] }`.
-- `POST /pc/v1/support/tickets` — public + captcha for guests; Bearer
-  for logged-in users. Request: `{ email, subject_id, description,
-  captcha_token? }`. Response: `{ ticket_id }`.
-- `GET /pc/v1/admin/support/tickets` — admin. Paginated.
-- `PATCH /pc/v1/admin/support/tickets/{id}` — admin. Status updates.
-- `PUT /pc/v1/admin/support/subjects` — admin. Replaces the subjects list.
+All Phase 7 support endpoints ship in the current section. Still
+planned, from ROADMAP §7.4 (ops alerts):
 
-Errors: `captcha_failed` 401, `subject_not_found` 404.
+- an alerting path for machine-offline / stalled-coin-sensor / withdrawal
+  spikes. No endpoint shape yet — it needs the Phase 5 transport
+  decision first, since "machine offline" is only observable once
+  events (or polls) arrive.
 
 ---
 
@@ -1051,7 +1183,10 @@ One canonical code per failure mode — do not invent variants.
 | --- | --- | --- |
 | `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `missing_id_token` | 400 | google-auth/authentication |
-| `invalid_email` | 400 | sign-up |
+| `invalid_email` | 400 | sign-up, support/tickets |
+| `invalid_description` | 400 | support/tickets |
+| `invalid_subject` | 400 | admin/support/subjects PUT |
+| `invalid_ticket_status` | 400 | admin/support/tickets (GET filter, PATCH) |
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
 | `invalid_phone` | 400 | user/me PATCH |
@@ -1081,9 +1216,9 @@ One canonical code per failure mode — do not invent variants.
 | `password_mismatch` | 401 | change-password (planned) |
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
-| `captcha_failed` | 401 | support/tickets (planned, guest path) |
+| `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
-| `email_not_verified` | 403 | google-auth/authentication, play-ready gated endpoints (Permissions::require_play_ready) |
+| `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
 | `nickname_required` | 403 | gated play endpoints |
 | `not_player_turn` | 403 | rooms/{id}/play (planned) |
@@ -1092,7 +1227,8 @@ One canonical code per failure mode — do not invent variants.
 | `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
 | `room_not_found` | 404 | rooms/{id}, rooms/{id}/schedule |
 | `withdrawal_not_found` | 404 | admin/withdrawals/{id}/approve, /reject |
-| `subject_not_found` | 404 | support/tickets (planned) |
+| `subject_not_found` | 404 | support/tickets |
+| `ticket_not_found` | 404 | admin/support/tickets PATCH |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
@@ -1102,10 +1238,11 @@ One canonical code per failure mode — do not invent variants.
 | `insufficient_balance` | 409 | wallet, rooms/play (planned) |
 | `queue_locked` | 409 | rooms/queue (planned) |
 | `relay_closed` | 423 | rooms/play (planned) |
-| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change |
+| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
 | `wallet_write_failed` | 500 | wallet/withdraw, admin/withdrawals/{id}/reject |
+| `ticket_write_failed` | 500 | support/tickets |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |

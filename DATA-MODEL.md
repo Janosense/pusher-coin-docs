@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`). |
+| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -264,6 +264,9 @@ beyond the bearer token.
 | `pc_machine_relay_open_entity` | string | `input_button.relay_off` | Opens the relay. |
 | `pc_machine_bonus_map` | JSON `{ "1": coins, ... "12": coins }` | _set by admin_ | Coins-per-bonus-id (Phase 5 Step 3). |
 | `pc_machine_relay_coin_count` | int | _set by admin_ | Coins credited when the relay closes (Phase 5 Step 3). |
+| `pc_support_email` | string (email) | site `admin_email` | Where new-ticket notifications are mailed (Phase 7). |
+| `pc_captcha_provider` | string | `turnstile` | `turnstile` or `hcaptcha`; picks the siteverify endpoint. |
+| `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA. Empty ⇒ captcha disabled. |
 
 The Home Assistant **bearer token is not stored in the database**. Keep
 it in `wp-config.php` (`PC_MACHINE_TOKEN`), read by `Machine_Service`
@@ -360,19 +363,35 @@ Post fields:
 
 High-write, append-mostly. Not a CPT — tickets are not editorial content.
 
+Installed by Install_Schema 1.6.0; written through `Support_Service`.
+
 ```
 id             BIGINT   PK
 user_id        BIGINT   NULL   -- nullable for guest submissions
 email          VARCHAR(255)
-subject_id     BIGINT   FK → wp_posts.ID  (a pc_support_subject post)
+subject_id     BIGINT          -- a pc_support_subject post ID
 description    TEXT
-ip             VARBINARY(16)
+ip             VARBINARY(16) NULL
 user_agent     VARCHAR(512)
-email_verified TINYINT(1)
-status         ENUM('open','in_progress','resolved','closed')
+email_verified TINYINT(1)      -- captured at submission time
+status         VARCHAR(16)     -- open|in_progress|resolved|closed
 created_at     DATETIME
 updated_at     DATETIME
 ```
+
+`status` is a `VARCHAR`, not the `ENUM` this section originally drafted,
+for the same reason as `wp_pc_machine_events`: `dbDelta` cannot diff an
+`ENUM`, so adding a member later would silently skip the migration. The
+allowed values live on `Support_Service` constants.
+
+`email_verified` is a snapshot, not a join. It answers "was this address
+verified when the ticket was filed?", which is what support weighs when
+judging a claim — re-deriving it from the account later would quietly
+rewrite history. Guests are always `0`.
+
+`subject_id` has no FK constraint. Retiring a subject trashes the post
+rather than deleting it, so an old ticket still resolves its label
+through `get_post()`.
 
 ---
 

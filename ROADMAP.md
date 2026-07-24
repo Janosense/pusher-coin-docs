@@ -308,21 +308,36 @@ coins, and see wins settle to their balance — all in real time.
 
 Customer-facing support form and the admin tooling around it.
 
-1. **Support form** `[partial]` — `SupportView.vue` exists.
-   - Guest: email field required + captcha (hCaptcha or Cloudflare Turnstile).
-   - Logged-in: email auto-filled, locked, must be verified to send.
-   - Subject dropdown driven by an admin-configurable list.
-   - Description (required, length-bounded).
-2. **Backend ticket store** `[todo]` — REST endpoint, persists to a CPT or
-   table, sends an email notification to support, stores the user's IP /
-   UA / verified status.
-3. **Admin panel surfaces** `[todo]` — manage subjects, list tickets, mark
-   resolved, reply by email. Aggregate Phase 5 admin bits (machine power,
-   bonus mapping, coin-price bounds, room schedules) into one operations
-   dashboard.
+1. **Support form** `[done]` — `SupportView.vue` rewritten against
+   `GET /support/subjects` + `POST /support/tickets`.
+   - Guest: email field required; captcha widget (Turnstile or hCaptcha)
+     mounts only when the operator has configured one — the subjects
+     response reports which, so the SPA never guesses.
+   - Logged-in: email auto-filled from `/user/me` and locked, because
+     the backend files under the account address regardless; an
+     unverified account sees a banner linking to `/account` instead of a
+     send button.
+   - Subject dropdown driven by the admin-configurable list.
+   - Description bounded 10–5000 chars with a live counter.
+2. **Backend ticket store** `[done]` — `SupportController` +
+   `Support_Service`. Tickets land in `wp_pc_support_tickets`
+   (Install_Schema 1.6.0) with IP, user agent, and the
+   `email_verified` state *at submission time*; subjects are the
+   `pc_support_subject` CPT. Submission is rate-limited (5/hour per IP),
+   audited as `support_ticket_created`, and mails `pc_support_email`
+   with the player as `Reply-To`.
+3. **Admin panel surfaces** `[partial]` — `AdminSupportController` +
+   admin SPA `TicketsView` (status filter, search, expandable message
+   with IP / UA, status transitions, mailto reply) and `SubjectsView`
+   (reorder, hide, replace-all save). Retiring a subject trashes rather
+   than deletes it, so old tickets still resolve their label. The
+   "aggregate everything into one operations dashboard" half is not
+   done — machine, withdrawals, pricing, and schedules remain separate
+   views.
 4. **Ops alerts** `[todo]` — alert when machine offline, when coin sensor
    doesn't change after a toss, when an unusual number of withdrawals queue
-   up.
+   up. Blocked on Phase 5 Step 6/7: "machine offline" and "sensor didn't
+   move" are only observable once events (or polls) actually arrive.
 
 Exit criteria: support tickets flow into the admin, machine and revenue
 events are observable, and the admin can run the business day-to-day.
