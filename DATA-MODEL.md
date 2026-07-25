@@ -266,7 +266,7 @@ beyond the bearer token.
 | `pc_machine_relay_coin_count` | int | _set by admin_ | Coins credited when the relay closes (Phase 5 Step 3). |
 | `pc_support_email` | string (email) | site `admin_email` | Where new-ticket notifications are mailed (Phase 7). |
 | `pc_captcha_provider` | string | `turnstile` | `turnstile` or `hcaptcha`; picks the siteverify endpoint. |
-| `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA. Empty ⇒ captcha disabled. |
+| `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA. Empty ⇒ captcha disabled. Set from the admin SPA; the matching secret is the `PC_CAPTCHA_SECRET` wp-config constant, never stored here (see `CAPTCHA_SETUP.md`). |
 
 The Home Assistant **bearer token is not stored in the database**. Keep
 it in `wp-config.php` (`PC_MACHINE_TOKEN`), read by `Machine_Service`

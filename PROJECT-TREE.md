@@ -42,6 +42,7 @@ pusher-coin/
 │   │   └── themes/
 │   │       ├── index.php
 │   │       ├── pc/                            # Custom application theme
+│   │       │   ├── CAPTCHA_SETUP.md            # Phase 7: Turnstile / hCaptcha key setup + rotation
 │   │       │   ├── GOOGLE_AUTH_SETUP.md
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
@@ -248,7 +249,7 @@ pusher-coin/
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
             ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
-            ├── SubjectsView.vue               # Phase 7: subject list editor (reorder / hide / replace-all save)
+            ├── SubjectsView.vue               # Phase 7: subject list editor + guest-captcha config panel
             ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```

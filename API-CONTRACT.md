@@ -1063,6 +1063,41 @@ Writes a `support_ticket_updated` audit log entry.
 
 Errors: `invalid_ticket_status` 400, `ticket_not_found` 404.
 
+### `GET /pc/v1/admin/support/captcha`
+
+Admin. Captcha configuration for the guest ticket path.
+
+Response (`200`):
+```json
+{
+  "provider": "turnstile",
+  "site_key": "0x4AAA...",
+  "secret_configured": true,
+  "enabled": true
+}
+```
+
+`secret_configured` reports only whether the `PC_CAPTCHA_SECRET`
+constant exists in `wp-config.php` — the secret itself is never returned.
+`enabled` is `site_key && secret_configured`; when false the guest path
+accepts tickets with no challenge. See `CAPTCHA_SETUP.md`.
+
+### `PUT /pc/v1/admin/support/captcha`
+
+Admin. Sets the public half. The secret is a wp-config edit, by design.
+
+Request:
+```json
+{ "provider": "turnstile", "site_key": "0x4AAA..." }
+```
+
+`provider` ∈ `turnstile` | `hcaptcha`.
+
+Response (`200`): same shape as GET.
+Writes a `support_captcha_updated` audit log entry.
+
+Errors: `invalid_captcha_config` 400.
+
 ### `GET /pc/v1/admin/support/subjects`
 
 Admin. Like the public list but includes hidden (draft) subjects and
@@ -1187,6 +1222,7 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_description` | 400 | support/tickets |
 | `invalid_subject` | 400 | admin/support/subjects PUT |
 | `invalid_ticket_status` | 400 | admin/support/tickets (GET filter, PATCH) |
+| `invalid_captcha_config` | 400 | admin/support/captcha PUT |
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
 | `invalid_phone` | 400 | user/me PATCH |

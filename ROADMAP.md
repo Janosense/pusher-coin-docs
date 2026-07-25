@@ -312,7 +312,11 @@ Customer-facing support form and the admin tooling around it.
    `GET /support/subjects` + `POST /support/tickets`.
    - Guest: email field required; captcha widget (Turnstile or hCaptcha)
      mounts only when the operator has configured one — the subjects
-     response reports which, so the SPA never guesses.
+     response reports which, so the SPA never guesses. Provider + site
+     key are set in the admin SPA; the secret is a `PC_CAPTCHA_SECRET`
+     wp-config constant. **Both halves must be set before launch** —
+     until then the guest path takes tickets with no challenge. See
+     `backend/wp-content/themes/pc/CAPTCHA_SETUP.md`.
    - Logged-in: email auto-filled from `/user/me` and locked, because
      the backend files under the account address regardless; an
      unverified account sees a banner linking to `/account` instead of a
