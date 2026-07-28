@@ -47,8 +47,15 @@ identified player.
 1. **Email/password login** `[done]` — JWT issued after email verification.
    Phase 1 added rate-limiting (5 / 15min per IP for code requests; 10 / 24h
    per IP for sign-up), an audit table, and the refresh-token rotation.
-2. **Google sign-in** `[done]` — end-to-end flow lands the user on
-   `/choose-nickname` on first login; the email-code 2FA is mandatory.
+2. **Google sign-in** `[done, parked]` — end-to-end flow lands the user
+   on `/choose-nickname` on first login; the email-code 2FA is mandatory.
+   **Switched off since 2026-07-25** while the project runs without
+   Google credentials: `VITE_GOOGLE_CLIENT_ID` is empty in `.env` /
+   `.env.production` (previous value kept in a comment there), the
+   button hides itself on that gate, and the GIS `<script>` is commented
+   out in `index.html`. Backend `GoogleAuthController` is untouched and
+   still answers `google_not_configured` on its own terms. Restoring is
+   those two edits — no code change.
 3. **Apple sign-in** `[partial]` — `AppleAuthController` and
    `AppleSignInButton.vue` ship; gated on `APPLE_CLIENT_ID` /
    `APPLE_TEAM_ID` / `APPLE_KEY_ID` / `APPLE_PRIVATE_KEY`. Returns
@@ -314,8 +321,11 @@ Customer-facing support form and the admin tooling around it.
      mounts only when the operator has configured one — the subjects
      response reports which, so the SPA never guesses. Provider + site
      key are set in the admin SPA; the secret is a `PC_CAPTCHA_SECRET`
-     wp-config constant. **Both halves must be set before launch** —
-     until then the guest path takes tickets with no challenge. See
+     wp-config constant. **Deliberately left unconfigured as of
+     2026-07-25** — no captcha account yet, so the guest path currently
+     accepts tickets with no challenge. Nothing is commented out; the
+     unconfigured path *is* the off switch, and the admin panel says so
+     in red. **This is a launch blocker**: see
      `backend/wp-content/themes/pc/CAPTCHA_SETUP.md`.
    - Logged-in: email auto-filled from `/user/me` and locked, because
      the backend files under the account address regardless; an
@@ -357,6 +367,9 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 - **Accessibility & responsive QA** — keyboard / screen-reader pass over
   forms, queue, chat.
 - **Performance** — bundle analysis, asset optimisation, stream warm-up.
+- **Re-enable the parked integrations** — Google sign-in (Phase 1 §2)
+  and the guest captcha (Phase 7 §1) are both switched off pending
+  credentials. Both are one config edit; neither can ship disabled.
 - **Security review** — JWT rotation, rate limits, captcha coverage,
   CSRF on cookie-bearing endpoints if any get added, log scrubbing for
   secrets, fix the public `check_permission` returning `true` on auth

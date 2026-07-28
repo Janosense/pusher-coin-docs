@@ -104,14 +104,14 @@ pusher-coin/
 │   └── xmlrpc.php                             # WordPress
 │
 ├── frontend/                                  # Vue 3 + Vite SPA (separate git repo)
-    ├── .env                                   # Local (DDEV) API endpoints
-    ├── .env.production                        # Production endpoints
+    ├── .env                                   # Local (DDEV) API endpoints; Google client ID parked (empty)
+    ├── .env.production                        # Production endpoints; Google client ID parked (empty)
     ├── .eslintrc.cjs
     ├── .gitignore
     ├── .prettierrc.json
     ├── CLAUDE.md
     ├── README.md
-    ├── index.html                             # Vite entry HTML
+    ├── index.html                             # Vite entry HTML; GIS <script> commented out while Google is parked
     ├── jsconfig.json                          # `@` → `src/` alias for editors
     ├── package.json
     ├── package-lock.json
@@ -140,7 +140,7 @@ pusher-coin/
     │   │   ├── AppleSignInButton.vue          # Apple Sign-In (renders only when configured)
     │   │   ├── Chat.vue
     │   │   ├── FacelessAvatar.vue              # Deterministic SVG identicon (Phase 2)
-    │   │   ├── GoogleSignInButton.vue
+    │   │   ├── GoogleSignInButton.vue          # Hidden while VITE_GOOGLE_CLIENT_ID is empty (parked)
     │   │   ├── HelloWorld.vue
     │   │   ├── LanguageSwitcher.vue
     │   │   ├── LiveStream.vue                  # Transport-agnostic stream container (Phase 3)
