@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`). |
+| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`); Phase 6 bumped 1.6.0 → 1.7.0 (adds `wp_pc_bet_sessions`, `wp_pc_room_queues`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -266,6 +266,7 @@ beyond the bearer token.
 | `pc_machine_relay_coin_count` | int | _set by admin_ | Coins credited when the relay closes (Phase 5 Step 3). |
 | `pc_support_email` | string (email) | site `admin_email` | Where new-ticket notifications are mailed (Phase 7). |
 | `pc_captcha_provider` | string | `turnstile` | `turnstile` or `hcaptcha`; picks the siteverify endpoint. |
+| `pc_queue_idle_timeout_seconds` | int | `60` | Phase 6. How long a queue entry survives without a heartbeat; the SPA's 3s queue poll is the heartbeat. |
 | `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA. Empty ⇒ captcha disabled. Set from the admin SPA; the matching secret is the `PC_CAPTCHA_SECRET` wp-config constant, never stored here (see `CAPTCHA_SETUP.md`). |
 
 The Home Assistant **bearer token is not stored in the database**. Keep
@@ -325,7 +326,8 @@ movement.
 ### `wp_pc_bet_sessions` (custom table)
 
 One row per turn (a player's stretch at the front of the queue). Closed
-when the next player takes over or the player abandons.
+when the next player takes over or the player abandons. Installed by
+Install_Schema 1.7.0; written through `Queue_Service`.
 
 ```
 id              BIGINT   PK
@@ -338,11 +340,43 @@ coins_won       INT      DEFAULT 0
 money_won       DECIMAL(12,2) DEFAULT 0
 ```
 
-### `wp_pc_room_queues` (custom table) — optional
+`ended_at IS NULL` marks the live session, and there is at most one per
+room. That invariant is what makes a machine event attributable: bonus
+and coin-drop events carry a machine id, `pc_room_machine_id` maps it to
+a room, and the room's open session names the player to pay. Wins land
+here through the `pc_machine_event_credited` action, so the in-room
+winnings counter is per-turn rather than lifetime.
 
-Volatile queue state. Could be implemented in-memory (Pusher / Soketi
-presence channels) instead of persisting; Phase 6 decides. Reserve the
-table name so the schema doesn't churn.
+### `wp_pc_room_queues` (custom table)
+
+**Decided in Phase 6: persisted, not in-memory.** This section
+previously left the choice open pending a presence-channel decision. The
+turn decides who gets paid for a bonus, so it has to survive a page
+reload, a backend restart, and the arrival of a machine event seconds
+after the player's tab was backgrounded — none of which presence state
+guarantees.
+
+```
+id              BIGINT   PK
+room_id         BIGINT
+user_id         BIGINT
+coins_declared  INT      -- what the player said they'd play
+coins_remaining INT      -- what's left of it
+session_id      BIGINT   NULL  -- wp_pc_bet_sessions.id, set at the head
+joined_at       DATETIME       -- FIFO ordering key
+last_seen_at    DATETIME       -- heartbeat; stale entries are pruned
+UNIQUE KEY (room_id, user_id)
+```
+
+Entries are pruned when `last_seen_at` falls further behind than
+`pc_queue_idle_timeout_seconds` (default 60). Pruning happens on read —
+every queue request cleans the room before answering — so the queue
+heals on traffic alone and needs no cron. A room nobody is watching may
+hold a stale head, but nothing can happen in it either.
+
+`coins_declared` is an intent, not a reservation: coins are debited one
+at a time by `POST /rooms/{id}/play`, so a player who tops up mid-turn
+isn't penalised and one who spends elsewhere runs out early.
 
 ---
 

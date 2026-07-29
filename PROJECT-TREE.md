@@ -58,6 +58,7 @@ pusher-coin/
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
+│   │       │   │   │   ├── RoomQueueController.php  # Phase 6: queue join/leave + play (toss)
 │   │       │   │   │   ├── SupportController.php    # Phase 7: public /support subjects + tickets
 │   │       │   │   │   ├── TransactionsController.php # Phase 4: GET /transactions
 │   │       │   │   │   ├── UserController.php
@@ -78,6 +79,7 @@ pusher-coin/
 │   │       │   │       ├── machine-service.php # Phase 5: Home Assistant REST wrapper
 │   │       │   │       ├── permissions.php     # Permission_callback helpers
 │   │       │   │       ├── post-meta-keys.php  # Post_Meta_Keys registry
+│   │       │   │       ├── queue-service.php   # Phase 6: queue, turns, bet sessions, machine-event attribution
 │   │       │   │       ├── rate-limiter.php    # Transient-based rate limiter
 │   │       │   │       ├── refresh-tokens.php  # Refresh-token issuance / rotation
 │   │       │   │       ├── role-player.php     # Registers `player` role
@@ -183,6 +185,7 @@ pusher-coin/
     │   │   ├── googleAuthService.js
     │   │   ├── historyService.js              # Phase 4: GET /transactions
     │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
+    │   │   ├── queueService.js                # Phase 6: queue + play endpoints
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
     │   │   ├── supportService.js              # Phase 7: /support subjects + tickets
@@ -193,6 +196,7 @@ pusher-coin/
     │   │   ├── chat.js
     │   │   ├── counter.js
     │   │   ├── navigation.js
+    │   │   ├── queue.js                       # Phase 6: queue state, 3s poll + heartbeat
     │   │   ├── rooms.js                       # Rooms list + 30s cache (Phase 3)
     │   │   ├── user.js
     │   │   └── wallet.js                      # Wallet balance, lots, pricing, topup action (Phase 4)

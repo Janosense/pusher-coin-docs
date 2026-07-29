@@ -286,28 +286,46 @@ real-time machine events, and bonuses settle automatically.
 
 With wallet + machine + streaming in place, build the actual game loop.
 
-1. **Player main screen** `[#5]` `[partial]` — `RoomView`, `Chat`, `Queue`,
-   `PlaceBet` exist. Wire them to the real-time feed:
-   - Live broadcast embed (Phase 3).
-   - Queue side panel (item below).
-   - Chat: guests read-only, players can send. Sending while a guest sends
-     them to sign-in.
-   - Balance + current-game winnings (winnings hidden when zero — show
-     empty, never `0`).
-   - Theme-song toggle per room (audio source from admin panel).
-2. **Queue mechanics** `[#7]` `[todo]`:
-   - "Online players" counter = users actually in queue, not just watching.
-   - First player in queue highlighted with nickname + coins they'll play.
-   - Self-highlight in queue.
-   - When `me === currentTurn`, switch to purple + audio cue.
-3. **Coin selector & play action** `[todo]` — connect Phase 4 rules to the
-   `toss_coin` machine call; deduct one coin atomically per successful toss.
-4. **Win settlement** `[todo]` — listen for `coins_dropped` and bonus events
-   from Phase 5; credit the wallet at the same `unit_price` the player
-   bought the coin at.
+1. **Player main screen** `[#5]` `[partial]`:
+   - Live broadcast embed (Phase 3) `[done]`.
+   - Queue side panel `[done]` — see item 2.
+   - Balance + current-game winnings `[done]` — `UserControls` reads the
+     open bet session, so winnings are per-turn, and the field stays
+     hidden at zero rather than showing `0`.
+   - Chat `[todo]` — still local placeholder messages. It has no
+     contract yet (storage, moderation, and the same transport question
+     as the queue), so it was deliberately left out of this slice.
+   - Theme-song toggle per room `[todo]` — `pc_room_theme_song_url` is
+     stored and editable in the admin SPA; nothing plays it yet.
+2. **Queue mechanics** `[#7]` `[done]` — `wp_pc_room_queues` +
+   `Queue_Service`, polled by the SPA every 3s (the poll is also the
+   heartbeat that holds a place; Step 7's push channel replaces it):
+   - "Online players" counts queued players, not watchers.
+   - The head of the queue is pinned and banded purple, with nickname
+     and the coins they have left to play.
+   - Your own row is marked "(you)".
+   - Reaching the head plays a synthesised chime and opens the bet
+     overlay.
+3. **Coin selector & play action** `[done]` — `POST /rooms/{id}/play`
+   ties Phase 4's wallet rules to `Machine_Service::toss_coin()`:
+   refuse out of turn, refuse while the relay is closed, debit one coin
+   FIFO, toss, and re-credit the exact lot price if the machine doesn't
+   answer 200. This also closes **Phase 5 Step 4** (coin-throw
+   acknowledgement) and the server half of **Step 5** (relay lock); the
+   SPA half of Step 5 still wants a push signal rather than a 3s poll.
+4. **Win settlement** `[done]` — `Queue_Service` hooks
+   `pc_machine_event_player`, so a bonus or coin-drop resolves machine
+   id → room → open session → player, and credits at the player's
+   FIFO-head price. Wins bank against the bet session via
+   `pc_machine_event_credited`. **Caveat:** this only fires when machine
+   events actually arrive, which still waits on the Phase 5 Step 6/7
+   transport — today the only producer is `wp pc machine-ingest`.
 
 Exit criteria: a verified player can join a queue, take their turn, throw
-coins, and see wins settle to their balance — all in real time.
+coins, and see wins settle to their balance — all in real time. **Met
+except for "in real time"**: the loop works end to end over HTTP with a
+3s poll, and settlement is wired but idle until machine events have a
+transport (Step 6/7).
 
 ---
 
@@ -390,9 +408,9 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 2 | Logout + inactivity timeout | 1 |
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
-| 5 | Player main screen | 6 |
-| 6 | Physical machine integration | 5 |
-| 7 | Queue UX | 6 |
+| 5 | Player main screen | 6 — partial (chat + theme song open) |
+| 6 | Physical machine integration | 5 — steps 4/5 closed by Phase 6; 6/7 open |
+| 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |
 | 10 | Live streaming | 3 |

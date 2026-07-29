@@ -501,6 +501,100 @@ Response (`200`):
 
 Errors: `room_not_found` 404.
 
+### `GET /pc/v1/rooms/{id}/queue`
+
+Bearer + play-ready. The room's queue, and the turn it confers.
+
+**Doubles as the heartbeat.** The backend drops entries whose player
+stopped calling this for `pc_queue_idle_timeout_seconds` (default 60),
+so a client that wants to hold its place must keep polling — the SPA
+does, every 3s. Phase 5 Step 7's push channel will replace the poll;
+the endpoint stays as the state-of-truth read.
+
+Response (`200`):
+```json
+{
+  "queue": [ { "user_id": 4, "nickname": "jano3", "coins": 2 } ],
+  "current_turn_user_id": 4,
+  "online_count": 2,
+  "session": {
+    "id": 1, "user_id": 4, "room_id": 11,
+    "started_at": "2026-07-28 20:45:00", "ended_at": null,
+    "coins_played": 1, "coins_won": 0, "money_won": "0.00"
+  },
+  "idle_timeout_seconds": 60
+}
+```
+
+`queue` is FIFO — index 0 holds the turn. `coins` is what that player
+has *left* to play, not what they declared. `online_count` counts queued
+players, not everyone watching the room. `session` is the head's open
+bet session, or `null` for an empty queue.
+
+Errors: `room_not_found` 404, `room_unavailable` 409.
+
+### `POST /pc/v1/rooms/{id}/queue/join`
+
+Bearer + play-ready. Join, or re-declare if already queued.
+
+Request:
+```json
+{ "coins": 5 }
+```
+
+`coins` is an intent, not a reservation — it is capped at the wallet
+balance at join time, and coins are debited one at a time by `play`.
+Re-declaring keeps the original position: changing your mind about the
+count must not let you jump your own place in the queue.
+
+Response (`200`): the queue envelope, as above.
+
+Errors: `invalid_coin_qty` 400, `insufficient_balance` 409,
+`room_not_found` 404, `room_unavailable` 409.
+
+### `POST /pc/v1/rooms/{id}/queue/leave`
+
+Bearer + play-ready. Leave the queue; closes the bet session if the
+caller held the turn.
+
+Response (`200`): the queue envelope.
+
+### `POST /pc/v1/rooms/{id}/play`
+
+Bearer + play-ready. Toss exactly one coin. Empty request body.
+
+The order of operations is the contract:
+
+1. Refuse unless the caller holds the turn (`not_player_turn` 403).
+2. Refuse while `sensor.relay_on` reads closed (`relay_closed` 423) —
+   the machine is mid-payout.
+3. Debit one coin FIFO (`insufficient_balance` 409).
+4. Call the machine. **Only HTTP 200 counts as a toss.**
+5. On any machine failure, re-credit the exact lot price consumed and
+   return the machine's error. A player is never charged for a toss that
+   did not happen.
+
+Machine failures map to gateway statuses (502 / 503), never 401 — a 401
+would trip the SPA's token-refresh interceptor and log the player out
+mid-turn.
+
+Response (`200`):
+```json
+{
+  "toss_id": 9,
+  "coins_remaining": 1,
+  "balance_coins": 2,
+  "queue": { "...": "the queue envelope" }
+}
+```
+
+`toss_id` is the `wp_pc_machine_events` row for the toss.
+
+Errors: `not_player_turn` 403, `relay_closed` 423,
+`insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
+409, `machine_offline` 503, `machine_call_failed` 502,
+`machine_unauthorized` 502, `machine_not_configured` 500.
+
 ### `GET /pc/v1/wallet`
 
 Bearer auth (`Permissions::require_logged_in`). Phase 4.
@@ -1182,20 +1276,16 @@ planned:
 
 ### Phase 6 — queue & play
 
-- `GET /pc/v1/rooms/{id}/queue` — Bearer. Response: `{ queue: [{
-  user_id, nickname, coins }], current_turn_user_id }`.
-- `POST /pc/v1/rooms/{id}/queue/join` — Bearer. Request `{ coins }`.
-- `POST /pc/v1/rooms/{id}/queue/leave` — Bearer.
-- `POST /pc/v1/rooms/{id}/play` — Bearer. Request: `{ }` (single coin
-  toss; the wallet decides which lot to deduct). Response: `{
-  toss_id, coins_remaining }`.
+All four queue/play endpoints ship in the current section. Still
+planned: the real-time channel (Phase 5 Step 7) that pushes
+`coin_dropped`, `bonus_won`, and `relay_closed` instead of the SPA's 3s
+poll of `GET /rooms/{id}/queue`. `queue_locked` 409 is reserved for it —
+nothing returns that code today, because with a persisted queue there is
+no lock to contend.
 
-A real-time channel (websocket / Pusher / Soketi — picked in Phase 5)
-pushes `coin_dropped`, `bonus_won`, and `relay_closed` events. The HTTP
-endpoints above are command-side only.
-
-Errors: `not_player_turn` 403, `queue_locked` 409,
-`relay_closed` 423, `insufficient_balance` 409.
+Chat has no contract yet: the in-room `Chat.vue` still renders local
+placeholder messages. It needs storage, moderation rules, and the same
+transport decision, so it is deliberately out of the Phase 6 slice.
 
 ### Phase 7 — support
 
@@ -1223,6 +1313,7 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_subject` | 400 | admin/support/subjects PUT |
 | `invalid_ticket_status` | 400 | admin/support/tickets (GET filter, PATCH) |
 | `invalid_captcha_config` | 400 | admin/support/captcha PUT |
+| `invalid_coin_qty` | 400 | rooms/{id}/queue/join |
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
 | `invalid_phone` | 400 | user/me PATCH |
@@ -1257,7 +1348,7 @@ One canonical code per failure mode — do not invent variants.
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
 | `nickname_required` | 403 | gated play endpoints |
-| `not_player_turn` | 403 | rooms/{id}/play (planned) |
+| `not_player_turn` | 403 | rooms/{id}/play |
 | `jwt_auth_bad_config` | 403 | verify-code (legacy; replaced by `jwt_not_configured` in new endpoints) |
 | `no_verification_code` | 404 | verify-code, google-auth/verify-code, confirm-password-change |
 | `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
@@ -1265,15 +1356,17 @@ One canonical code per failure mode — do not invent variants.
 | `withdrawal_not_found` | 404 | admin/withdrawals/{id}/approve, /reject |
 | `subject_not_found` | 404 | support/tickets |
 | `ticket_not_found` | 404 | admin/support/tickets PATCH |
+| `room_not_found` | 404 | rooms/{id}/queue*, rooms/{id}/play |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
 | `insufficient_balance` | 409 | wallet/withdraw |
+| `room_unavailable` | 409 | rooms/{id}/queue*, rooms/{id}/play |
 | `withdrawal_already_pending` | 409 | wallet/withdraw |
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
-| `insufficient_balance` | 409 | wallet, rooms/play (planned) |
-| `queue_locked` | 409 | rooms/queue (planned) |
-| `relay_closed` | 423 | rooms/play (planned) |
+| `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
+| `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
+| `relay_closed` | 423 | rooms/{id}/play |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |

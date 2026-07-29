@@ -124,8 +124,15 @@ real API calls.
 - `components/Chat.vue` — six hardcoded messages; `sendMessage` mutates
   a local array. Phase 3 added a `readonly` prop + `send-attempted`
   emit so `RoomView` can show the chat to guests without letting them
-  send; the underlying message data is still placeholder.
-- `components/Queue.vue` — 24 fake users, two with hardcoded balance.
+  send; the underlying message data is still placeholder. **Still open
+  after Phase 6** — chat has no API contract at all (no storage, no
+  moderation rules, and it wants the same push transport as the queue),
+  so it was deliberately excluded from that slice.
+- ~~`components/Queue.vue` — 24 fake users, two with hardcoded balance.~~
+  Replaced in Phase 6: rows come from `GET /rooms/{id}/queue` via
+  `useQueueStore` (3s poll, which is also the heartbeat that holds a
+  player's place), with the turn holder banded purple and your own row
+  marked "(you)".
 - ~~`components/ReplenishmentBalance.vue` — input is wired (IMask), the
   submit button has no handler.~~ Replaced in Phase 4: form is now
   backed by `useWalletStore`, validates qty + unit price against
