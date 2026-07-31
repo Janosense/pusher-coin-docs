@@ -137,7 +137,7 @@ Make the room a real domain object with a schedule and a live stream.
    `current_window` / `next_window` from `always` / `once` rules.
    Public read via `GET /pc/v1/rooms/{id}/schedule`; atomic admin
    replace via `PUT /pc/v1/admin/rooms/{id}/schedule`.
-3. **Guest browsing** `[#9]` `[done]` — `Rooms.vue` now consumes
+3. **Guest browsing** `[#9]` `[done]` — `RoomList.vue` (was `Rooms.vue`) now consumes
    `useRoomsStore()` (`/rooms` list, 30s cache), renders
    `RoomStatusBadge` + `NextBroadcastCountdown` per tile, and shows
    loading / error / empty states. `RoomView` is public and renders

@@ -1283,7 +1283,7 @@ poll of `GET /rooms/{id}/queue`. `queue_locked` 409 is reserved for it —
 nothing returns that code today, because with a persisted queue there is
 no lock to contend.
 
-Chat has no contract yet: the in-room `Chat.vue` still renders local
+Chat has no contract yet: the in-room `RoomChat.vue` still renders local
 placeholder messages. It needs storage, moderation rules, and the same
 transport decision, so it is deliberately out of the Phase 6 slice.
 

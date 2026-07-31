@@ -121,7 +121,7 @@ real API calls.
   submission posts to `POST /support/tickets`, the email field locks for
   logged-in players, and a captcha mounts for guests when the operator
   has configured a provider.
-- `components/Chat.vue` — six hardcoded messages; `sendMessage` mutates
+- `components/RoomChat.vue` (was `Chat.vue`) — six hardcoded messages; `sendMessage` mutates
   a local array. Phase 3 added a `readonly` prop + `send-attempted`
   emit so `RoomView` can show the chat to guests without letting them
   send; the underlying message data is still placeholder. **Still open
@@ -129,6 +129,7 @@ real API calls.
   moderation rules, and it wants the same push transport as the queue),
   so it was deliberately excluded from that slice.
 - ~~`components/Queue.vue` — 24 fake users, two with hardcoded balance.~~
+  (now `components/RoomQueue.vue`)
   Replaced in Phase 6: rows come from `GET /rooms/{id}/queue` via
   `useQueueStore` (3s poll, which is also the heartbeat that holds a
   player's place), with the turn holder banded purple and your own row
@@ -146,6 +147,7 @@ real API calls.
   The submit button is still a placeholder — the actual toss / wallet
   debit / machine call lands in Phase 6.
 - ~~`components/Rooms.vue` — placeholder list (rooms data is hardcoded).~~
+  (now `components/RoomList.vue`)
   Replaced in Phase 3: fetches via `useRoomsStore`, renders real room
   names + `RoomStatusBadge` + `NextBroadcastCountdown` per tile.
 

@@ -139,23 +139,23 @@ pusher-coin/
     │   │       │   └── wrapper.css
     │   │       └── colors.css
     │   ├── components/
+    │   │   ├── AppNavigation.vue               # Was Navigation.vue
     │   │   ├── AppleSignInButton.vue          # Apple Sign-In (renders only when configured)
-    │   │   ├── Chat.vue
     │   │   ├── FacelessAvatar.vue              # Deterministic SVG identicon (Phase 2)
     │   │   ├── GoogleSignInButton.vue          # Hidden while VITE_GOOGLE_CLIENT_ID is empty (parked)
     │   │   ├── HelloWorld.vue
     │   │   ├── LanguageSwitcher.vue
     │   │   ├── LiveStream.vue                  # Transport-agnostic stream container (Phase 3)
     │   │   ├── LogoutConfirmModal.vue          # Confirm-before-logout overlay
-    │   │   ├── Navigation.vue
+    │   │   ├── ModalOverlay.vue                # Was Overlay.vue
     │   │   ├── NavigationToggle.vue
     │   │   ├── NextBroadcastCountdown.vue      # 1Hz local countdown to next room window (Phase 3)
-    │   │   ├── Overlay.vue
-    │   │   ├── PlaceBet.vue
-    │   │   ├── Queue.vue
+    │   │   ├── PlaceBet.vue                    # Phase 6: declare coins / wait turn / toss
     │   │   ├── ReplenishmentBalance.vue
+    │   │   ├── RoomChat.vue                    # Was Chat.vue; still placeholder messages
+    │   │   ├── RoomList.vue                    # Was Rooms.vue
+    │   │   ├── RoomQueue.vue                   # Was Queue.vue; Phase 6: live queue + turn highlight
     │   │   ├── RoomStatusBadge.vue             # Available / maintenance / unavailable chip (Phase 3)
-    │   │   ├── Rooms.vue
     │   │   ├── SignInForm.vue
     │   │   ├── SignUpForm.vue
     │   │   ├── UserControls.vue
