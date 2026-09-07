@@ -220,6 +220,7 @@ pusher-coin/
     │   │   ├── navigation.js
     │   │   ├── queue.js                       # Phase 6: queue state, 3s poll + heartbeat
     │   │   ├── rooms.js                       # Rooms list + 30s cache (Phase 3)
+    │   │   ├── themeSong.js                   # Phase 6: per-room theme song, owns the <audio> element
     │   │   ├── user.js                        # Empty file; no importers (dead file)
     │   │   └── wallet.js                      # Wallet balance, lots, pricing, topup action (Phase 4)
     │   └── views/

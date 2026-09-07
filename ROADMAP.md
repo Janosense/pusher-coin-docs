@@ -291,11 +291,11 @@ real-time machine events, and bonuses settle automatically.
 
 ---
 
-## Phase 6 — Game session, queue & in-room UX `[#5, #7]`
+## Phase 6 — Game session, queue & in-room UX `[#5, #7]` — DONE
 
 With wallet + machine + streaming in place, build the actual game loop.
 
-1. **Player main screen** `[#5]` `[partial]`:
+1. **Player main screen** `[#5]` `[done]`:
    - Live broadcast embed (Phase 3) `[done]`.
    - Queue side panel `[done]` — see item 2.
    - Balance + current-game winnings `[done]` — `UserControls` reads the
@@ -313,8 +313,27 @@ With wallet + machine + streaming in place, build the actual game loop.
      driven from the admin SPA's `ChatView`. Transport is the same 3s
      poll as the queue, with an `after` cursor so a poll returns only
      what is new — Step 7's push channel replaces both at once.
-   - Theme-song toggle per room `[todo]` — `pc_room_theme_song_url` is
-     stored and editable in the admin SPA; nothing plays it yet.
+   - Theme-song toggle per room `[done]` — `stores/themeSong.js` owns a
+     single looping `Audio` element and drives the sound button that had
+     been sitting inert in `UserControls`. It **never** starts on its
+     own: `isEnabled` is the player's intent (persisted device-local in
+     `pc_theme_song_enabled`), `isPlaying` is what the element is
+     actually doing, and the button colour follows the second so it
+     cannot claim to be playing music nobody can hear. A preference
+     carried over from a previous visit is retried once on the first
+     gesture anywhere in the document rather than making the player hunt
+     for the button. The button disables itself, with a reason in its
+     title, when the room has no `pc_room_theme_song_url`. Wiring is
+     gated on being signed in, because the toggle lives in
+     `UserControls`, which guests never render — a signed-out viewer
+     must never be left with audio and no way to stop it.
+
+     Two things worth knowing before setting a URL in the admin SPA:
+     the file must be served from a host that answers **range
+     requests** (Chrome's media pipeline stalls without them — Vite's
+     dev static server is one that does not), and playback is unrelated
+     to the stream's own audio, which stays muted behind the native
+     video controls.
 2. **Queue mechanics** `[#7]` `[done]` — `wp_pc_room_queues` +
    `Queue_Service`, polled by the SPA every 3s (the poll is also the
    heartbeat that holds a place; Step 7's push channel replaces it):
@@ -430,7 +449,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 2 | Logout + inactivity timeout | 1 |
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
-| 5 | Player main screen | 6 — partial (theme song open) |
+| 5 | Player main screen | 6 |
 | 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6/7 open |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
