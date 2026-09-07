@@ -4,18 +4,33 @@ WordPress core directories (`wp-admin/`, `wp-includes/`) and the standard WordPr
 top-level files are listed only at the top level of `backend/` and not expanded.
 Project-owned code under `wp-content/` (the custom `pc` theme) is fully expanded.
 
+Git-ignored artefacts are omitted: `backend/wp-config.php`,
+`backend/wp-content/themes/pc/composer.lock`, `backend/wp-content/uploads/`,
+and every `node_modules/` / `dist/`. The root repo ignores `backend/`,
+`frontend/`, and `admin/` wholesale — each is its own git repo — so the root
+repo tracks only the documentation files listed first.
+
 ```
 pusher-coin/
+├── .claude/
+│   └── settings.local.json                    # Claude Code tool permissions for this checkout (local, untracked)
+├── .gitignore                                 # Ignores backend/, frontend/, admin/ (separate repos) + IDE noise
+├── ADMIN-DECISION.md                          # Admin surfaces are a separate Vue SPA, not WP admin
+├── API-CONTRACT.md                            # Canonical pc/v1 request / response / error shapes
 ├── ARCHITECTURE.md
+├── CLAUDE.md                                  # Working conventions + documentation-upkeep rules
+├── DATA-MODEL.md                              # Storage decision per entity (table / CPT / meta / option)
+├── INVENTORY.md                               # Phase 0 audit + per-phase stub resolution log
 ├── PROJECT-TREE.md
 ├── PUSHER-COIN-COMMANDS.txt                   # Home Assistant API for the physical machine
+├── ROADMAP.md                                 # Phased plan; doubles as the project status board
 │
 ├── backend/                                   # WordPress installation (separate git repo)
 │   ├── .ddev/
 │   │   └── config.yaml
 │   ├── .github/
 │   │   └── workflows/
-│   │       └── main.yml                       # FTP deploy on push to main
+│   │       └── main.yml                       # `php -l` over the theme on every push/PR; FTP deploy needs lint and runs only on push to main
 │   ├── .gitignore
 │   ├── index.php                              # WordPress
 │   ├── license.txt                            # WordPress
@@ -109,6 +124,9 @@ pusher-coin/
     ├── .env                                   # Local (DDEV) API endpoints; Google client ID parked (empty)
     ├── .env.production                        # Production endpoints; Google client ID parked (empty)
     ├── .eslintrc.cjs
+    ├── .github/
+    │   └── workflows/
+    │       └── ci.yml                         # Phase 0 CI: `npm ci` + lint + build on every push/PR
     ├── .gitignore
     ├── .prettierrc.json
     ├── CLAUDE.md
@@ -143,8 +161,8 @@ pusher-coin/
     │   │   ├── AppleSignInButton.vue          # Apple Sign-In (renders only when configured)
     │   │   ├── FacelessAvatar.vue              # Deterministic SVG identicon (Phase 2)
     │   │   ├── GoogleSignInButton.vue          # Hidden while VITE_GOOGLE_CLIENT_ID is empty (parked)
-    │   │   ├── HelloWorld.vue
-    │   │   ├── LanguageSwitcher.vue
+    │   │   ├── HelloWorld.vue                  # Vite scaffold; no importers (dead file)
+    │   │   ├── LanguageSwitcher.vue            # Rendered in AppNavigation; i18n itself is Phase 8
     │   │   ├── LiveStream.vue                  # Transport-agnostic stream container (Phase 3)
     │   │   ├── LogoutConfirmModal.vue          # Confirm-before-logout overlay
     │   │   ├── ModalOverlay.vue                # Was Overlay.vue
@@ -193,15 +211,15 @@ pusher-coin/
     │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup + /withdraw
     │   ├── stores/
     │   │   ├── authentication.js              # Token, user, Google 2FA state
-    │   │   ├── chat.js
-    │   │   ├── counter.js
+    │   │   ├── chat.js                        # Chat panel open/closed toggle only; messages are local placeholders in RoomChat.vue
+    │   │   ├── counter.js                     # Vite scaffold; no importers (dead file)
     │   │   ├── navigation.js
     │   │   ├── queue.js                       # Phase 6: queue state, 3s poll + heartbeat
     │   │   ├── rooms.js                       # Rooms list + 30s cache (Phase 3)
-    │   │   ├── user.js
+    │   │   ├── user.js                        # Empty file; no importers (dead file)
     │   │   └── wallet.js                      # Wallet balance, lots, pricing, topup action (Phase 4)
     │   └── views/
-    │       ├── AboutView.vue
+    │       ├── AboutView.vue                  # Not in the route table; unreachable
     │       ├── AcceptTermsView.vue            # Phase 1 gate view
     │       ├── AccountView.vue                # Data-driven account surface (Phase 2)
     │       ├── ChooseNicknameView.vue         # Phase 1 gate view (after first social login)

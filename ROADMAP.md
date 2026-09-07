@@ -14,28 +14,34 @@ on the list provided).
 
 ---
 
-## Phase 0 — Foundations & inventory (pre-work)
+## Phase 0 — Foundations & inventory (pre-work) — DONE
 
 Before adding new features, lock down the contract between frontend and
 backend so later phases don't churn it.
 
-- **Audit current state** of the SPA, the `pc/v1` REST namespace, and the
-  `player` role. Capture what is `[done]` vs `[partial]`.
-- **Define the canonical API contract** (request/response shapes, error
-  envelopes, pagination) for everything the UI will need: auth, account,
-  rooms, balance, transactions, support, admin. One source of truth before
-  controllers proliferate.
-- **Establish data model** for the new entities introduced by later phases:
-  `room`, `room_schedule`, `wallet`, `transaction`, `bet/session`,
-  `support_ticket`, `support_subject`, machine settings.
-- **Set up admin-panel approach** — decide whether to use the WordPress admin
-  with custom screens (ACF / custom post types / settings pages) or a separate
-  admin SPA. Recommendation: extend WP admin to keep one source of truth.
-- **Wire CI** for the frontend (lint + build) and a simple PHP lint for the
-  theme; both repos already deploy on push but neither is gated.
+- **Audit current state** `[done]` of the SPA, the `pc/v1` REST namespace,
+  and the `player` role. Captured in `INVENTORY.md`, which every later
+  phase has appended to.
+- **Define the canonical API contract** `[done]` (request/response shapes,
+  error envelopes, pagination) for everything the UI will need: auth,
+  account, rooms, balance, transactions, support, admin. Lives in
+  `API-CONTRACT.md`; every endpoint shipped since has moved from its
+  "planned" to "current" section there.
+- **Establish data model** `[done]` for the new entities introduced by later
+  phases: `room`, `room_schedule`, `wallet`, `transaction`, `bet/session`,
+  `support_ticket`, `support_subject`, machine settings. Lives in
+  `DATA-MODEL.md`.
+- **Set up admin-panel approach** `[done]` — decided in `ADMIN-DECISION.md`:
+  a separate admin SPA (`admin/`), diverging from this item's original
+  recommendation to extend WP admin.
+- **Wire CI** `[done]` for the frontend (lint + build,
+  `frontend/.github/workflows/ci.yml`) and a PHP lint for the theme
+  (`backend/.github/workflows/main.yml`; the FTP deploy job now needs the
+  lint job and runs only on push to `main`). The admin SPA still has no
+  workflow — tracked under Phase 8 alongside its missing deploy target.
 
 Exit criteria: documented API contract, a list of new database tables / CPTs,
-and a green CI pipeline on both repos.
+and a green CI pipeline on both repos. **Met.**
 
 ---
 
@@ -111,10 +117,13 @@ Build the account page and the verification rules that gate play and top-ups.
    new password, revokes every other refresh token for the user, and
    returns a freshly-issued auth envelope.
 5. **Verification gates** `[#14]` `[done]` — `Permissions::require_play_ready`
-   now also enforces `email_verified_at > 0`. The router redirects
-   `meta.requiresPlayReady` routes to `/account?reason=verify-email` for
-   unverified users; the page scrolls to a red banner that explains how
-   to fix it. Phone verification is intentionally deferred — the field
+   now also enforces `email_verified_at > 0`. On the SPA side the room
+   page's play handler sends unverified users to
+   `/account?reason=verify-email`, where the page scrolls to a red
+   banner that explains how to fix it. (The router also carries a
+   `meta.requiresPlayReady` check, but no route sets that meta — the
+   room route is public so guests can watch — so the in-component
+   redirect is the one that fires.) Phone verification is intentionally deferred — the field
    carries a neutral "Not yet supported" badge and is not part of the
    gate this phase.
 
@@ -141,7 +150,7 @@ Make the room a real domain object with a schedule and a live stream.
    `useRoomsStore()` (`/rooms` list, 30s cache), renders
    `RoomStatusBadge` + `NextBroadcastCountdown` per tile, and shows
    loading / error / empty states. `RoomView` is public and renders
-   `LiveStream` + read-only `Chat` for guests.
+   `LiveStream` + read-only `RoomChat` for guests.
 4. **Live streaming** `[#10]` `[done]` — Mux LL-HLS picked. `.m3u8`
    URLs route through hls.js (dynamically imported — own 162KB gzipped
    chunk, only loaded when an HLS stream actually plays). Safari uses
@@ -388,6 +397,10 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 - **Re-enable the parked integrations** — Google sign-in (Phase 1 §2)
   and the guest captcha (Phase 7 §1) are both switched off pending
   credentials. Both are one config edit; neither can ship disabled.
+- **Admin SPA deploy target + CI** — `admin/` has no `vercel.json` and
+  no GitHub workflow; it is local-only. `ADMIN-DECISION.md` accepted a
+  third deploy target (likely Vercel) plus its own lint + build
+  workflow mirroring `frontend/.github/workflows/ci.yml`.
 - **Security review** — JWT rotation, rate limits, captcha coverage,
   CSRF on cookie-bearing endpoints if any get added, log scrubbing for
   secrets, fix the public `check_permission` returning `true` on auth
@@ -409,7 +422,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
 | 5 | Player main screen | 6 — partial (chat + theme song open) |
-| 6 | Physical machine integration | 5 — steps 4/5 closed by Phase 6; 6/7 open |
+| 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6/7 open |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |

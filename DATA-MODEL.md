@@ -49,7 +49,7 @@ literals.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.4.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`); Phase 6 bumped 1.6.0 → 1.7.0 (adds `wp_pc_bet_sessions`, `wp_pc_room_queues`). |
+| `pc_db_version` | string | `'1.7.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`); Phase 6 bumped 1.6.0 → 1.7.0 (adds `wp_pc_bet_sessions`, `wp_pc_room_queues`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -95,10 +95,32 @@ metadata      LONGTEXT     NULL    -- JSON
 created_at    DATETIME(6)  INDEX
 ```
 
-Event types written today: `signup`, `request_verification`,
-`request_verification_failed`, `verify_success`, `verify_failure`,
-`refresh`, `refresh_reuse`, `logout`, `accept_terms`, `set_nickname`,
-`rate_limited`.
+Despite the table name, every phase writes here — it is the single
+operator-facing audit trail, not just an auth log. Event types written
+today, by owning phase:
+
+| Phase | Event types |
+| --- | --- |
+| 1 — auth | `signup`, `request_verification`, `request_verification_failed`, `verify_success`, `verify_failure`, `refresh`, `refresh_reuse`, `logout`, `accept_terms`, `set_nickname`, `rate_limited` |
+| 2 — account | `request_email_confirmation`, `confirm_email`, `request_password_change`, `password_change`, `password_change_failure` |
+| 4 — payments | `liqpay_payload_invalid`, `liqpay_signature_invalid`, `liqpay_callback_misconfigured`, `liqpay_callback_unknown_order`, `liqpay_topup_settled`, `liqpay_topup_settle_failed`, `liqpay_topup_failed` |
+| 4 — withdrawals | `withdrawal_approved`, `withdrawal_rejected` |
+| 5 — machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
+| 7 — support | `support_ticket_created`, `support_ticket_updated`, `support_subjects_updated`, `support_captcha_updated` |
+
+Machine *events* (tosses, drops, bonuses) do not go here — they have
+their own table, `wp_pc_machine_events` (Phase 5). Adding an event type
+is a code change in the owning controller plus a row in this table.
+
+### Transients — rate limiting
+
+`Rate_Limiter` keeps its counters in WP transients named
+`pc_rl_<md5 of the bucket key>`. The bucket key is the action plus the
+client IP (`signup`, `request_verification`, `verify`, `google_auth`,
+`apple_auth`, `support_ticket`) or the action plus the user id for the
+two per-account email flows (`request_email_confirmation`,
+`request_password_change`). They expire with their window and are not options;
+nothing else reads them. Listed here only so the prefix is reserved.
 
 ---
 
@@ -151,10 +173,15 @@ room_id       BIGINT   FK → wp_posts.ID
 weekday       TINYINT  -- 0=Mon..6=Sun (ISO)
 start_time    TIME
 end_time      TIME
-recurrence    ENUM('always','once')
+recurrence    VARCHAR(16)  DEFAULT 'always'  -- 'always' | 'once'
 once_date     DATE     NULL     -- only for recurrence='once'
 created_at    DATETIME
 ```
+
+`recurrence` is a `VARCHAR`, not the `ENUM` this section originally
+sketched — same reason as every later table: `dbDelta` cannot diff an
+`ENUM`, so adding a member would silently skip the migration. The two
+allowed values are validated in `AdminRoomController` on write.
 
 Computed `next_window` is derived at query time — not stored.
 
@@ -210,8 +237,9 @@ admin reasons on `refunded` / `failed` withdrawals.
 `consumed_lots` (added Phase 4 Step 4) is a JSON array of
 `[{ qty, unit_price }, ...]` written when a withdrawal is requested.
 On reject, the values are re-credited as new lots — preserving the
-player's value even though the original lot rows may have been
-deleted (qty=0). Null for top-up rows.
+player's value even though the original lot rows have since been
+drained to `qty = 0` (lot rows are never deleted, only drained). Null
+for top-up rows.
 
 ```
 id              BIGINT   PK
@@ -264,10 +292,9 @@ beyond the bearer token.
 | `pc_machine_relay_open_entity` | string | `input_button.relay_off` | Opens the relay. |
 | `pc_machine_bonus_map` | JSON `{ "1": coins, ... "12": coins }` | _set by admin_ | Coins-per-bonus-id (Phase 5 Step 3). |
 | `pc_machine_relay_coin_count` | int | _set by admin_ | Coins credited when the relay closes (Phase 5 Step 3). |
-| `pc_support_email` | string (email) | site `admin_email` | Where new-ticket notifications are mailed (Phase 7). |
-| `pc_captcha_provider` | string | `turnstile` | `turnstile` or `hcaptcha`; picks the siteverify endpoint. |
-| `pc_queue_idle_timeout_seconds` | int | `60` | Phase 6. How long a queue entry survives without a heartbeat; the SPA's 3s queue poll is the heartbeat. |
-| `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA. Empty ⇒ captcha disabled. Set from the admin SPA; the matching secret is the `PC_CAPTCHA_SECRET` wp-config constant, never stored here (see `CAPTCHA_SETUP.md`). |
+
+The queue and support options that used to sit in this table live in
+their own phase sections below (Phase 6, Phase 7).
 
 The Home Assistant **bearer token is not stored in the database**. Keep
 it in `wp-config.php` (`PC_MACHINE_TOKEN`), read by `Machine_Service`
@@ -291,7 +318,7 @@ coins_credited INT      NOT NULL DEFAULT 0
 unit_price     DECIMAL(8,2) NOT NULL DEFAULT 0
 status         VARCHAR(16)        -- recorded|credited|unattributed|failed
 payload        LONGTEXT NULL      -- JSON
-correlation_id BIGINT   NULL      -- FK → wp_pc_bet_sessions.id when applicable
+correlation_id BIGINT   NULL      -- reserved for wp_pc_bet_sessions.id; always NULL today (see below)
 created_at     DATETIME(6)        -- microsecond precision for ordering
 ```
 
@@ -314,10 +341,20 @@ Three decisions worth keeping:
   would spend — falling back to `pc_coin_price_default` for an empty
   wallet (`Machine_Ingest_Service::payout_unit_price`).
 
-Attribution — which player a payout belongs to — is a Phase 6 concept
-(`wp_pc_bet_sessions`). Until it lands, the `pc_machine_event_player`
-filter returns null and events log as `unattributed` with no wallet
-movement.
+Attribution — which player a payout belongs to — is resolved through
+the `pc_machine_event_player` filter. Phase 6 hooked it:
+`Queue_Service::resolve_player_for_machine` maps the event's machine id
+to a room via `pc_room_machine_id`, then to the room's open bet session,
+then to that session's player. When no open session exists the event
+logs as `unattributed` with no wallet movement.
+
+`correlation_id` is only ever passed through from the ingest `$context`,
+and no caller supplies it today, so the column is NULL on every row. The
+event → session link is recorded on the *session* side instead: a credit
+fires the `pc_machine_event_credited` action and
+`Queue_Service::record_win` bumps `coins_won` / `money_won` on the open
+session. The column stays reserved for a transport that wants a
+row-level back-reference.
 
 ---
 
@@ -378,6 +415,12 @@ hold a stale head, but nothing can happen in it either.
 at a time by `POST /rooms/{id}/play`, so a player who tops up mid-turn
 isn't penalised and one who spends elsewhere runs out early.
 
+### WP options — queue (Phase 6)
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_queue_idle_timeout_seconds` | int | `60` | How long a queue entry survives without a heartbeat; the SPA's 3s queue poll is the heartbeat. `Queue_Service::idle_timeout` floors it at 10. Not exposed in the admin SPA yet. |
+
 ---
 
 ## Phase 7 — support
@@ -426,6 +469,14 @@ rewrite history. Guests are always `0`.
 `subject_id` has no FK constraint. Retiring a subject trashes the post
 rather than deleting it, so an old ticket still resolves its label
 through `get_post()`.
+
+### WP options — support & captcha (Phase 7)
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_support_email` | string (email) | site `admin_email` | Where new-ticket notifications are mailed; the player's address goes in `Reply-To`. |
+| `pc_captcha_provider` | string | `turnstile` | `turnstile` or `hcaptcha`; picks the siteverify endpoint in `Captcha_Verifier`. Set from the admin SPA (`PUT /admin/support/captcha`). |
+| `pc_captcha_site_key` | string | `''` | Public captcha key, handed to the SPA via `GET /support/subjects`. Empty ⇒ captcha disabled and guests submit unchallenged. Set from the admin SPA; the matching secret is the `PC_CAPTCHA_SECRET` wp-config constant, never stored here (see `CAPTCHA_SETUP.md`). **Launch blocker while empty** — ROADMAP Phase 7 §1. |
 
 ---
 
