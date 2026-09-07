@@ -3,7 +3,7 @@
 Pusher Coin is a real-time, browser-based coin-pusher gambling application split into three independent applications that live side by side in this repository:
 
 - `frontend/` — a Vue 3 single-page application (SPA) that the player interacts with.
-- `admin/` — a separate Vue 3 SPA used by operators to manage rooms and schedules, review withdrawals, switch and monitor the physical machine, set coin pricing and the bonus map, and triage support tickets. Introduced in Phase 3. See `ADMIN-DECISION.md` for the rationale.
+- `admin/` — a separate Vue 3 SPA used by operators to manage rooms and schedules, review withdrawals, switch and monitor the physical machine, set coin pricing and the bonus map, triage support tickets, and moderate chat. Introduced in Phase 3. See `ADMIN-DECISION.md` for the rationale.
 - `backend/` — a WordPress installation that exposes a JSON REST API used by both SPAs (the WordPress admin/HTML side is not the user-facing product). It is also the only component that talks to the physical machine and to the payment provider.
 
 The three apps are decoupled: separate `.git` repositories (the root repo ignores all three and tracks only the documentation), separate deploy pipelines, and communication exclusively over HTTPS/JSON.
@@ -42,7 +42,7 @@ Data flow at a glance:
 2. The router (`src/router/index.js`) decides which `views/*.vue` to render and gates routes against the auth store: `requiresAuth` / `requiresGuest`, then the nickname and terms gates (see *Authentication flow* below).
 3. View components compose `components/*.vue` and call `services/*.js` (an Axios client) which appends the JWT bearer token from `localStorage` to every request.
 4. Requests hit the WordPress REST API at `VITE_API_BASE_URL` (`https://pusher-coin.ddev.site/wp-json/pc/v1` locally; the staging host in `.env.production`).
-5. Inside WordPress, the custom theme `pc` registers 16 REST controllers under `pc/v1`. Controllers validate, gate, and delegate; domain logic sits in `app/utils/*` service classes (`Wallet_Service`, `Queue_Service`, `Machine_Service`, `Machine_Ingest_Service`, `Support_Service`).
+5. Inside WordPress, the custom theme `pc` registers 18 REST controllers under `pc/v1`. Controllers validate, gate, and delegate; domain logic sits in `app/utils/*` service classes (`Wallet_Service`, `Queue_Service`, `Chat_Service`, `Machine_Service`, `Machine_Ingest_Service`, `Support_Service`).
 6. Side channels: LiqPay calls back `POST /payments/liqpay/callback` after checkout; the theme calls *out* to Home Assistant for every toss, power switch, and sensor read. Nothing pushes machine events *in* yet — the only producer of machine events today is the `wp pc machine-ingest` replay command.
 
 ---
@@ -70,9 +70,9 @@ A Vue 3 + Vite SPA. Uses the Composition API throughout.
 | `App.vue` | Root layout: header + `NavigationToggle`, side `AppNavigation`, `<RouterView />`, footer. The header switches to a room variant on the room route. |
 | `router/index.js` | Route table and `beforeEach` guard. Routes carry `meta.requiresAuth` / `meta.requiresGuest` / `meta.allowsBeforeGate`; the guard awaits `authStore.initializeAuth()` before deciding. |
 | `views/` | Page-level components mapped 1:1 to routes: `RoomsView` (`/`), `RoomView` (`/room/:id`, public), `SignInView`, `SignUpView`, `AccountView`, `HistoryView`, `SupportView` (public), and the three gate / landing views `AcceptTermsView`, `ChooseNicknameView`, `ConfirmEmailView`. `AboutView` exists but is not in the route table. |
-| `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (placeholder messages), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
-| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue, 3s poll that doubles as the heartbeat), `rooms.js` (room list, 30s cache), `navigation.js` and `chat.js` (panel open/closed state only). `counter.js` and `user.js` are unused scaffold. |
-| `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401 — see below). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `walletService`, `historyService`, `supportService`; `liqpayCheckout.js` builds and submits the hosted-checkout form; `sessionService.js` is the inactivity timer. |
+| `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (live, 3s poll, owns its poll lifecycle), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
+| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue, 3s poll that doubles as the heartbeat), `rooms.js` (room list, 30s cache), `navigation.js`, and `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor). `counter.js` and `user.js` are unused scaffold. |
+| `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401 — see below). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `liqpayCheckout.js` builds and submits the hosted-checkout form; `sessionService.js` is the inactivity timer. |
 | `assets/` | Global CSS (`main.css`, `styles/colors.css`, block-scoped CSS in `styles/blocks/`), images, the brand SVG logo. |
 | `public/` | Static files served verbatim by Vite (`favicon.ico`). |
 
@@ -106,8 +106,8 @@ the same refresh-on-401 behaviour (events are prefixed `admin-auth:`).
 
 **Shape.** `App.vue` is a bare `<RouterView />`; every authenticated
 view wraps itself in `components/AdminLayout.vue` (header + nav +
-slot). The nav has five sections — Rooms, Withdrawals, Machine,
-Support, Settings — and the router exposes:
+slot). The nav has six sections — Rooms, Withdrawals, Machine, Support,
+Chat, Settings — and the router exposes:
 
 | Route | View | Phase | What it does |
 | --- | --- | --- | --- |
@@ -119,12 +119,14 @@ Support, Settings — and the router exposes:
 | `/machine` | `MachineView` | 5 | Connection probe, power On/Off, sensor grid (coin counter, last bonus, relay, light bitfield). Polls `GET /admin/machine/state` every 3s. |
 | `/support/tickets` | `TicketsView` | 7 | Ticket queue: status filter, search, expandable message with IP / UA, status transitions, mailto reply. |
 | `/support/subjects` | `SubjectsView` | 7 | Subject list editor (reorder, hide, replace-all save) plus the guest-captcha provider / site-key panel. |
+| `/chat` | `ChatView` | 6 | Chat moderation queue: room / status / text filters, hide and restore a message, and a timed account-wide mute. |
 | `/settings` | `SettingsView` | 4 + 5 | Coin price default / min / max, LiqPay public-key hint, bonus-map 4×3 grid, relay coin count. |
 
 Stores: `auth.js` (two-step sign-in + `/admin/me` gate), `rooms.js`,
 `withdrawals.js`. Services mirror the backend admin controllers one to
 one: `adminAuthService`, `adminRoomsService`, `adminWithdrawalsService`,
-`adminCoinPricingService`, `adminMachineService`, `adminSupportService`.
+`adminCoinPricingService`, `adminMachineService`, `adminSupportService`,
+`adminChatService`.
 
 **Deferred.** No `vercel.json` and no CI workflow (no deploy target
 chosen — it is local-only); no shared component package with
@@ -160,6 +162,7 @@ themes/pc/
     │   ├── AppleAuthController.php         # Apple Sign-In (returns apple_not_configured until enrolled)
     │   ├── RoomController.php              # Phase 3 — public /rooms reads + schedule
     │   ├── RoomQueueController.php         # Phase 6 — /rooms/{id}/queue, join, leave, play (toss)
+    │   ├── RoomChatController.php           # Phase 6 — /rooms/{id}/messages: public read, gated post
     │   ├── WalletController.php            # Phase 4 — GET /wallet, POST /wallet/topup, POST /wallet/withdraw
     │   ├── PaymentController.php           # Phase 4 — LiqPay signed webhook
     │   ├── TransactionsController.php      # Phase 4 — GET /transactions (paginated, filterable)
@@ -169,7 +172,8 @@ themes/pc/
     │   ├── AdminWithdrawalController.php   # Phase 4 — /admin/withdrawals list, approve, reject
     │   ├── AdminCoinPricingController.php  # Phase 4 — GET/PUT /admin/coin-pricing
     │   ├── AdminMachineController.php      # Phase 5 — /admin/machine state, power, bonus-map
-    │   └── AdminSupportController.php      # Phase 7 — /admin/support tickets, subjects, captcha config
+    │   ├── AdminSupportController.php      # Phase 7 — /admin/support tickets, subjects, captcha config
+    │   └── AdminChatController.php          # Phase 6 — /admin/chat: moderation queue, hide/restore, mute
     ├── utils.php
     └── utils/
         ├── role-player.php                 # Registers the `player` role (see Trust boundaries)
@@ -189,6 +193,7 @@ themes/pc/
         ├── machine-events.php              # Phase 5 — Machine_Event_Log writer → wp_pc_machine_events
         ├── machine-ingest-service.php      # Phase 5 — machine event → wallet credit; transport-agnostic
         ├── queue-service.php               # Phase 6 — queue, turns, bet sessions, machine-event attribution
+        ├── chat-service.php                 # Phase 6 — chat storage, posting rules, hide/mute moderation
         ├── captcha-verifier.php            # Phase 7 — Turnstile / hCaptcha siteverify
         ├── support-service.php             # Phase 7 — subjects + tickets + notification mail
         └── cli/
@@ -209,6 +214,8 @@ them:
   credential); `GET /rooms`, `/rooms/{id}`, `/rooms/{id}/schedule`;
   `GET /support/subjects`, `POST /support/tickets` (rate-limited,
   captcha-checked for guests when configured);
+  `GET /rooms/{id}/messages` (chat is readable by guests, like the room
+  page it sits on);
   `POST /payments/liqpay/callback` (LiqPay signature verified in the handler).
 - **Public, `UserController::check_permission`** — `POST /user/sign-up`,
   `/user/request-verification`, `/user/verify-code`. These rely on
@@ -221,6 +228,11 @@ them:
   accepted + nickname chosen + email verified)** — `POST /wallet/topup`,
   `/wallet/withdraw`; `GET /rooms/{id}/queue`, `POST /rooms/{id}/queue/join`,
   `/rooms/{id}/queue/leave`, `/rooms/{id}/play`.
+- **Chat-ready (`Permissions::require_chat_ready` = logged in + terms
+  accepted + nickname chosen, *without* the email-verified step)** —
+  `POST /rooms/{id}/messages`. Chat moves no coins, so it is gated one
+  rung below play; a nickname is required because every message renders
+  with an author name.
 - **Admin (`Permissions::require_admin` = logged in + `manage_options`)** —
   `GET /admin/me`; `GET/POST /admin/rooms`, `GET/PUT/DELETE /admin/rooms/{id}`,
   `PUT /admin/rooms/{id}/schedule`; `GET /admin/withdrawals`,
@@ -228,7 +240,9 @@ them:
   `GET/PUT /admin/coin-pricing`; `GET /admin/machine/state`,
   `POST /admin/machine/power`, `GET/PUT /admin/machine/bonus-map`;
   `GET /admin/support/tickets`, `PATCH /admin/support/tickets/{id}`,
-  `GET/PUT /admin/support/subjects`, `GET/PUT /admin/support/captcha`.
+  `GET/PUT /admin/support/subjects`, `GET/PUT /admin/support/captcha`;
+  `GET /admin/chat/messages`, `PATCH /admin/chat/messages/{id}`,
+  `POST /admin/chat/mute`.
 
 Two JWTs are involved: a short-lived **access token** (HS256, 15-min
 default from `pc_access_token_ttl_seconds`, signed with
@@ -362,6 +376,26 @@ panel says so in red. That unconfigured state is a launch blocker
 (ROADMAP Phase 7 §1, `CAPTCHA_SETUP.md`). Admins triage tickets and edit
 subjects through `AdminSupportController`; retiring a subject trashes
 the post so old tickets still resolve their label.
+
+**In-room chat (Phase 6)**
+
+`Chat_Service` owns `wp_pc_room_messages`. Reads are public and
+cursor-based — `GET /rooms/{id}/messages?after=<last id>`, polled every
+3s by the same store that owns the chat panel's open/closed state — so a
+guest watching a broadcast sees the conversation read-only, exactly as
+the component was built for in Phase 3. Writes go through
+`require_chat_ready`, are capped at 500 sanitised plain-text characters,
+and are rate-limited to 10 per minute per account.
+
+Chat deliberately does not require the room to be `available` the way
+the queue does: a room in maintenance is where players ask what is going
+on.
+
+Moderation is two verbs. Hiding flips a `status` column rather than
+deleting the row, so the author, body, IP, and timestamp survive for
+whoever reviews the complaint; muting writes a `chat_muted_until`
+timestamp to user meta and is account-wide, enforced server-side on
+every post. Both run from the admin SPA's `ChatView` and are audited.
 
 **Live streaming**
 

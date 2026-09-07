@@ -44,12 +44,13 @@ literals.
 | `EMAIL_CONFIRMATION_EXPIRY` | `email_confirmation_expiry` | int | request-email-confirmation | Phase 2. 24-hour TTL. |
 | `PASSWORD_CHANGE_CODE` | `password_change_code` | string (6 digits) | request-password-change | Phase 2. Cleared on confirm/expiry. |
 | `PASSWORD_CHANGE_CODE_EXPIRY` | `password_change_code_expiry` | int | request-password-change | Phase 2. 15-minute TTL. |
+| `CHAT_MUTED_UNTIL` | `chat_muted_until` | int (unix timestamp) | admin/chat/mute | Phase 6. Account-wide chat mute; absent or in the past means not muted. Deleted rather than zeroed when a mute is lifted. |
 
 ### WP options (Phase 1+2)
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.7.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`); Phase 6 bumped 1.6.0 → 1.7.0 (adds `wp_pc_bet_sessions`, `wp_pc_room_queues`). |
+| `pc_db_version` | string | `'1.8.0'` | Tracks installed schema version; `Install_Schema::maybe_install` reads / writes it. Phase 2 bumped 1.0.0 → 1.1.0; Phase 3 bumped 1.1.0 → 1.2.0 (adds `wp_pc_room_schedules`); Phase 4 Step 1 bumped 1.2.0 → 1.3.0 (adds `wp_pc_wallets`, `wp_pc_coin_lots`, `wp_pc_transactions`); Phase 4 Step 4 bumped 1.3.0 → 1.4.0 (adds `consumed_lots LONGTEXT NULL` to `wp_pc_transactions` so rejected withdrawals can re-credit at original prices); Phase 5 Step 5 bumped 1.4.0 → 1.5.0 (adds `wp_pc_machine_events`); Phase 7 bumped 1.5.0 → 1.6.0 (adds `wp_pc_support_tickets`); Phase 6 bumped 1.6.0 → 1.7.0 (adds `wp_pc_bet_sessions`, `wp_pc_room_queues`); Phase 6 chat bumped 1.7.0 → 1.8.0 (adds `wp_pc_room_messages`). |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | 15 minutes. Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -106,6 +107,7 @@ today, by owning phase:
 | 4 — payments | `liqpay_payload_invalid`, `liqpay_signature_invalid`, `liqpay_callback_misconfigured`, `liqpay_callback_unknown_order`, `liqpay_topup_settled`, `liqpay_topup_settle_failed`, `liqpay_topup_failed` |
 | 4 — withdrawals | `withdrawal_approved`, `withdrawal_rejected` |
 | 5 — machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
+| 6 — chat | `chat_message_moderated`, `chat_user_muted` |
 | 7 — support | `support_ticket_created`, `support_ticket_updated`, `support_subjects_updated`, `support_captcha_updated` |
 
 Machine *events* (tosses, drops, bonuses) do not go here — they have
@@ -414,6 +416,49 @@ hold a stale head, but nothing can happen in it either.
 `coins_declared` is an intent, not a reservation: coins are debited one
 at a time by `POST /rooms/{id}/play`, so a player who tops up mid-turn
 isn't penalised and one who spends elsewhere runs out early.
+
+### `wp_pc_room_messages` (custom table)
+
+In-room chat. A custom table by rule 4 of the matrix below: high write
+rate, relational, and nothing editorial about it. Installed by
+Install_Schema 1.8.0; written through `Chat_Service`, never directly.
+
+```
+id          BIGINT   PK
+room_id     BIGINT
+user_id     BIGINT
+body        VARCHAR(500)
+status      VARCHAR(16)     -- visible|hidden
+ip          VARBINARY(16) NULL
+created_at  DATETIME(6)
+KEY room_status_id (room_id, status, id)
+KEY user_created (user_id, created_at)
+```
+
+Three decisions worth keeping:
+
+- **Reads are cursor-based on `id`, not offset-based.** The SPA polls
+  `GET /rooms/{id}/messages?after=<last id>` every 3s. Under
+  `LIMIT/OFFSET` a conversation that gains rows between two polls would
+  re-send or skip messages; a cursor cannot. `room_status_id` is the
+  index that serves it.
+- **Moderation hides, it does not delete.** `status` is a column instead
+  of a `DELETE` so a hidden row keeps its author, body, IP, and
+  timestamp for whoever reviews the complaint — the same reasoning that
+  trashes a retired support subject rather than dropping it. The
+  player-facing read filters to `visible`.
+- **No nickname column.** Authors are resolved live through
+  `get_userdata`, the way the queue does it, so a player who renames
+  themselves does not leave two names in one conversation. This is the
+  opposite call to `wp_pc_support_tickets.email_verified`, and for the
+  opposite reason: a ticket records what was true at submission time,
+  while a chat line just needs to say who is speaking now.
+
+Muting is *not* stored here — it is `chat_muted_until` user meta, a
+per-user scalar by rule 2. The mute is account-wide rather than
+per-room: someone worth silencing in one room is worth silencing in the
+next, and a per-room mute would need a table of its own for a rule
+nobody has asked for yet.
 
 ### WP options — queue (Phase 6)
 

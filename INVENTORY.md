@@ -121,13 +121,15 @@ real API calls.
   submission posts to `POST /support/tickets`, the email field locks for
   logged-in players, and a captcha mounts for guests when the operator
   has configured a provider.
-- `components/RoomChat.vue` (was `Chat.vue`) — six hardcoded messages; `sendMessage` mutates
-  a local array. Phase 3 added a `readonly` prop + `send-attempted`
-  emit so `RoomView` can show the chat to guests without letting them
-  send; the underlying message data is still placeholder. **Still open
-  after Phase 6** — chat has no API contract at all (no storage, no
-  moderation rules, and it wants the same push transport as the queue),
-  so it was deliberately excluded from that slice.
+- ~~`components/RoomChat.vue` (was `Chat.vue`) — six hardcoded messages;
+  `sendMessage` mutates a local array.~~ Replaced in Phase 6 §1: messages
+  come from `GET /rooms/{id}/messages` via `useChatStore` (3s poll with
+  an `after` cursor), posting goes to `POST /rooms/{id}/messages` behind
+  `require_chat_ready`, and the component owns its own poll lifecycle
+  because the read is public while the queue poll is not. The Phase 3
+  `readonly` prop + `send-attempted` emit still drive the guest path —
+  guests now read *real* messages read-only. Moderation (hide + mute)
+  ships in the admin SPA's `ChatView`.
 - ~~`components/Queue.vue` — 24 fake users, two with hardcoded balance.~~
   (now `components/RoomQueue.vue`)
   Replaced in Phase 6: rows come from `GET /rooms/{id}/queue` via

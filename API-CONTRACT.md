@@ -116,8 +116,14 @@ Phase 4):
   (5 / 15min per IP; 10 / 24h per IP for sign-up).
 - Authenticated routes use `Permissions::require_logged_in` (auth/logout,
   user/accept-terms, user/set-nickname, plus future Phase 2+ endpoints).
-- Play / top-up routes will use `Permissions::require_play_ready` —
-  composes logged-in + terms-accepted + nickname-chosen.
+- Play / top-up routes use `Permissions::require_play_ready` — composes
+  logged-in + terms-accepted + nickname-chosen + email-verified (Phase 2
+  added the last one).
+- Chat writes use `Permissions::require_chat_ready` — logged-in +
+  terms-accepted + nickname-chosen, and deliberately *not*
+  email-verified. Chat moves no coins, so it is gated one step below
+  play; the nickname is required because a message renders with an
+  author name.
 - Admin routes (under `pc/v1/admin/...`): `permission_callback` calls
   `current_user_can( 'manage_options' )`.
 - The custom `play` capability gates room/play endpoints in Phase 6.
@@ -594,6 +600,77 @@ Errors: `not_player_turn` 403, `relay_closed` 423,
 `insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
 409, `machine_offline` 503, `machine_call_failed` 502,
 `machine_unauthorized` 502, `machine_not_configured` 500.
+
+### `GET /pc/v1/rooms/{id}/messages`
+
+**Public.** The room's chat, oldest first. The room page is public and
+guests watch the broadcast there, so they read the conversation too —
+`RoomChat.vue` has rendered it read-only to guests since Phase 3.
+
+Cursor-based, not offset-based: pass the highest `id` you already hold
+as `after` and you get back only what is newer. A conversation that
+gains rows between two polls would re-send or skip messages under
+`LIMIT/OFFSET`.
+
+Query: `?after=0&limit=50`. `after=0` (the default) is a cold open and
+returns the **newest** `limit` messages, oldest-first; `after=N` returns
+everything after `N`, ascending. `limit` is capped at 200.
+
+Response (`200`):
+```json
+{
+  "items": [
+    {
+      "id": 41,
+      "room_id": 11,
+      "user_id": 4,
+      "nickname": "jano3",
+      "body": "good luck",
+      "created_at": "2026-09-07 20:45:00.123456"
+    }
+  ],
+  "latest_id": 41
+}
+```
+
+`latest_id` is the next cursor. It echoes the request's `after` when
+nothing is new, so a client can assign it unconditionally. Hidden
+messages are never included. Nicknames are resolved live, not
+snapshotted — a player who renames themselves must not leave two names
+in one conversation.
+
+Errors: `room_not_found` 404.
+
+### `POST /pc/v1/rooms/{id}/messages`
+
+Bearer + `Permissions::require_chat_ready`.
+
+Unlike the queue, chat does **not** require `pc_room_status` to be
+`available` — a room in maintenance is exactly where players ask what is
+going on. Only the room's existence and published state are checked, so
+this endpoint never returns `room_unavailable`.
+
+Rate-limited to 10 messages per minute **per account**, not per IP: the
+write is authenticated, so the account is the honest key.
+
+Request:
+```json
+{ "body": "good luck" }
+```
+
+Bodies are trimmed, passed through `sanitize_textarea_field` (markup is
+stripped — chat is plain text and the SPA renders it as such),
+whitespace-collapsed, and must land between 1 and 500 characters.
+
+Response (`201`): the created message, same shape as an `items` entry
+above.
+
+Errors: `invalid_message` 400, `chat_muted` 403, `terms_not_accepted`
+403, `nickname_required` 403, `rest_forbidden` 401, `room_not_found`
+404, `rate_limited` 429, `message_write_failed` 500.
+
+`chat_muted` carries the expiry as `data.muted_until` (ISO-8601), so the
+SPA can say how long the mute has left rather than just refusing.
 
 ### `GET /pc/v1/wallet`
 
@@ -1221,6 +1298,69 @@ Writes a `support_subjects_updated` audit log entry.
 
 Errors: `invalid_subject` 400.
 
+### `GET /pc/v1/admin/chat/messages`
+
+Admin. The moderation queue. Unlike the player read this **includes
+hidden messages** — that is the point — and carries the author's IP and
+current mute expiry, matching what the ticket queue shows a moderator.
+
+Query: `?room_id=&user_id=&status=&search=&page=1&per_page=20`.
+`status` is `visible` or `hidden`; `search` is a `LIKE` over the body.
+
+Response (`200`): the standard paginated envelope (`items`, `total`,
+`page`, `per_page`). Each item is a player message plus `status`,
+`room_name`, `ip`, and `muted_until` (unix timestamp, or null when the
+author is not muted).
+
+Errors: `invalid_message_status` 400.
+
+### `PATCH /pc/v1/admin/chat/messages/{id}`
+
+Admin. Take a message down, or put it back.
+
+Request:
+```json
+{ "status": "hidden" }
+```
+
+**Hiding never deletes.** The row keeps its author, body, IP, and
+timestamp so whoever reviews the complaint can still see what was said —
+the same reasoning that trashes a retired support subject rather than
+dropping it. Readers filter on `status`; the player-facing read only
+ever returns `visible`.
+
+Response (`200`): the updated message in the admin shape. Audited as
+`chat_message_moderated`.
+
+Errors: `invalid_message_status` 400, `message_not_found` 404.
+
+### `POST /pc/v1/admin/chat/mute`
+
+Admin. Silence a player for `minutes`, or lift the mute with
+`minutes: 0` — which deletes the meta rather than writing a past
+timestamp, so an unmuted account carries no leftover state.
+
+The mute is **account-wide, not per-room**: someone worth silencing in
+one room is worth silencing in the next, and a per-room mute would need
+a table of its own for a rule nobody has asked for yet. It is enforced
+server-side on every post; hiding the input client-side is a courtesy,
+not the enforcement.
+
+Request:
+```json
+{ "user_id": 4, "minutes": 60 }
+```
+
+Response (`200`):
+```json
+{ "user_id": 4, "muted_until": 1757280000 }
+```
+
+`muted_until` is null when the mute was lifted. Audited as
+`chat_user_muted`.
+
+Errors: `user_not_found` 404.
+
 ### `POST /pc/v1/auth/refresh`
 
 Rotate the refresh token, return a fresh auth envelope. Public (the
@@ -1283,9 +1423,12 @@ poll of `GET /rooms/{id}/queue`. `queue_locked` 409 is reserved for it —
 nothing returns that code today, because with a persisted queue there is
 no lock to contend.
 
-Chat has no contract yet: the in-room `RoomChat.vue` still renders local
-placeholder messages. It needs storage, moderation rules, and the same
-transport decision, so it is deliberately out of the Phase 6 slice.
+Chat ships in the current section: `GET`/`POST /rooms/{id}/messages`
+plus the three `admin/chat/*` moderation routes. Storage
+(`wp_pc_room_messages`) and moderation (hide + account-wide mute) are
+settled; the transport is the same 3s poll the queue uses, with an
+`after` cursor so a poll returns only what is new. Step 7's push channel
+replaces both polls at once.
 
 ### Phase 7 — support
 
@@ -1314,6 +1457,8 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_ticket_status` | 400 | admin/support/tickets (GET filter, PATCH) |
 | `invalid_captcha_config` | 400 | admin/support/captcha PUT |
 | `invalid_coin_qty` | 400 | rooms/{id}/queue/join |
+| `invalid_message` | 400 | rooms/{id}/messages POST |
+| `invalid_message_status` | 400 | admin/chat/messages (GET filter, PATCH) |
 | `invalid_token_data` | 400 | google-auth/* |
 | `invalid_nickname` | 400 | user/set-nickname |
 | `invalid_phone` | 400 | user/me PATCH |
@@ -1346,17 +1491,19 @@ One canonical code per failure mode — do not invent variants.
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
-| `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints |
-| `nickname_required` | 403 | gated play endpoints |
+| `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
+| `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
 | `not_player_turn` | 403 | rooms/{id}/play |
+| `chat_muted` | 403 | rooms/{id}/messages POST (carries `data.muted_until`) |
 | `jwt_auth_bad_config` | 403 | verify-code (legacy; replaced by `jwt_not_configured` in new endpoints) |
 | `no_verification_code` | 404 | verify-code, google-auth/verify-code, confirm-password-change |
-| `user_not_found` | 404 | google-auth/verify-code, auth/refresh |
+| `user_not_found` | 404 | google-auth/verify-code, auth/refresh, admin/chat/mute |
 | `room_not_found` | 404 | rooms/{id}, rooms/{id}/schedule |
 | `withdrawal_not_found` | 404 | admin/withdrawals/{id}/approve, /reject |
 | `subject_not_found` | 404 | support/tickets |
 | `ticket_not_found` | 404 | admin/support/tickets PATCH |
-| `room_not_found` | 404 | rooms/{id}/queue*, rooms/{id}/play |
+| `room_not_found` | 404 | rooms/{id}/queue*, rooms/{id}/play, rooms/{id}/messages |
+| `message_not_found` | 404 | admin/chat/messages PATCH |
 | `email_exists` | 409 | sign-up |
 | `username_exists` | 409 | sign-up |
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
@@ -1367,11 +1514,12 @@ One canonical code per failure mode — do not invent variants.
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
 | `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
 | `relay_closed` | 423 | rooms/{id}/play |
-| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets |
+| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
 | `wallet_write_failed` | 500 | wallet/withdraw, admin/withdrawals/{id}/reject |
 | `ticket_write_failed` | 500 | support/tickets |
+| `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |

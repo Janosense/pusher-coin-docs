@@ -62,6 +62,7 @@ pusher-coin/
 │   │       │   ├── app/
 │   │       │   │   ├── rest-api.php           # Wires controllers into rest_api_init
 │   │       │   │   ├── rest-api/
+│   │       │   │   │   ├── AdminChatController.php      # Phase 6: /admin/chat moderation (hide + mute)
 │   │       │   │   │   ├── AdminCoinPricingController.php # Phase 4: /admin/coin-pricing read/write
 │   │       │   │   │   ├── AdminController.php          # Phase 3: /admin/me probe
 │   │       │   │   │   ├── AdminMachineController.php   # Phase 5: /admin/machine power + state + bonus-map
@@ -72,6 +73,7 @@ pusher-coin/
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
 │   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
+│   │       │   │   │   ├── RoomChatController.php   # Phase 6: public chat read + gated post
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
 │   │       │   │   │   ├── RoomQueueController.php  # Phase 6: queue join/leave + play (toss)
 │   │       │   │   │   ├── SupportController.php    # Phase 7: public /support subjects + tickets
@@ -82,6 +84,7 @@ pusher-coin/
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
 │   │       │   │       ├── captcha-verifier.php # Phase 7: Turnstile / hCaptcha siteverify
+│   │       │   │       ├── chat-service.php    # Phase 6: chat storage, posting rules, moderation
 │   │       │   │       ├── cli/
 │   │       │   │       │   ├── machine-ingest.php # `wp pc machine-ingest` — replay a machine event (Phase 5)
 │   │       │   │       │   └── seed-rooms.php  # `wp pc seed-rooms` (Phase 3)
@@ -170,7 +173,7 @@ pusher-coin/
     │   │   ├── NextBroadcastCountdown.vue      # 1Hz local countdown to next room window (Phase 3)
     │   │   ├── PlaceBet.vue                    # Phase 6: declare coins / wait turn / toss
     │   │   ├── ReplenishmentBalance.vue
-    │   │   ├── RoomChat.vue                    # Was Chat.vue; still placeholder messages
+    │   │   ├── RoomChat.vue                    # Was Chat.vue; Phase 6: live messages, 3s poll, owns its poll lifecycle
     │   │   ├── RoomList.vue                    # Was Rooms.vue
     │   │   ├── RoomQueue.vue                   # Was Queue.vue; Phase 6: live queue + turn highlight
     │   │   ├── RoomStatusBadge.vue             # Available / maintenance / unavailable chip (Phase 3)
@@ -200,6 +203,7 @@ pusher-coin/
     │   │   ├── api.js                         # Axios instance + refresh-on-401 interceptor
     │   │   ├── appleAuthService.js            # Apple Sign-In SDK wrapper
     │   │   ├── authService.js                 # /auth/* + /user/accept-terms + /user/set-nickname
+    │   │   ├── chatService.js                 # Phase 6: room chat read (public) + post
     │   │   ├── googleAuthService.js
     │   │   ├── historyService.js              # Phase 4: GET /transactions
     │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
@@ -211,7 +215,7 @@ pusher-coin/
     │   │   └── walletService.js               # Phase 4: /wallet + /wallet/topup + /withdraw
     │   ├── stores/
     │   │   ├── authentication.js              # Token, user, Google 2FA state
-    │   │   ├── chat.js                        # Chat panel open/closed toggle only; messages are local placeholders in RoomChat.vue
+    │   │   ├── chat.js                        # Phase 6: panel toggle + messages, 3s poll with an `after` cursor
     │   │   ├── counter.js                     # Vite scaffold; no importers (dead file)
     │   │   ├── navigation.js
     │   │   ├── queue.js                       # Phase 6: queue state, 3s poll + heartbeat
@@ -254,6 +258,7 @@ pusher-coin/
         │   └── index.js                       # Auth guards: requiresAuth / requiresGuest
         ├── services/
         │   ├── adminAuthService.js            # Wraps /user/verify-code + /admin/me probe
+        │   ├── adminChatService.js            # Phase 6: /admin/chat messages + moderation
         │   ├── adminCoinPricingService.js     # Phase 4: GET/PUT /admin/coin-pricing
         │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
@@ -265,6 +270,7 @@ pusher-coin/
         │   ├── rooms.js                       # Admin rooms CRUD + schedule
         │   └── withdrawals.js                 # Phase 4: queue + approve/reject
         └── views/
+            ├── ChatView.vue                   # Phase 6: chat moderation queue (hide / restore / mute)
             ├── MachineView.vue                # Phase 5: connection probe + power toggle + sensor grid (3s poll)
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions

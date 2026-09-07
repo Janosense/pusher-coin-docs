@@ -301,9 +301,18 @@ With wallet + machine + streaming in place, build the actual game loop.
    - Balance + current-game winnings `[done]` — `UserControls` reads the
      open bet session, so winnings are per-turn, and the field stays
      hidden at zero rather than showing `0`.
-   - Chat `[todo]` — still local placeholder messages. It has no
-     contract yet (storage, moderation, and the same transport question
-     as the queue), so it was deliberately left out of this slice.
+   - Chat `[done]` — `wp_pc_room_messages` + `Chat_Service`, read
+     publicly through `GET /rooms/{id}/messages` (guests see the
+     conversation read-only, as `RoomChat.vue` always intended) and
+     written through `POST /rooms/{id}/messages` behind
+     `Permissions::require_chat_ready` — logged in, terms accepted,
+     nickname chosen, but **not** email-verified: chat moves no coins,
+     so it sits one gate below play. Bodies are 1–500 characters,
+     sanitised to plain text, and rate-limited to 10/min per account.
+     Moderation is hide-not-delete plus an account-wide timed mute,
+     driven from the admin SPA's `ChatView`. Transport is the same 3s
+     poll as the queue, with an `after` cursor so a poll returns only
+     what is new — Step 7's push channel replaces both at once.
    - Theme-song toggle per room `[todo]` — `pc_room_theme_song_url` is
      stored and editable in the admin SPA; nothing plays it yet.
 2. **Queue mechanics** `[#7]` `[done]` — `wp_pc_room_queues` +
@@ -421,7 +430,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 2 | Logout + inactivity timeout | 1 |
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
-| 5 | Player main screen | 6 — partial (chat + theme song open) |
+| 5 | Player main screen | 6 — partial (theme song open) |
 | 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6/7 open |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
