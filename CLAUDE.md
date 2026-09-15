@@ -91,6 +91,7 @@ the file hierarchy.
 | Feature | Docs (FEATURE.md + sprints) | Code |
 |---|---|---|
 | `core` | `docs/features/core/` | `backend/wp-content/themes/pc/`, `frontend/src/`, `admin/src/` |
+| `realtime` | `docs/features/realtime/` | `backend/wp-content/themes/pc/app/realtime/`, `frontend/src/services/realtime.js`, `admin/src/services/realtime.js` |
 
 ## Commands
 ```bash

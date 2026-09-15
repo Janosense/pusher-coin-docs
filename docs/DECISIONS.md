@@ -155,3 +155,35 @@ Entry format:
 - **Consequences:** These scripts are not run by CI (it has no database) and are not the check command. The step that creates the check command decides whether to port them into a real suite or call them from it. Every script in `tests/` must keep the WP-CLI + DDEV guard, because the whole backend tree is FTP-deployed.
 
 ---
+
+## 2026-09-15 — Realtime machine events become the feature `realtime`; `core` stays frozen
+- **Context:** The 2026-09-15 ROADMAP audit left one coherent block of genuinely unbuilt work — the inbound machine-event transport and everything it unblocks (the SPA relay lock, live winnings, ops alerts, and Phase 6's "in real time"). It needed a home, and `core` was registered at adoption as a frozen as-is record that takes no new work.
+- **Decision:** Open a new feature `realtime` for the machine-event transport and its consumers; leave `core` frozen and keep using `/adhoc` for defects inside it.
+- **Alternatives rejected:** A sprint inside `core` — it would reverse the adoption decision three weeks after it was made and turn the as-is record into a backlog, so the one thing that says what the codebase *was* would stop saying it. Splitting the work across `core` and a new feature — attribution, transport and the SPA consumers are one causal chain; cutting it in two puts the sprint boundary inside a race condition. One big feature covering launch readiness too — i18n, a11y, compliance and the admin deploy target share no code and no blocker with this.
+- **Consequences:** `core` keeps no `sprints/` folder and `/plan-step` still never targets it. Work in `realtime` that changes `core`'s shared code (the queue store's poll, `RoomChat`'s poll, `PlaceBet`) is a plan task marked "touches shared code". Phase 8 launch-readiness items stay unhoused until someone opens a feature for them.
+
+---
+
+## 2026-09-15 — The browser channel is Ably, on its free tier
+- **Context:** The backend is a WordPress tree FTP-synced to shared hosting, which cannot hold a long-lived process, so the push leg from server to browser has to terminate somewhere else. Three 3-second polls (queue, chat, admin machine state) are waiting to be replaced.
+- **Decision:** Publish machine and relay events from WordPress to Ably over HTTP and let the SPAs subscribe; start on the free tier (6M messages/month, 200 concurrent connections, 200 channels).
+- **Alternatives rejected:** Pusher Channels Sandbox — half the concurrent connections (100) and a daily message cap rather than a monthly one, for the same money. Self-hosted Soketi — free, but a fourth deploy target to run and watch for a project that has not yet built its third. SSE or WebSocket straight from WordPress — the FTP shared host cannot hold the process; this is the constraint that rules out the whole family. Keeping the polls — they are what the feature exists to remove, and they already cause a duplicate-session race.
+- **Consequences:** A fourth external service with credentials: the Ably key is a wp-config constant like every other secret, never a WP option. The SPA needs a token endpoint rather than the key. Free-tier ceilings become a launch checklist item — 200 concurrent connections is the number to watch. Publishing is fire-and-forget: a failed publish must never fail the money path that triggered it.
+
+---
+
+## 2026-09-15 — How machine events reach WordPress is deferred to a timeboxed spike
+- **Context:** Home Assistant's official docs settle what is *possible* — a WebSocket API at `/api/websocket` that a long-lived token can authenticate against and subscribe to `state_changed`, and a REST API with no event stream at all — but not what is *usable here*. The walk-through with the machine owner that was meant to answer this will not happen.
+- **Decision:** Do not pick the transport from the desk. Sprint 1 opens with a timeboxed spike against the live machine whose exit criteria are: whether `GET /api/states/<entity>` carries `last_changed`; whether the long-lived token authenticates on `/api/websocket`; whether we can add an automation in that Home Assistant; and how `sensor.coin`, `sensor.lc01_12` and `sensor.relay_on` actually behave across a real toss, a real bonus and a real relay close. The spike ends in a DECISIONS entry naming the transport; its code is throwaway.
+- **Alternatives rejected:** Committing to cron polling now — `sensor.lc01_12` is a *level*, not an event, so two identical consecutive bonuses are indistinguishable to a poller and the second one silently pays nobody. That is a money defect, and whether `last_changed` rescues it is exactly what is unknown. Committing to an HA-side webhook now — it is the cheapest option and needs no process anywhere, but it depends on admin access to someone else's Home Assistant, which is unconfirmed. Committing to a WebSocket worker now — the most reliable, and the only one that certainly works, but it buys a fourth deploy target before cheaper options have been ruled out.
+- **Consequences:** Sprint 1 cannot fully plan its transport step until the spike closes; that step is named with its acceptance criteria and planned by `/plan-step` afterwards. Whatever wins must produce an `event_key` — the unique index is the only thing standing between a retry and a double credit.
+
+---
+
+## 2026-09-15 — `realtime` has no UI design
+- **Context:** The playbook asks once, per feature, whether the UI should be designed before coding.
+- **Decision:** No design. The feature adds no screen: it changes the behaviour of components `core` already owns — `PlaceBet` gains a pre-emptively disabled state, `UserControls` updates winnings as they land, and the queue and chat stop polling.
+- **Alternatives rejected:** Designing the new states as artboards — three disabled/error states on existing controls do not need a design pass, and `docs/DESIGN.md` already records the component inventory they belong to.
+- **Consequences:** `docs/features/realtime/design/` stays empty and `FEATURE.md` → UI points at the `core` screens it changes. A later feature that adds a screen asks the question again for itself.
+
+---

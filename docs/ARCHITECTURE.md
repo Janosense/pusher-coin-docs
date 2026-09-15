@@ -50,6 +50,7 @@ the player, `pc_admin_*` for the admin). The admin SPA additionally probes
 | Feature | Purpose | Docs | Code |
 |---|---|---|---|
 | `core` | Everything shipped before the playbook was adopted: auth and session hardening, player account and verification gates, rooms / schedules / live broadcast, wallet and payments, physical-machine integration, queue and play, in-room chat, support, and every admin surface. | `docs/features/core/FEATURE.md` | `backend/wp-content/themes/pc/`, `frontend/src/`, `admin/src/` |
+| `realtime` | The inbound transport that carries machine events from Home Assistant into WordPress, the outbound channel that pushes them to the SPAs, and the attribution rules that decide whose wallet a payout lands in. | `docs/features/realtime/FEATURE.md` | `backend/wp-content/themes/pc/app/realtime/`, `frontend/src/services/realtime.js`, `admin/src/services/realtime.js` |
 
 New work never goes into `core` — every new piece of work is a new feature, added
 here as a row and as a `docs/features/{name}/` folder.

@@ -33,6 +33,7 @@
 ## Rules & invariants
 
 - A room shows exactly one machine. What happens on screen is what happens in the venue.
+- And the reverse: a machine is played through one room at a time. Two rooms pointed at the same machine would run two queues over one physical shelf, and a payout could not say whose it was.
 - Only one player plays a room at a time. The queue is first come, first served by arrival time; the player at the head holds the turn.
 - A turn survives a page reload. It ends when the player leaves, goes quiet past the idle timeout, or the next player takes over.
 - A coin is spent only when it is actually thrown. If the machine does not confirm the toss, the coin was not spent.

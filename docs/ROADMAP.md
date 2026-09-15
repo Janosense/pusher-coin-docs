@@ -12,6 +12,12 @@ Status legend used inline:
 References to the source to-do list are given as `[#N]` (e.g. `[#5]` = item 5
 on the list provided).
 
+**Last audited against the code: 2026-09-15.** Every tag below was checked
+against `backend/`, `frontend/` and `admin/`; items whose tag changed, or whose
+description the code contradicted, carry an inline *Audited 2026-09-15* note.
+Findings that cut across phases (money, auth and deploy defects) are in
+`BACKEND-REVIEW.md` and are not re-listed here.
+
 ---
 
 ## Phase 0 — Foundations & inventory (pre-work) — DONE
@@ -53,6 +59,12 @@ identified player.
 1. **Email/password login** `[done]` — JWT issued after email verification.
    Phase 1 added rate-limiting (5 / 15min per IP for code requests; 10 / 24h
    per IP for sign-up), an audit table, and the refresh-token rotation.
+   *Audited 2026-09-15:* those limits sit on `request-verification` and
+   `sign-up` only. `verify-code` — where the password and the code are
+   actually checked — has no limit at all, and its error distinguishes a wrong
+   password from a wrong code, so the endpoint allows unlimited guessing
+   (`BACKEND-REVIEW.md` §4). Counted under the Phase 8 security review, not
+   here: the phase shipped what it claimed.
 2. **Google sign-in** `[done, parked]` — end-to-end flow lands the user
    on `/choose-nickname` on first login; the email-code 2FA is mandatory.
    **Switched off since 2026-07-25** while the project runs without
@@ -164,7 +176,6 @@ Make the room a real domain object with a schedule and a live stream.
    `DECISIONS.md`). Sign-in reuses the player 2FA flow gated by
    `GET /admin/me`. Views: `RoomListView` (table + trash), `RoomFormView`
    (create/edit), `RoomScheduleView` (weekly rules with atomic save).
-   Streaming-provider client library still pending (sub-item 4).
 
 Exit criteria: an unauthenticated user can open any room, see a real
 broadcast (or a countdown if it isn't live), and is invited to register when
@@ -179,8 +190,13 @@ The economic core. Don't ship anything beyond this without Phase 1 + 2 done.
 1. **Wallet model** `[done]` — `wp_pc_wallets` (one row per user,
    lazy-created), `wp_pc_coin_lots` (FIFO stack of
    `{qty, unit_price}`), `wp_pc_transactions` (append-only ledger with
-   `consumed_lots` JSON for refundable withdrawals). All mutations
-   gated by `Wallet_Service` with `SELECT … FOR UPDATE` row locking.
+   `consumed_lots` JSON for refundable withdrawals). Mutations go through
+   `Wallet_Service` with `SELECT … FOR UPDATE` row locking.
+   *Audited 2026-09-15:* one exception survives — `WalletController.php:127`
+   updates `wp_pc_transactions` directly, which `TECH-STACK.md` forbids. The
+   locking itself is under review (`BACKEND-REVIEW.md` §§1–3; §1 fixed
+   2026-09-15). The model is built as described; its correctness is the open
+   part.
 2. **Coin pricing rules** `[#8]` `[done]`:
    - Admin sets default + min + max via the admin SPA
      `SettingsView` → `PUT /admin/coin-pricing`. Stored as decimal
@@ -268,12 +284,21 @@ thin backend service so the rest of the app never talks to it directly.
      `pc_machine_event_player` filter, which nothing hooks until Phase 6,
      so events log `unattributed` and pay nobody; and the only caller
      today is `wp pc machine-ingest`, the manual replay / test command.
-4. **Coin-throw acknowledgement** `[todo]` — every toss must verify a 200
-   response; on failure, do not deduct the coin. `Machine_Service::toss_coin()`
-   already enforces the 200; what's missing is the caller that debits
-   only on success — `POST /rooms/{id}/play`, which is Phase 6 §3.
-5. **Relay-closed lock** `[todo]` — when `sensor.relay_on` is closed, the SPA
-   must disable the toss button (real-time push, not polling).
+4. **Coin-throw acknowledgement** `[done]` — *re-tagged 2026-09-15 (was
+   `[todo]`).* Closed by Phase 6 §3 and never updated here, though the
+   tracking matrix already said so. `Machine_Service::toss_coin()` enforces
+   the 200 and `RoomQueueController::play` debits one coin FIFO before the
+   toss, then re-credits the exact lot price on anything else
+   (`rest-api/RoomQueueController.php:129–189`). Known gaps sit in
+   `BACKEND-REVIEW.md` §10: a re-credit that itself fails is silent, and the
+   2-second timeout refunds a slow-but-successful toss.
+5. **Relay-closed lock** `[partial]` — *re-tagged 2026-09-15 (was `[todo]`).*
+   Server half `[done]`: `POST /rooms/{id}/play` reads
+   `Machine_Service::get_relay_closed()` and refuses with 423 `relay_closed`
+   while the machine is mid-payout. SPA half `[todo]`: `PlaceBet.vue` only
+   translates that error *after* a rejected toss — the button is never
+   pre-emptively disabled, because knowing the relay state without hammering
+   the machine needs Step 7's push channel.
 6. **Documentation walk-through with Dima** `[todo]` — **now the
    critical path**: it gates Step 7's transport choice, which gates the
    rest of the phase. Needs: can HA push (automation → webhook) or must
