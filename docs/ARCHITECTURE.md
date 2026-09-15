@@ -214,6 +214,8 @@ themes/pc/
 ├── composer.json            # google/apiclient (Google ID-token verification)
 ├── GOOGLE_AUTH_SETUP.md     # Operator notes for Google OAuth (parked)
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
+├── tests/
+│   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
     ├── rest-api/            # The 18 controllers listed above

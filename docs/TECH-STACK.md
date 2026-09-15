@@ -44,8 +44,16 @@ npm run lint && npm run build                                           # fronte
 npm run lint && npm run build                                           # admin, no CI
 ```
 
+Test-critical checks that exist so far — scripts run by hand against the local DDEV
+database, not by CI (they need one), and each refuses to run outside WP-CLI on DDEV:
+
+```bash
+ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back
+```
+
 Until a real check command lands, the commit gate is: lint every app the step
-touched, and build every SPA it touched. Creating the check command is the job of the
+touched, build every SPA it touched, and run every check script above that covers
+code it touched. Creating the check command is the job of the
 first code step of the first new feature's Sprint 1 — see `/do-step` §3,
 which cannot be satisfied properly before then.
 
@@ -66,6 +74,11 @@ syntax check only, not a style or static-analysis pass.
   service, no CLI command writes `wp_pc_wallets`, `wp_pc_coin_lots` or
   `wp_pc_transactions` directly. Every mutation goes through `Wallet_Service` under
   `SELECT … FOR UPDATE`.
+- **Do not expect `$wpdb` to throw.** WordPress switches mysqli error reporting off;
+  a failed statement returns `false` and nothing more, so a `try/catch` around bare
+  `$wpdb` calls never reaches its `ROLLBACK`. Inside a transaction, check every
+  statement — `START TRANSACTION` and `COMMIT` included — as
+  `Wallet_Service::ensure_written()` does.
 - **Do not put money in a float.** `DECIMAL(12,2)` / `DECIMAL(8,2)` in the DB,
   decimal strings over the wire and through PHP. `floatval` in a money path is a bug,
   not a shortcut.

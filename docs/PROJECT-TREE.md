@@ -108,7 +108,9 @@ pusher-coin/
 │   │       │   ├── composer.json
 │   │       │   ├── functions.php              # Theme bootstrap
 │   │       │   ├── index.php
-│   │       │   └── style.css
+│   │       │   ├── style.css
+│   │       │   └── tests/
+│   │       │       └── wallet-rollback.php    # `ddev wp eval-file` check: wallet write failures roll back (DDEV only)
 │   │       ├── twentytwentythree/             # Default WP theme (not expanded)
 │   │       ├── twentytwentyfour/              # Default WP theme (not expanded)
 │   │       └── twentytwentyfive/              # Default WP theme (not expanded)
