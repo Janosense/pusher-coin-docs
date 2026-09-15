@@ -147,3 +147,11 @@ Entry format:
 - **Consequences:** `API-CONTRACT.md` is now `docs/CONTRACTS.md`; `ADMIN-DECISION.md` became the 2026-05-07 entry above and the file is gone; `ROADMAP.md`, `INVENTORY.md`, `PROJECT-TREE.md` and `PUSHER-COIN-COMMANDS.txt` live in `docs/` as project-specific references with rows in the root `CLAUDE.md` table. The verification profile is **user-verified**, so every step writes a plain-language verification guide. The git model is chained sprint branches per repository. No new work is ever added to `core`. The stale `frontend/CLAUDE.md`, which described an unrelated workspace, was deleted.
 
 ---
+
+## 2026-09-15 — Interim money checks are WP-CLI eval scripts, not PHPUnit
+- **Context:** Review item 1 (`Wallet_Service` never rolled back, because `$wpdb` does not throw) sits in a test-critical zone, and the project has no test tooling; the real check command is deferred to the first new feature's Sprint 1.
+- **Decision:** Until that check command lands, cover a test-critical fix with a dependency-free script under `backend/wp-content/themes/pc/tests/`, run by hand as `ddev wp eval-file …` against the local DDEV database, which injects faults through WordPress's `query` filter and refuses to run outside WP-CLI on DDEV.
+- **Alternatives rejected:** PHPUnit with the WordPress test suite — a new dependency plus a test-database harness, too large for an ad-hoc and the job of the check-command step. A `wp pc` CLI command — it would ship a data-writing test into the production command set.
+- **Consequences:** These scripts are not run by CI (it has no database) and are not the check command. The step that creates the check command decides whether to port them into a real suite or call them from it. Every script in `tests/` must keep the WP-CLI + DDEV guard, because the whole backend tree is FTP-deployed.
+
+---

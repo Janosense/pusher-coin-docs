@@ -599,7 +599,8 @@ Response (`200`):
 Errors: `not_player_turn` 403, `relay_closed` 423,
 `insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
 409, `machine_offline` 503, `machine_call_failed` 502,
-`machine_unauthorized` 502, `machine_not_configured` 500.
+`machine_unauthorized` 502, `machine_not_configured` 500,
+`wallet_write_failed` 500 (the coin debit failed and was rolled back).
 
 ### `GET /pc/v1/rooms/{id}/messages`
 
@@ -776,7 +777,7 @@ Response (`200`):
 
 Errors: `rest_forbidden` 401; `email_not_verified` / `terms_not_accepted`
 / `nickname_required` 403; `invalid_coin_qty` 400; `insufficient_balance`
-409; `withdrawal_already_pending` 409.
+409; `withdrawal_already_pending` 409; `wallet_write_failed` 500.
 
 ### `GET /pc/v1/transactions`
 
@@ -1517,7 +1518,7 @@ One canonical code per failure mode — do not invent variants.
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
-| `wallet_write_failed` | 500 | wallet/withdraw, admin/withdrawals/{id}/reject |
+| `wallet_write_failed` | 500 | wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject |
 | `ticket_write_failed` | 500 | support/tickets |
 | `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |

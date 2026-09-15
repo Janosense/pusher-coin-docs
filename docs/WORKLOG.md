@@ -19,6 +19,13 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-15 — [adhoc] [core] — Wallet writes roll back on database failure
+- Changed: `Wallet_Service` checks every statement inside its transactions (`ensure_written()`, START/COMMIT included), so a failed write rolls the whole money operation back; review item 1 of `docs/BACKEND-REVIEW.md`. `POST /wallet/withdraw` answers `wallet_write_failed` with 500. New check `ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php` (53 checks; 33 fail on the old code). Backend `35088818`, docs `975beb5`
+- Decisions: DECISIONS 2026-09-15 "Interim money checks are WP-CLI eval scripts, not PHPUnit"
+- Open: backend `main` not pushed (a push is a production deploy). Review items 2–15 open; items 2, 3 and 9 race conditions are next in the money zone. `ddev start` strips the JWT/Google constants from `wp-config-ddev.php` (LEARNINGS)
+
+---
+
 ## 2026-09-15 — [adhoc] — Playbook v1.17
 - Changed: `.claude/commands/` and `templates/` synced from the playbook (v1.17); root `CLAUDE.md` Core rules (9 → 6) and Step protocol replaced verbatim, `Origin:` line, Features definition and Rules block dropped, Git model environments sentence from the template; "core rule N" references renumbered in TECH-STACK, DATA-MODEL, WORKLOG (TECH-STACK's retired rule 2 now points at `/do-step` §3)
 - Decisions: —
