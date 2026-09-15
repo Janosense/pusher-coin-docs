@@ -46,7 +46,7 @@ npm run lint && npm run build                                           # admin,
 
 Until a real check command lands, the commit gate is: lint every app the step
 touched, and build every SPA it touched. Creating the check command is the job of the
-first code step of the first new feature's Sprint 1 — see CLAUDE.md core rule 2,
+first code step of the first new feature's Sprint 1 — see `/do-step` §3,
 which cannot be satisfied properly before then.
 
 Two caveats a check command has to deal with: `npm run lint` is defined with
@@ -124,7 +124,7 @@ syntax check only, not a style or static-analysis pass.
 ## Dependency policy
 
 New dependencies (runtime AND dev/tooling) only after explicit user approval — see
-CLAUDE.md core rule 4. Record approved additions here with one line of justification.
+CLAUDE.md core rule 1. Record approved additions here with one line of justification.
 
 The stack table above is the as-is inventory at adoption time and predates this
 policy; it is not a list of pre-approvals for anything beyond what is already

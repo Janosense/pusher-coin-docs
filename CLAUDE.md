@@ -1,8 +1,7 @@
 # Pusher Coin — real-time coin-pusher gambling platform
 
-<!-- playbook: v1.16 — sections marked PLAYBOOK CORE are copied verbatim from
-     templates/CLAUDE.md in the playbook repo. Never edit them inside a
-     project: fix them in the playbook, bump the version, propagate. -->
+<!-- playbook: v1.17 — Core rules and Step protocol are verbatim copies of
+     templates/CLAUDE.md; never edit them here. -->
 
 Players watch a live stream of a physical coin-pusher machine, buy coins in UAH, queue for
 their turn, and toss a real coin into the real machine from the browser; whatever the machine
@@ -11,11 +10,10 @@ operator SPA (`admin/`), and a WordPress install (`backend/`) whose custom `pc` 
 whole API — and the only party that ever holds machine or payment credentials.
 
 ## Project profile
-- Origin: playbook adopted into existing codebase (playbook v1.16, 2026-09-15; the pre-playbook phase history is in `docs/ROADMAP.md`)
 - Verification: user-verified — the user does not read code; explain all changes in plain language and write verification guides for a non-developer
 - Deploy: **manual per repository, and a merge is a deploy.** `backend/` — GitHub Actions FTP-syncs the whole tree on every push to `main` (pushing `main` *is* a production release); `frontend/` — Vercel builds from `main` with `.env.production`; `admin/` — no deploy target and no CI at all, local-only today.
 - Test-critical zones (code without tests here = unfinished task): money — `Wallet_Service`, coin lots, transactions, withdrawal approve/reject; the LiqPay callback — signature verification and `(order_id, status)` idempotency; refresh-token rotation and reuse detection; every `Permissions::*` callback; machine-event idempotency and crediting. **There is no automated test suite in any of the three repositories today** — see `docs/TECH-STACK.md` → Check command.
-- Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments (staging, production) track `main` — or the deployment branch named under Deploy — never a task or sprint branch. A step may ship deploy tooling; its first run is the sprint boundary's deploy from `main`, after the sprint is merged.
+- Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments track `main` (or the deployment branch named under Deploy) — never a task or sprint branch; deploys happen at the sprint boundary via `/close-sprint`, never inside a step.
 
 ## Documentation (read before the relevant task)
 | File | When to read |
@@ -38,49 +36,34 @@ whole API — and the only party that ever holds machine or payment credentials.
 | `docs/PROJECT-TREE.md` | Before moving files or adding top-level ones — the directory map of all three apps; update it in the same change |
 | `docs/PUSHER-COIN-COMMANDS.txt` | Before any Home Assistant work — the physical machine's own API, entity ids and service calls |
 
-## Core rules (PLAYBOOK CORE)
-1. Plan before code. No code changes without an approved step plan (see Step protocol).
-2. Small increments. One task → working state (the check command from `docs/TECH-STACK.md` exits 0) → conventional commit. Never leave the branch broken between tasks.
-3. Code without tests = unfinished task. Mandatory for the test-critical zones in the profile. Tests are written in the same task as the code, by you, in the same session.
-4. New dependencies only after explicit approval. Propose, explain why, wait for a "yes". This includes transitive tooling (linters, build plugins).
-5. Do not "improve" without being asked. No speculative abstractions, caches, or extra layers. See an opportunity — propose it, don't do it silently.
-6. Never hardcode business values. Prices, limits, intervals, texts that the business may change are configuration, not constants.
-7. Secrets only via environment config. Never commit keys, never log secret values.
-8. Documentation is part of the task. The /close-step docs self-check is not optional; a schema change without a DATA-MODEL.md update in the same commit is an unfinished task.
-9. Session start ritual. Before anything else read the latest 5 `docs/WORKLOG.md` entries (top of file); the newest names the feature, sprint and step last worked on. Then, through the Features table, open that feature's `sprints/SPRINT-N.md` (which steps are ticked) and `SPRINT-N-PLAN.md` (the state of the step in flight: awaiting approval / in progress / implemented / closed). That is the project state — there is no separate status field. No WORKLOG entries = the project has not started.
+## Core rules
+1. New dependencies only after explicit approval. Propose, explain why, wait for a "yes". This includes transitive tooling (linters, build plugins).
+2. Do not "improve" without being asked. No speculative abstractions, caches, or extra layers. See an opportunity — propose it, don't do it silently.
+3. Never hardcode business values. Prices, limits, intervals, texts that the business may change are configuration, not constants.
+4. Secrets only via environment config. Never commit keys, never log secret values.
+5. Documentation is part of the task. Docs that describe changed code are updated in the same commit as the change; a schema change without a `docs/DATA-MODEL.md` update is an unfinished task.
+6. Project state is derived, never asked for: the newest `docs/WORKLOG.md` entry names the feature, sprint and step; that feature's `sprints/SPRINT-N.md` shows which steps are ticked, `SPRINT-N-PLAN.md` the step in flight (awaiting approval / in progress / implemented / closed). Derive it before any work on the project — not before answering a question. No WORKLOG entries = the project has not started.
 
-## Step protocol (PLAYBOOK CORE)
-The cycle is six commands — `/plan-step`, `/do-step`, `/close-step`,
-`/fix-step`, `/adhoc` and, at the sprint boundary, `/close-sprint` — and each
-defines its own procedure in `.claude/commands/`. This section only says
-when they apply and what they do not authorize.
-- The unit of work is **one Step** of the feature's `SPRINT-N.md` — never a
-  whole sprint. If the user asks to "do the sprint" or "start the sprint":
+## Step protocol
+- Code is changed only inside a step (`/plan-step` → `/do-step`) or an
+  `/adhoc`. The unit of work is **one Step** of the feature's `SPRINT-N.md` —
+  never a whole sprint. If the user asks to "do the sprint" or "start the sprint":
   do not execute it; propose `/plan-step` for the first incomplete step.
 - A step plan is produced only by `/plan-step` and executed only by
   `/do-step`. Approval of a step plan authorizes that step only — never the
   following steps.
 - An implemented step is closed with `/close-step` before any other work begins.
 - A closed step whose manual verification fails is re-opened only by
-  `/fix-step <what failed>` (diagnosis → mini-plan → approval → fix on a
-  `-reopen` branch; scope = the reported failure) and re-closed by
-  `/close-step`. A failure report is never an instruction to patch the step
-  directly.
+  `/fix-step <what failed>` and re-closed by `/close-step`. A failure report
+  is never an instruction to patch the step directly.
 - The next step begins only with a new `/plan-step` from the user.
-- A sprint is closed only by `/close-sprint`, after its last `/close-step`:
-  it writes `SPRINT-N-CLOSE.md`, ticks the Definition of Done with evidence
-  (boundary items — deploy, observed outcomes — on the user's confirmation
-  or with an explicit carry note), merges the sprint into `main` and names
-  the next action. `/plan-step N+1 1` does not start before it; nobody
-  ticks a Definition of Done box by hand.
-- This protocol governs Claude Code coding sessions. Discovery chats (a Cowork
-  Project on this directory whose Instructions are the playbook's
-  `DISCOVERY.md`) see this file too, but follow those Instructions: they
-  write docs only, never code, and are not bound by the step cycle.
+- A sprint is closed only by `/close-sprint`, after its last `/close-step`;
+  `/plan-step N+1 1` does not start before it. Definition of Done boxes are
+  ticked only by `/close-sprint`, never by hand.
 
-Outside the step cycle (questions and ad-hoc tasks are normal, not violations):
+Outside the step cycle:
 - Questions (explain code, "why is X built this way", "what would it take
-  to…", reading/analysis): answer anytime, freely, with no ceremony — but a
+  to…", reading/analysis): answer anytime, with no ceremony — but a
   question is never an instruction to change code. If the answer implies a
   change, say so and wait.
 - Ad-hoc tasks (a change outside the current sprint's scope: hotfix, small
@@ -101,29 +84,13 @@ Outside the step cycle (questions and ad-hoc tasks are normal, not violations):
 11. A schema change bumps `pc_db_version` in `Install_Schema` and updates `docs/DATA-MODEL.md` in the same commit.
 
 ## Features
-A feature is both an isolated module in the code (own subdirectory + bootstrap
-inside a code area) and the unit of planning (own FEATURE.md, own sprint
-numbering, own verification guides). Several features can share one code area
-(e.g. two features inside one app or theme). This table is the router: /plan-step
-resolves paths through it, not through the file hierarchy.
+This table is the router: a feature's docs are `docs/features/{feature}/`,
+its code is the Code path below — resolve through the table, never through
+the file hierarchy.
 
 | Feature | Docs (FEATURE.md + sprints) | Code |
 |---|---|---|
 | `core` | `docs/features/core/` | `backend/wp-content/themes/pc/`, `frontend/src/`, `admin/src/` |
-
-Rules:
-- Sprint numbering is independent per feature. WORKLOG/LEARNINGS entries are
-  tagged with the feature name. WORKLOG and DECISIONS stay single/root.
-- With exactly one feature, `/plan-step N M` resolves to it automatically;
-  with several, the feature name is required — never guessed.
-- Code areas that host several features (a shared app, package, or theme) get one
-  `CLAUDE.md` of their own (per `templates/CLAUDE.area.md`) with isolation
-  invariants: each feature in its own subdirectory with its own bootstrap;
-  shared code (helpers, base styles, the area entry file beyond one
-  registration line per feature) is changed only as an explicit plan task marked "touches shared code
-  — may affect other features".
-- Steps are closed sequentially, never in parallel sessions — WORKLOG is a
-  shared resource.
 
 ## Commands
 ```bash
