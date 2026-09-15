@@ -1,30 +1,36 @@
-# Pusher Coin — real-time coin-pusher gambling platform
+# {{PROJECT_NAME}} — {{one-line description}}
 
 <!-- playbook: v1.16 — sections marked PLAYBOOK CORE are copied verbatim from
      templates/CLAUDE.md in the playbook repo. Never edit them inside a
      project: fix them in the playbook, bump the version, propagate. -->
 
-Players watch a live stream of a physical coin-pusher machine, buy coins in UAH, queue for
-their turn, and toss a real coin into the real machine from the browser; whatever the machine
-pays out is credited back to their wallet. Three decoupled apps: a player SPA (`frontend/`), an
-operator SPA (`admin/`), and a WordPress install (`backend/`) whose custom `pc` theme *is* the
-whole API — and the only party that ever holds machine or payment credentials.
+{{2–4 sentences: what the product does, who uses it, the one platform-level
+truth if there is one (e.g. "HubSpot is the source of truth for CRM data").}}
 
 ## Project profile
-- Origin: playbook adopted into existing codebase (playbook v1.16, 2026-09-15; the pre-playbook phase history is in `docs/ROADMAP.md`)
-- Verification: user-verified — the user does not read code; explain all changes in plain language and write verification guides for a non-developer
-- Deploy: **manual per repository, and a merge is a deploy.** `backend/` — GitHub Actions FTP-syncs the whole tree on every push to `main` (pushing `main` *is* a production release); `frontend/` — Vercel builds from `main` with `.env.production`; `admin/` — no deploy target and no CI at all, local-only today.
-- Test-critical zones (code without tests here = unfinished task): money — `Wallet_Service`, coin lots, transactions, withdrawal approve/reject; the LiqPay callback — signature verification and `(order_id, status)` idempotency; refresh-token rotation and reuse detection; every `Permissions::*` callback; machine-event idempotency and crediting. **There is no automated test suite in any of the three repositories today** — see `docs/TECH-STACK.md` → Check command.
-- Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments (staging, production) track `main` — or the deployment branch named under Deploy — never a task or sprint branch. A step may ship deploy tooling; its first run is the sprint boundary's deploy from `main`, after the sprint is merged.
+- Origin: {{initialized from playbook | playbook adopted into existing codebase}}
+- Verification: {{developer-reviewed — the user reads code and reviews diffs
+  | user-verified — the user does not read code; explain all changes in plain
+  language and write verification guides for a non-developer}}
+- Deploy: {{manual — never assume push-to-deploy | describe pipeline}}
+- Test-critical zones (code without tests here = unfinished task):
+  {{e.g. payments/entitlements, access control, webhook idempotency, AI output validation}}
+- Git model: {{chained sprint branches: {feature}/sprint-N ← main, task
+  branches {feature}/sprint-N-short-name merged --no-ff | simple: task
+  branch → main. Sprint numbers are per feature, so branch names carry the
+  feature name}}. Environments (staging, production) track `main` — or the
+  deployment branch named under Deploy — never a task or sprint branch. A
+  step may ship deploy tooling; its first run is the sprint boundary's
+  deploy from `main`, after the sprint is merged.
 
 ## Documentation (read before the relevant task)
 | File | When to read |
 |---|---|
-| `docs/ARCHITECTURE.md` | Before structural work: new modules, endpoints, integrations, deploy questions. Same commit: update it when the auth flow, deploy targets, trust boundaries or state stores change |
+| `docs/ARCHITECTURE.md` | Before structural work: new modules, endpoints, integrations, deploy questions |
 | `docs/TECH-STACK.md` | Before adding dependencies or choosing an approach. Contains the ANTI-PATTERNS section — mandatory |
-| `docs/DATA-MODEL.md` | Before any schema change, migration, query, or API response shape. A new table / CPT / user meta key / WP option is unfinished until it is here *and* in `Install_Schema` / `User_Meta_Keys` / `Post_Meta_Keys` |
+| `docs/DATA-MODEL.md` | Before any schema change, migration, query, or API response shape |
 | `docs/DOMAIN.md` | Before implementing or changing any domain logic: the customer's terms, rules, invariants |
-| `docs/CONTRACTS.md` | Before touching any endpoint, route, request/response shape or error code. Same commit: a shipped endpoint moves from "planned" to "current", a new error code goes into the registry |
+| `docs/CONTRACTS.md` (if present) | Before touching any endpoint, event, or payload shape |
 | `docs/TESTING.md` (if present) | Before writing or changing tests |
 | `docs/DESIGN.md` (if present) | Before any UI work: tokens, components, screen names. Design files in `docs/features/{feature}/design/` are references, never code to copy |
 | `docs/DECISIONS.md` | Before proposing an architecture/tooling change — it may already be decided |
@@ -33,10 +39,7 @@ whole API — and the only party that ever holds machine or payment credentials.
 | `docs/features/{feature}/sprints/SPRINT-N-CLOSE.md` | At the first step of Sprint N+1: what Sprint N left behind — built, deferred, contradictions between docs |
 | `docs/WORKLOG.md` | At session start: latest 5 entries (top of file) = project memory |
 | `docs/LEARNINGS.md` | When something went wrong before — check if it's a known failure mode |
-| `docs/ROADMAP.md` | The pre-playbook status board: phases 0–8 tagged `[done]` / `[partial]` / `[todo]`, the tracking matrix, and the still-open questions. Read it before planning anything new; update the tag and the matrix in the same change that completes the work |
-| `docs/INVENTORY.md` | The frozen Phase 0 audit plus per-phase highlights: REST surface, `player` role, user meta keys, frontend stubs, resolved frontend/backend drift |
-| `docs/PROJECT-TREE.md` | Before moving files or adding top-level ones — the directory map of all three apps; update it in the same change |
-| `docs/PUSHER-COIN-COMMANDS.txt` | Before any Home Assistant work — the physical machine's own API, entity ids and service calls |
+| {{project-specific docs, e.g. spike notes, client-plans}} | {{when}} |
 
 ## Core rules (PLAYBOOK CORE)
 1. Plan before code. No code changes without an approved step plan (see Step protocol).
@@ -88,19 +91,17 @@ Outside the step cycle (questions and ad-hoc tasks are normal, not violations):
   an open step's commits or plan.
 
 ## Domain invariants
-1. Every REST route declares an explicit `permission_callback`. Whatever the SPA enforces — coin-quantity clamps, zero-balance routing, the nickname / terms / email gates — is re-checked server-side. The browser is untrusted; only the JWT identifies the caller.
-2. Secrets are wp-config constants on the server: `JWT_AUTH_SECRET_KEY`, `PC_LIQPAY_PRIVATE_KEY`, `PC_MACHINE_TOKEN`, `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*`. Never in the database, never in the repository, never logged. Their public counterparts (LiqPay public key, captcha site key) are WP options.
-3. Every wallet mutation goes through `Wallet_Service` under `SELECT … FOR UPDATE`. Coins are a FIFO stack of `(qty, unit_price)` lots, so a coin always pays back at the price it was bought at.
-4. A coin is debited only after `Machine_Service::toss_coin()` answers HTTP 200. Any other answer re-credits the exact lot price that was taken.
-5. `POST /payments/liqpay/callback` is the only place a transaction flips `pending → completed`, and it is idempotent on `(order_id, status)`.
-6. Machine events are idempotent on `event_key`. Machine payouts credit coin lots directly and are audited in `wp_pc_machine_events` — they never pass through the transaction ledger, because the player's history shows money movements only.
-7. Money is UAH, stored `DECIMAL(12,2)` and serialised as decimal strings end to end. Never a JavaScript float.
-8. `Machine_Service` is the only code that talks to Home Assistant. Its typed `WP_Error`s map to gateway statuses (502 / 503) so a machine fault never reaches a SPA as a 401 and never trips the refresh interceptor.
-9. Meta keys exist only as constants: user meta through `User_Meta_Keys`, `pc_room` meta through `Post_Meta_Keys`. A literal meta-key string in a controller is a defect.
-10. Moderation hides, it does not delete: a chat message flips its `status` column, a retired support subject is trashed rather than removed — so authors, bodies, IPs and old tickets' subject labels survive.
-11. A schema change bumps `pc_db_version` in `Install_Schema` and updates `docs/DATA-MODEL.md` in the same commit.
+{{Numbered, non-negotiable, project-specific rules. Examples of the right kind:
+"server-side entitlement checks on every endpoint", "all LLM responses validated
+with Zod before touching DB", "persist message to DB first, then broadcast",
+"webhook signature verification + idempotency". Delete this comment.}}
 
 ## Features
+<!-- Always present, minimum one row — even a brand-new single-purpose project
+     starts with one feature (name it after what it does, or "core"). Sprints
+     never live in root docs/: always docs/features/{feature}/sprints/.
+     This makes adding the second feature later a new row + a new folder,
+     never a migration of existing files. -->
 A feature is both an isolated module in the code (own subdirectory + bootstrap
 inside a code area) and the unit of planning (own FEATURE.md, own sprint
 numbering, own verification guides). Several features can share one code area
@@ -109,7 +110,7 @@ resolves paths through it, not through the file hierarchy.
 
 | Feature | Docs (FEATURE.md + sprints) | Code |
 |---|---|---|
-| `core` | `docs/features/core/` | `backend/wp-content/themes/pc/`, `frontend/src/`, `admin/src/` |
+| {{core}} | `docs/features/{{core}}/` | `{{src/ or wp-content/...}}` |
 
 Rules:
 - Sprint numbering is independent per feature. WORKLOG/LEARNINGS entries are
@@ -127,23 +128,6 @@ Rules:
 
 ## Commands
 ```bash
-# No check command yet (docs/TECH-STACK.md -> Check command): lint every touched app, build every touched SPA.
-
-# backend/ — WordPress under DDEV
-ddev start
-ddev wp pc seed-rooms
-ddev wp pc machine-ingest --help
-find wp-content/themes/pc -name '*.php' -print0 | xargs -0 -n1 php -l
-
-# frontend/ — player SPA, dev server on :5173
-npm ci
-npm run dev
-npm run lint
-npm run build
-
-# admin/ — operator SPA, dev server on :5174
-npm ci
-npm run dev
-npm run lint
-npm run build
+{{dev / lint / test / build / migrate commands — exact, copy-pasteable;
+  the check command from docs/TECH-STACK.md first — it is the commit gate}}
 ```

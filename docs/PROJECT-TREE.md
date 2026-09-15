@@ -15,8 +15,8 @@ pusher-coin/
 ├── .claude/
 │   └── settings.local.json                    # Claude Code tool permissions for this checkout (local, untracked)
 ├── .gitignore                                 # Ignores backend/, frontend/, admin/ (separate repos) + IDE noise
-├── ADMIN-DECISION.md                          # Admin surfaces are a separate Vue SPA, not WP admin
-├── API-CONTRACT.md                            # Canonical pc/v1 request / response / error shapes
+├── DECISIONS.md                          # Admin surfaces are a separate Vue SPA, not WP admin
+├── CONTRACTS.md                            # Canonical pc/v1 request / response / error shapes
 ├── ARCHITECTURE.md
 ├── CLAUDE.md                                  # Working conventions + documentation-upkeep rules
 ├── DATA-MODEL.md                              # Storage decision per entity (table / CPT / meta / option)

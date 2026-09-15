@@ -50,7 +50,7 @@ Refresh tokens are stored hashed in `wp_pc_refresh_tokens`.
 
 Account-page endpoints, rooms, wallet, transactions, and support all
 shipped in Phases 2–7; the namespace listing above is the Phase 0
-baseline, not the current surface (see `API-CONTRACT.md`).
+baseline, not the current surface (see `CONTRACTS.md`).
 
 ## Player role
 

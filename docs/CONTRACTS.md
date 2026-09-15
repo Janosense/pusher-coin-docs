@@ -1392,7 +1392,7 @@ Stub shapes only. These are not implemented; they are the contract Phase
 
 All Phase 3 endpoints (public read + admin CRUD + admin schedule
 replace) ship in the current section. The admin SPA that consumes
-the admin endpoints lands in Phase 3 too — see `ADMIN-DECISION.md`.
+the admin endpoints lands in Phase 3 too — see `DECISIONS.md`.
 
 ### Phase 4 — wallet & transactions
 

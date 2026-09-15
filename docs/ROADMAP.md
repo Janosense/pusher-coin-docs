@@ -25,13 +25,13 @@ backend so later phases don't churn it.
 - **Define the canonical API contract** `[done]` (request/response shapes,
   error envelopes, pagination) for everything the UI will need: auth,
   account, rooms, balance, transactions, support, admin. Lives in
-  `API-CONTRACT.md`; every endpoint shipped since has moved from its
+  `CONTRACTS.md`; every endpoint shipped since has moved from its
   "planned" to "current" section there.
 - **Establish data model** `[done]` for the new entities introduced by later
   phases: `room`, `room_schedule`, `wallet`, `transaction`, `bet/session`,
   `support_ticket`, `support_subject`, machine settings. Lives in
   `DATA-MODEL.md`.
-- **Set up admin-panel approach** `[done]` — decided in `ADMIN-DECISION.md`:
+- **Set up admin-panel approach** `[done]` — decided in `DECISIONS.md`:
   a separate admin SPA (`admin/`), diverging from this item's original
   recommendation to extend WP admin.
 - **Wire CI** `[done]` for the frontend (lint + build,
@@ -161,7 +161,7 @@ Make the room a real domain object with a schedule and a live stream.
    in-page sign-in overlay seeded with a redirect back to the same room.
 6. **Admin scheduling UI** `[done]` — separate Vue 3 admin SPA at
    `admin/` (Phase 0 picked the standalone-SPA route — see
-   `ADMIN-DECISION.md`). Sign-in reuses the player 2FA flow gated by
+   `DECISIONS.md`). Sign-in reuses the player 2FA flow gated by
    `GET /admin/me`. Views: `RoomListView` (table + trash), `RoomFormView`
    (create/edit), `RoomScheduleView` (weekly rules with atomic save).
    Streaming-provider client library still pending (sub-item 4).
@@ -426,7 +426,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
   and the guest captcha (Phase 7 §1) are both switched off pending
   credentials. Both are one config edit; neither can ship disabled.
 - **Admin SPA deploy target + CI** — `admin/` has no `vercel.json` and
-  no GitHub workflow; it is local-only. `ADMIN-DECISION.md` accepted a
+  no GitHub workflow; it is local-only. `DECISIONS.md` accepted a
   third deploy target (likely Vercel) plus its own lint + build
   workflow mirroring `frontend/.github/workflows/ci.yml`.
 - **Security review** — JWT rotation, rate limits, captcha coverage,
@@ -475,7 +475,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
   admin approval + out-of-band payout (no automated KYC pipeline);
   Stripe Connect-style automation deferred until legal requires it.
 - ~~Whether the admin panel stays inside WP admin or becomes a separate SPA.~~
-  Resolved Phase 0: separate admin SPA (see `ADMIN-DECISION.md`).
+  Resolved Phase 0: separate admin SPA (see `DECISIONS.md`).
 - ~~Apple Sign-In: do we need Apple Developer Program enrollment now?~~
   Resolved Phase 1: ship the stub now; flip on when enrollment completes.
   Backend returns `apple_not_configured` until `APPLE_CLIENT_ID` etc.
