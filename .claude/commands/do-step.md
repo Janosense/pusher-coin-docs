@@ -61,7 +61,7 @@ Mark the plan section `(status: approved, in progress)` and execute:
    payload shape, `ARCHITECTURE.md` for a new module/endpoint/flow,
    `TECH-STACK.md` for an approved dependency, `DESIGN.md` for a new or
    changed token or shared UI component) are updated in the same commit as
-   the change (core rule 8).
+   the change (core rule 5).
 6. **Tick the checkboxes** in `SPRINT-{N}-PLAN.md` as tasks complete.
 7. Do **not** write the WORKLOG entry or the verification guide, tick the
    step in `SPRINT-{N}.md`, or merge the branch — that is `/close-step`'s job.

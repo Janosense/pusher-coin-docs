@@ -73,7 +73,7 @@ may write is the plan file.
      what happens to each name that already exists (`CLAUDE.md`,
      `README.md`, `.gitignore`, agent instruction files such as `AGENTS.md`).
      A skeleton's agent file or bootstrap notes are never adopted; the
-     dependencies they ask for go through core rule 4 like any other.
+     dependencies they ask for go through core rule 1 like any other.
    - Versions in `docs/TECH-STACK.md` marked `(unverified — pinned at
      bootstrap)`: verify each against the package registry and list in the
      plan the locked version that TECH-STACK will record.

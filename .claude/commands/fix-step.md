@@ -105,7 +105,7 @@ step yourself.
    task branch was merged and deleted by `/close-step`); every commit goes
    there. One task → check command (`docs/TECH-STACK.md` → Check command)
    exit 0 → conventional commit (`test:` / `fix:` / `docs:`). Docs that
-   describe the changed code are updated in the same commit (core rule 8).
+   describe the changed code are updated in the same commit (core rule 5).
    Tick the Reopen checkboxes as tasks complete. Anything the diagnosis
    missed — a second cause, a needed dependency, a mismatch — stop, describe
    it and wait; a fix never grows silently.

@@ -2,7 +2,7 @@
 
 <!-- This file MUST match the actual schema at all times. A schema change
      without updating this file in the same commit = unfinished task
-     (CLAUDE.md core rule 8). -->
+     (CLAUDE.md core rule 5). -->
 
 ## Conventions
 
