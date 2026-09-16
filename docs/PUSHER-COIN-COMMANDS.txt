@@ -17,8 +17,14 @@ wp-config.php. Revoke the old token in the same screen.
 
 Entity IDs (operator-tunable WP options; defaults shown):
 
+NOTE 2026-09-16: the power switch was renamed in Home Assistant. The old
+`switch.sonoff_10024fb618` now answers 404 Entity not found; the live one is
+`switch.s60tpf` (same physical Sonoff plug — its power/voltage/current sensors
+still carry the old device id). Verified against the live instance during the
+realtime Sprint 1 Step 2 spike.
+
     pc_machine_endpoint               https://developer-it.com/api
-    pc_machine_power_switch_entity    switch.sonoff_10024fb618
+    pc_machine_power_switch_entity    switch.s60tpf
     pc_machine_toss_button_entity     input_button.toss_a_coin
     pc_machine_coin_sensor_entity     sensor.coin
     pc_machine_bonus_sensor_entity    sensor.lc01_12
@@ -40,14 +46,14 @@ The headers used by every call below:
 response = requests.post(
         "https://developer-it.com/api/services/switch/turn_on",
         headers=headers,
-        json={"entity_id": "switch.sonoff_10024fb618"}
+        json={"entity_id": "switch.s60tpf"}
     )
 
 Выключить питание автомата:
 response = requests.post(
         "https://developer-it.com/api/services/switch/turn_off",
         headers=headers,
-        json={"entity_id": "switch.sonoff_10024fb618"}
+        json={"entity_id": "switch.s60tpf"}
     )
 
 Бросить монетку:

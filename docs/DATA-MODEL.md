@@ -432,10 +432,14 @@ so an old ticket still resolves its label.
 **Machine** — defaults match `PUSHER-COIN-COMMANDS.txt`, so a fresh install talks to
 the production HA endpoint with no configuration beyond the bearer token.
 
+Unlike the coin-pricing block above, these defaults are **not** seeded into
+`wp_options` by `Install_Schema` — they are the literals in `Machine_Service::option()`,
+so changing a default in that class changes every environment that never set the option.
+
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `pc_machine_endpoint` | string (URL) | `https://developer-it.com/api` | Home Assistant base URL. |
-| `pc_machine_power_switch_entity` | string | `switch.sonoff_10024fb618` | Wall switch. |
+| `pc_machine_power_switch_entity` | string | `switch.s60tpf` | Wall switch. Renamed in HA; the old `switch.sonoff_10024fb618` 404s (verified 2026-09-16). |
 | `pc_machine_toss_button_entity` | string | `input_button.toss_a_coin` | Fires a coin toss. |
 | `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Cumulative coin counter. |
 | `pc_machine_bonus_sensor_entity` | string | `sensor.lc01_12` | Bonus wheel value 1–12. |

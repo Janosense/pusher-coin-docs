@@ -19,6 +19,13 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-16 — [adhoc] [core] — Machine power switch points at a renamed entity
+- Changed: `Machine_Service::power_on()` / `power_off()` / `get_power_on()` now default to `switch.s60tpf`; `switch.sonoff_10024fb618` was renamed in the venue's Home Assistant and 404s, so the admin **Machine** screen could neither read nor change the machine's power. No migration — `Install_Schema` seeds no `pc_machine_*` option, so the code default is what every environment uses. Found by the `realtime` Sprint 1 Step 2 spike. Backend `6d2cdf5e`, docs `c65430e`
+- Decisions: — (the relay-sensor and coin-counter findings from the same spike are NOT fixed here: unproven until a real payout is observed)
+- Open: verified against HA by curl, but the admin screen itself is unverified until `backend` `main` is pushed (that push is the production deploy). `admin/src/views/MachineView.vue:122` still tells the operator it "Toggles `switch.sonoff_*` directly" — left alone, outside this ad-hoc's approved scope
+
+---
+
 ## 2026-09-15 — [adhoc] [core] — Wallet writes roll back on database failure
 - Changed: `Wallet_Service` checks every statement inside its transactions (`ensure_written()`, START/COMMIT included), so a failed write rolls the whole money operation back; review item 1 of `docs/BACKEND-REVIEW.md`. `POST /wallet/withdraw` answers `wallet_write_failed` with 500. New check `ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php` (53 checks; 33 fail on the old code). Backend `35088818`, docs `975beb5`
 - Decisions: DECISIONS 2026-09-15 "Interim money checks are WP-CLI eval scripts, not PHPUnit"
