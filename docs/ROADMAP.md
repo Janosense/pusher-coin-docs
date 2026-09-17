@@ -206,9 +206,11 @@ The economic core. Don't ship anything beyond this without Phase 1 + 2 done.
    - Lots carry their `unit_price`; FIFO consumption preserves the
      original price for win-payout (Phase 6) and withdrawal refunds.
 3. **Top-up flow** `[#3, #11]` `[done]` — `ReplenishmentBalance.vue`
-   rewritten against `POST /wallet/topup` (LiqPay Checkout). Settlement
-   happens via the signed `POST /payments/liqpay/callback` webhook —
-   atomic on `(transaction-status, coin-lot insert, wallet credit)`.
+   rewritten against `POST /wallet/topup`. Shipped on LiqPay Checkout;
+   **the provider is Stripe since the `stripe` feature's Sprint 1** — the
+   component hands off to Stripe's hosted Checkout page and settlement
+   happens via the signed `POST /payments/stripe/webhook` — atomic on
+   `(transaction-status, coin-lot insert, wallet credit)`.
 4. **Withdrawal flow** `[#3]` `[done]` — player FIFO-debits via
    `POST /wallet/withdraw` (one pending at a time); admin reviews in
    `admin/WithdrawalsView` and approves (out-of-band payout) or
@@ -496,7 +498,9 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
   LL-HLS** via `hls.js` (lazy-loaded). Safari uses native HLS. Iframe
   embeds (YouTube/Vimeo) still supported for one-off events.
 - ~~Payment provider(s) and KYC requirements per jurisdiction.~~
-  Resolved Phase 4: **LiqPay Checkout** (UAH). Withdrawals are manual
+  Resolved Phase 4: **LiqPay Checkout** (UAH) — **superseded 2026-09-16:
+  Stripe hosted Checkout**, still UAH end to end (`DECISIONS.md`).
+  Withdrawals are manual
   admin approval + out-of-band payout (no automated KYC pipeline);
   Stripe Connect-style automation deferred until legal requires it.
 - ~~Whether the admin panel stays inside WP admin or becomes a separate SPA.~~

@@ -47,10 +47,12 @@ parking LiqPay for a later return — it is removed.
     touchpoints only, for the `/topups` route and its nav link.
   - Also carrying the name: `CAPTCHA_SETUP.md:46` and `app/utils/captcha-verifier.php:20`
     cite `PC_LIQPAY_PRIVATE_KEY` as the example wp-config secret — edits in Step 5.
-  - **Correction:** Step 5 expects to "replace the LiqPay constant" in
-    `wp-config-sample.php` / `wp-config-ddev.php`; both are tracked and neither
-    defines any `PC_*` constant today, so that task **adds** the two Stripe
-    constants rather than replacing anything.
+  - **Every Step 5 touchpoint above is done** (2026-09-17): the two backend files and
+    `liqpayCheckout.js` deleted with their loaders and imports, the Settings section
+    rewritten, the two `PC_LIQPAY_PRIVATE_KEY` citations moved to `PC_STRIPE_SECRET_KEY`.
+    The delta-audit's correction held: neither `wp-config-sample.php` nor
+    `wp-config-ddev.php` defined any `PC_*` constant, so Step 5 **added** the two Stripe
+    ones (commented) rather than replacing anything.
   - Overlap with `realtime`: `stores/wallet.js` (their Sprint 2) and `Wallet_Service`
     (they credit lots through `Machine_Ingest_Service`). Their own audit claims
     neither `WalletController` nor the top-up path — no collision in Sprint 1.
@@ -64,14 +66,17 @@ Removed the WP option `pc_liqpay_public_key` at `pc_db_version` `1.9.0`
 (Sprint 1 Step 3), through `Install_Schema::remove_retired_options()` — the first
 upgrade path the installer has had. No other feature writes any of this.
 
-**Shipped so far** (Sprint 1 Steps 3-4): `app/stripe/` — `bootstrap.php`,
+**Shipped so far** (Sprint 1 Steps 3-5): `app/stripe/` — `bootstrap.php`,
 `stripe-client.php` and `StripeWebhookController.php`;
 `Wallet_Service::set_external_ref()`, which replaced the last raw `$wpdb->update` of a
 money column; `POST /wallet/topup` creating a real Checkout Session, and
 `POST /payments/stripe/webhook` settling one. **A paid session now credits the wallet
 end to end** — observed live, including a re-delivered event crediting nothing twice.
-The player SPA still expects the LiqPay envelope until Step 5, so the button is broken
-between Steps 3 and 5 by design.
+Step 5 reconnected the player's button (`ReplenishmentBalance.vue` navigates to
+`checkout_url`) and **removed LiqPay from all three repositories**: the callback route,
+`liqpay-client.php`, `liqpayCheckout.js` and the Settings hint are gone, and
+`POST /payments/liqpay/callback` answers 404. `Install_Schema` keeps the option name
+only because that is the code that deletes it.
 
 ## Invariants
 1. **The player pays UAH and the wallet stays UAH.** Every amount sent to Stripe
@@ -98,9 +103,10 @@ between Steps 3 and 5 by design.
   — `{ configured, mode }` for Settings.
 
 ## UI
-- **Screens:** Replenishment balance (player, changed — hands off to Stripe's
+- **Screens:** Replenishment balance (player, **done** — hands off to Stripe's
   page); Account (player, unchanged — the `success` / `cancel` banner it already
-  has); Settings (admin, changed — the LiqPay section becomes Stripe status);
+  has); Settings (admin, **done** — the LiqPay section is now a static Stripe
+  section naming the two constants and the webhook URL; the live badge is Sprint 2);
   **Top-ups** (admin, new — `/topups`, built from Withdrawals). No design files:
   `design/` stays empty (`DECISIONS.md` 2026-09-17).
 - **Reuses:** the Withdrawals view's filter tabs and table, existing tokens.

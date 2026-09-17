@@ -18,7 +18,7 @@
 | **Coin** | The unit of play. A player buys coins with money and spends them one per toss. Every coin remembers the price it was bought at. |
 | **Coin lot** | A batch of coins bought at one price. Lots are spent oldest first (FIFO), so a coin won pays back at the price of the coin being spent. |
 | **Wallet** | A player's money balance and coin balance. |
-| **Top-up** | Buying coins with money, through LiqPay Checkout. |
+| **Top-up** | Buying coins with money, through Stripe's hosted Checkout page. |
 | **Withdrawal** | Turning coins back into money. Requested by the player, paid out by hand by an operator. |
 | **Queue** | The waiting line for a room, in arrival order. |
 | **Turn** (bet session) | One player's stretch at the head of the queue: how many coins they played, how many they won, how much that was worth. |

@@ -901,7 +901,7 @@ behaviour) and nothing else. `realtime`'s own shared list names `stores/queue.js
   → backend commit `refactor(stripe): remove the LiqPay integration`
   → docs commit `docs: the LiqPay callback and client are gone`
 
-- [ ] **3. Settings names Stripe** — `admin/src/views/SettingsView.vue`: the "LiqPay
+- [x] **3. Settings names Stripe** — `admin/src/views/SettingsView.vue`: the "LiqPay
   credentials" section becomes "Stripe". Static text naming the two wp-config
   constants and the webhook URL the operator must register in the Stripe Dashboard,
   rendered from the SPA's existing `VITE_API_BASE_URL` as
@@ -918,7 +918,7 @@ behaviour) and nothing else. `realtime`'s own shared list names `stores/queue.js
   → admin commit `feat(stripe): Settings names the Stripe constants and the webhook URL`
   → docs commit `docs: the admin Settings hint is Stripe`
 
-- [ ] **4. The system record** — documentation only; the statements that become false
+- [x] **4. The system record** — documentation only; the statements that become false
   the moment tasks 1–3 land.
 
   - root `CLAUDE.md` **invariant 2** — `PC_LIQPAY_PRIVATE_KEY` is replaced by

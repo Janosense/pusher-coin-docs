@@ -101,8 +101,10 @@ machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP
   player out.
 - **Do not debit a coin before the machine answers 200.** `toss_coin()` enforces the
   200; the caller re-credits the exact lot price on anything else.
-- **Do not flip a transaction to `completed` anywhere but the LiqPay callback,** and
-  keep that handler idempotent on `(order_id, status)`.
+- **Do not flip a transaction to `completed` anywhere but the Stripe webhook,** and
+  keep that handler idempotent on the row's own `status`, never on delivery order —
+  Stripe delivers at least once and out of order. The player's return from the
+  hosted page settles nothing.
 - **Do not register a REST route without an explicit `permission_callback`,** and do
   not invent a new gate inline — use `Permissions::require_logged_in` /
   `require_chat_ready` / `require_play_ready` / `require_admin`. If a route must be
@@ -130,8 +132,8 @@ machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP
   without a decision first. Some duplication of Vue tooling and primitives is
   deliberate; a monorepo or shared package was explicitly deferred.
 - **Do not put a secret in a WP option or in the repository.** wp-config constants
-  only, never logged. Public counterparts (LiqPay public key, captcha site key) are
-  options.
+  only, never logged. The captcha site key is the public counterpart that is an
+  option; the top-up provider has none at all — hosted Checkout needs no public key.
 - **Do not hardcode an operator-tunable value.** Coin price bounds, machine entity
   ids, the bonus map, the queue idle timeout, TTLs, the support address and the
   captcha provider are all WP options with defaults in `Install_Schema`.
