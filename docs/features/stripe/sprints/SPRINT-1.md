@@ -49,7 +49,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (`POST /wallet/topup` response and error codes; `liqpay_not_configured` retired); `docs/DATA-MODEL.md` (constants, the removed option, `DB_VERSION`, the `external_ref` convention); `docs/PROJECT-TREE.md` (`app/stripe/`, `tests/stripe-client.php`).
 - **Depends on:** Step 1, Step 2
 
-### [ ] Step 4 — The webhook and settlement
+### [x] Step 4 — The webhook and settlement
 - **Tasks:**
   - `app/stripe/StripeWebhookController.php`: `POST /pc/v1/payments/stripe/webhook`, `permission_callback` `__return_true` with the signature as the credential — read the raw body (`$request->get_body()`), verify with `PC_STRIPE_WEBHOOK_SECRET`; a missing or invalid signature is 400/401 and the only non-2xx the handler ever returns.
   - Event routing per the 2026-09-17 decision: `checkout.session.completed` and `checkout.session.async_payment_succeeded` with `payment_status = paid` → look up the row by `external_ref`; unknown → 200 `note: unknown_session`; not `pending` → 200 `note: already_settled`; `amount_total` or `currency` differing from the row → 200 `note: amount_mismatch`, `Audit_Log`, no settlement; otherwise `Wallet_Service::settle_topup`. `checkout.session.async_payment_failed` and `checkout.session.expired` → `failed` with the event type as the note (from `pending` only). Any other type → 200 `note: ignored`. Every branch writes `Audit_Log` with the event id, type and session id in metadata.

@@ -570,7 +570,7 @@ none
 
 ---
 
-## Plan — Sprint 1, Step 4: The webhook and settlement   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 4: The webhook and settlement   (status: closed)
 
 ### Branch
 `stripe/sprint-1-webhook` ← `stripe/sprint-1`, **`backend/` and the root documentation
