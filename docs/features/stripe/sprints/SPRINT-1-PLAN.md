@@ -359,3 +359,211 @@ workaround.
   `backend/`, `frontend/` and `admin/` all report zero changes.
 - **Payment method:** Stripe's published test number `4242…` in a `livemode: false`
   sandbox — a reserved number that belongs to nobody and moves no funds.
+
+---
+
+## Plan — Sprint 1, Step 3: The Stripe client and the Checkout Session   (status: implemented, awaiting close)
+
+### Branch
+`stripe/sprint-1-checkout-session` ← `stripe/sprint-1`, **`backend/` and the root
+documentation repository**. `frontend/` and `admin/` are not touched — the SPA hand-off
+is Step 5.
+
+### Tasks (ordered)
+Docs are committed with the code they describe (core rule 5), so there is no trailing
+documentation task.
+
+- [x] **1. The Stripe client** — `app/stripe/bootstrap.php` (requires the client, the
+  single entry point) and `app/stripe/stripe-client.php`: `final class Stripe_Client` in
+  namespace `PC`, mirroring `LiqPay_Client`'s shape.
+  - `API_BASE = 'https://api.stripe.com/v1'`, `API_VERSION = '2026-06-24.dahlia'` — the
+    version the spike pinned, as a class constant, not an option: an API version is a
+    code contract, not an operator-tunable business value (core rule 3).
+  - `secret_key()` / `webhook_secret()` private, reading `PC_STRIPE_SECRET_KEY` and
+    `PC_STRIPE_WEBHOOK_SECRET`; `is_configured()` true only when **both** are present
+    (step text, and `FEATURE.md` invariant 5).
+  - `mode()` — `test` for an `sk_test_` prefix, `live` for `sk_live_`, `''` otherwise.
+  - `to_kopiykas( string $amount ): string` — `bcmul( $amount, '100', 0 )`. A named,
+    testable unit so the conversion has somewhere to be tested; never a float.
+  - `create_checkout_session( array $params, string $idempotency_key )` —
+    `wp_remote_post` with a Bearer key, `Stripe-Version`, `Idempotency-Key`, and
+    **`adaptive_pricing[enabled] = false` injected here**, the way `LiqPay_Client`
+    injects `version`/`public_key`, so a caller cannot forget it (the spike found
+    Stripe enables it unasked). Non-2xx or transport failure → typed
+    `WP_Error( 'stripe_call_failed', … )` carrying Stripe's own `error.message` **and
+    never the key**; the key appears only in the request header.
+  - `verify_signature( string $raw_body, string $header, string $secret, int $tolerance = 300 ): bool`
+    — parse the header into `t` and **every** `v1` (the spike saw `t,v1,v0`: match by
+    key name, never by position), recompute `HMAC-SHA256` over `{t}.{raw_body}`,
+    compare with `hash_equals`, and reject a timestamp outside the tolerance.
+  - One `require_once TEMPLATE_DIR . '/app/stripe/bootstrap.php';` line in
+    `functions.php`. *Touches shared code — `functions.php` is `core`'s.*
+  - `tests/stripe-client.php` (WP-CLI eval, same guard and `$check` harness as
+    `tests/wallet-rollback.php`): `to_kopiykas` for `0.01` → `1`, `10.00` → `1000`,
+    `499.99` → `49999`, `123456.78` → `12345678`; `mode()` for both prefixes and for an
+    unset key; `is_configured()` with each constant missing in turn; and
+    **`verify_signature`** — a self-signed valid fixture accepted, a one-byte-altered
+    body rejected, a wrong secret rejected, a stale timestamp rejected, a header
+    carrying `v0` before `v1` still accepted. The signature cases are here rather than
+    waiting for Step 4 because the profile makes signature verification a
+    test-critical zone, and code shipped there without tests is an unfinished task.
+  - `docs/PROJECT-TREE.md`: `app/stripe/` and `tests/stripe-client.php`.
+  → backend commit `feat(stripe): Stripe client — session creation and signature verification`
+
+- [x] **2. `WalletController::topup` on Stripe** — validation, bounds and the `pending`
+  row stay byte-for-byte as they are (`WalletController.php:83-119`); only what happens
+  after `record_transaction` changes.
+  - New `Wallet_Service::set_external_ref( int $txn_id, string $ref ): bool` — replaces
+    the raw `$wpdb->update` at `WalletController.php:127`, checked like every other
+    write (`false !== $result`, the `update_transaction_status` pattern).
+  - The controller: unconfigured → `stripe_not_configured` 500 **before** the row is
+    written, so no row is created (the step's negative verification). Otherwise build
+    one line item — `quantity=1`, `unit_amount = to_kopiykas( amount )`,
+    `currency=uah`, `product_data[name]` naming the coin count and unit price;
+    `client_reference_id = txn_id`; `success_url` / `cancel_url` from
+    `pc_spa_base_url` (`install-schema.php:242`). **`quantity=1` with the total as
+    `unit_amount`** is what the spike validated, and it makes Step 4's `amount_total`
+    check an exact comparison against `amount_money` with no arithmetic on Stripe's
+    side. `Idempotency-Key` = `pc-topup-{txn_id}`.
+  - Store the returned `cs_…` id through `set_external_ref`; respond
+    `{ transaction_id, external_ref, amount, checkout_url }`.
+  - A failed session creation → `update_transaction_status( …, STATUS_FAILED, <error code> )`
+    and a 502, mapping `stripe_call_failed` → 502 with the lookup-array pattern of
+    `RoomQueueController.php:228-230`.
+  - Append the `set_external_ref` cases to `tests/stripe-client.php`: a missing row
+    returns `false`; a real row round-trips through
+    `find_transaction_by_external_ref`.
+  - `docs/CONTRACTS.md`: the `POST /wallet/topup` response (`order_id` and the `liqpay`
+    envelope out, `external_ref` in), `stripe_not_configured` 500 and
+    `stripe_call_failed` 502 in the registry, and `liqpay_not_configured` (row 1528)
+    narrowed from "wallet/topup, payments/liqpay/callback" to the callback alone.
+  - *Touches shared code — `Wallet_Service` and `WalletController`, both `core`'s;
+    consuming feature: `realtime`, which credits lots through `Wallet_Service` but
+    touches neither `WalletController` nor the top-up path (their Step 1 audit).*
+  → backend commit `feat(stripe): /wallet/topup creates a Checkout Session`
+
+- [x] **3. Retire the LiqPay option** — `Install_Schema`: `DB_VERSION` `1.8.0` → `1.9.0`,
+  drop `add_option( 'pc_liqpay_public_key', '' )` (`:249`), and add a
+  `remove_retired_options()` called from `maybe_install()` that runs
+  `delete_option( 'pc_liqpay_public_key' )`. **There is no upgrade path today** —
+  `maybe_install()` only installs schema and adds defaults — so this task creates the
+  smallest thing that removes an option once per version bump, not a general migration
+  framework (core rule 2).
+  - `docs/DATA-MODEL.md`: the two wp-config constants, the removed option, the new
+    `DB_VERSION`, and the `external_ref` convention (`cs_…` for Stripe-era rows;
+    LiqPay-era rows keep `pc-topup-N`).
+  - *Touches shared code — `Install_Schema` is `core`'s.*
+  → backend commit `feat(stripe): retire pc_liqpay_public_key, bump DB_VERSION to 1.9.0`
+
+### Files to create/change
+| File | Change |
+|---|---|
+| `app/stripe/bootstrap.php` | **new** — the single entry point |
+| `app/stripe/stripe-client.php` | **new** — `Stripe_Client` |
+| `functions.php` | one `require_once` line (shared) |
+| `tests/stripe-client.php` | **new** — grows across tasks 1 and 2 |
+| `app/utils/wallet-service.php` | `set_external_ref()` added (shared) |
+| `app/rest-api/WalletController.php` | `topup()` rewritten in place (shared) |
+| `app/utils/install-schema.php` | `DB_VERSION`, option removal (shared) |
+| `docs/CONTRACTS.md`, `docs/DATA-MODEL.md`, `docs/PROJECT-TREE.md` | as above |
+
+Unchanged on purpose: `PaymentController.php`, `liqpay-client.php` and their loader
+lines — removing them is Step 5. `frontend/`, `admin/` — untouched.
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/stripe-client.php`, picked up automatically by
+`backend/bin/check` stage 2 (a new file in `tests/` needs no change to the script).
+Money zone and the test-critical signature zone, so it ships with its code, not after:
+
+- `to_kopiykas`: `0.01` → `1`, `10.00` → `1000`, `499.99` → `49999`, `123456.78` → `12345678`
+- `mode()`: `sk_test_` → `test`, `sk_live_` → `live`, unset → `''`
+- `is_configured()`: false with either constant missing, true with both
+- `verify_signature()`: valid self-signed fixture accepted; body altered by one byte
+  rejected; wrong secret rejected; timestamp beyond tolerance rejected; `v0` present
+  alongside `v1` still accepted
+- `set_external_ref()`: missing row → `false`; real row round-trips
+
+Not tested here, and why: `settle_topup` is untouched by this step and already covered
+by `wallet-rollback.php`; the webhook's routing and idempotency are Step 4's
+`tests/stripe-webhook.php`; a live Stripe call is not faked — it is exercised by the
+manual verification below.
+
+### Docs to update
+`docs/CONTRACTS.md` (task 2), `docs/DATA-MODEL.md` (task 3), `docs/PROJECT-TREE.md`
+(task 1).
+
+### Checks
+- **ANTI-PATTERNS:** none violated, and three are directly engaged —
+  *money never in a float*: `bcmul` on the decimal string throughout, kopiykas as an
+  integer string; *no money column written outside `Wallet_Service`*: this step
+  **removes** the last such write, the `$wpdb->update` at `WalletController.php:127`;
+  *every route declares an explicit `permission_callback`*: the topup route keeps
+  `Permissions::require_play_ready` untouched. No `ENUM`, no new option, no meta-key
+  literal, no new dependency (`wp_remote_post`, no SDK — `DECISIONS.md` 2026-09-17),
+  and no transaction reaches `completed` here.
+- **Docs vs reality:**
+  1. **The player SPA's top-up breaks between this step and Step 5, by design.**
+     `services/walletService.js:22-31` still maps `order_id` and the `liqpay` envelope,
+     and `ReplenishmentBalance.vue:76` throws `Missing LiqPay envelope fields` when
+     they are absent. The sprint sequences the hand-off into Step 5, and nothing
+     deploys before the sprint boundary, so this is expected — but it means **the
+     manual verification of this step must call the endpoint directly** (curl with a
+     bearer token for a play-ready user), not press the SPA's button. The step text's
+     "from the SPA's dev server" is read as "against the running local stack".
+  2. `Install_Schema` has **no upgrade path** — the step says `delete_option` "in the
+     upgrade path", and there is none to put it in. Task 3 creates the minimal one.
+  3. `liqpay_not_configured` cannot be fully retired here: `PaymentController` still
+     returns it until Step 5. CONTRACTS row 1528 is narrowed, not deleted.
+  4. `external_ref` is `VARCHAR(128)`; the session id observed in the spike is 66
+     characters. Verified — no column change needed.
+  5. `Wallet_Service::record_transaction` does not check its own insert (it returns
+     `insert_id` unconditionally, unlike every other write in that class). Pre-existing,
+     outside this step — a `BACKEND-REVIEW`/`/adhoc` item, not touched here.
+- **Design:** n/a — no screen. `stripe` has no UI design (`DECISIONS.md` 2026-09-17).
+- **Check command:** `backend/bin/check` (and `frontend/bin/check`, unaffected) — run
+  before every commit, with DDEV up so the money checks execute rather than showing the
+  `SKIPPED` box.
+- **Not locally verifiable:** n/a for the deploy sense — nothing deploys. Two caveats:
+  the manual verification needs `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET`
+  added by hand to the local `wp-config.php` (gitignored, but `#ddev-generated`, so
+  `ddev start` can wipe them — `LEARNINGS.md` 2026-09-15); and the sandbox `sk_test_`
+  key **expires 2026-10-13**, after which this verification needs a fresh key.
+
+### Questions / ambiguities
+none
+
+### Execution notes (for `/close-step`)
+- **Commits.** backend `433b19a8` `d6aa851f` `4603f09e`, docs `5ab61a1` `6afde91`
+  `e683895`. `frontend/` and `admin/` never left `stripe/sprint-1`.
+- **Verified against real Stripe from the local stack**, not only by unit checks:
+  `POST /wallet/topup` answered 200 with `external_ref` `cs_test_a1rqvK7C…`,
+  `amount` `120.00` and a `checkout.stripe.com` URL; the row was `pending` with that
+  ref and `settled_at` NULL; reading the session back showed
+  `adaptive_pricing {enabled: false}`, `currency uah`, `amount_total 12000`,
+  `client_reference_id 59`. The negative case: with `PC_STRIPE_WEBHOOK_SECRET`
+  commented out, `stripe_not_configured` 500 and **the transaction count did not move**.
+- **The upgrade path was replayed, not assumed:** seeded `pc_db_version` `1.8.0` with
+  `pc_liqpay_public_key` present → after `maybe_install()` the option is absent and the
+  version is `1.9.0`; a second run changes nothing.
+- **Checks:** `tests/stripe-client.php` 39, `tests/wallet-rollback.php` 53, both under
+  `backend/bin/check`, which needed no change to pick the new file up.
+- **Two deviations from the plan**, both narrowing rather than widening:
+  1. `stripe_call_failed` → 502 is set directly on the `WP_Error` instead of through a
+     lookup array. `create_checkout_session()` returns exactly one error code, so the
+     table would have had a single row — machinery over nothing (core rule 2). Same
+     behaviour.
+  2. A `set_external_ref` failure answers `wallet_write_failed` 500 and parks the row
+     `failed`. The plan said the write is "checked like every other write" but did not
+     say what the check does on failure; a row whose session id was never stored can
+     never be found by the webhook, so failing loudly beats returning a URL that can
+     never settle. Reuses an existing registered code rather than inventing one.
+- **Considered and left out as out of scope:** `Audit_Log` entries on the two failure
+  paths. `Audit_Log` is listed in `FEATURE.md` as shared code this feature uses, but
+  Step 4 is the step that names it; the failures are already recorded in the row's
+  `notes` and returned to the caller.
+- **Local-only state left behind on purpose:** wp-config constants (gitignored,
+  `#ddev-generated`, so `ddev start` will drop them), the `stripe-step3-check` player
+  and one `pending` top-up row. None of it is tracked or deployed.
+- **`docs/DATA-MODEL.md` invariant 6 deliberately still says "the LiqPay callback"** —
+  it still is, until Step 4 ships the webhook and Step 5 removes the route. That
+  rewording is in Step 4's own docs list.
