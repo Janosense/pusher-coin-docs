@@ -570,7 +570,7 @@ none
 
 ---
 
-## Plan — Sprint 1, Step 4: The webhook and settlement   (status: approved, in progress)
+## Plan — Sprint 1, Step 4: The webhook and settlement   (status: implemented, awaiting close)
 
 ### Branch
 `stripe/sprint-1-webhook` ← `stripe/sprint-1`, **`backend/` and the root documentation
@@ -583,7 +583,7 @@ touched are documentation (root `CLAUDE.md`, `docs/ARCHITECTURE.md`).
 
 ### Tasks (ordered)
 
-- [ ] **1. The webhook** — `app/stripe/StripeWebhookController.php`, registered from
+- [x] **1. The webhook** — `app/stripe/StripeWebhookController.php`, registered from
   `app/stripe/bootstrap.php` on `rest_api_init` (the feature's single entry point, so
   `core`'s `app/rest-api.php` stays untouched).
 
@@ -637,7 +637,7 @@ touched are documentation (root `CLAUDE.md`, `docs/ARCHITECTURE.md`).
   → backend commit `feat(stripe): the settlement webhook`
   → docs commit `docs: CONTRACTS — the Stripe settlement webhook`
 
-- [ ] **2. The system-level record** — the docs that only become true once settlement
+- [x] **2. The system-level record** — the docs that only become true once settlement
   exists:
   - root `CLAUDE.md` **invariant 5** — the Stripe webhook is the only place a
     transaction flips `pending → completed`, idempotent on the session id and the
@@ -765,3 +765,31 @@ verification.
    top-up, which is the one outcome the money zone exists to prevent. Under (a) the
    error code is `wallet_write_failed` 500, already in the registry; the extra test is
    "a forced settlement failure answers 500 and leaves the row `pending`".
+
+### Execution notes (for `/close-step`)
+- **Commits.** backend `0e051977`, docs `3a27739` `9cba287`. `frontend/` and `admin/`
+  never left `stripe/sprint-1`. **No shared code was modified**, as planned.
+- **Checks:** `stripe-webhook.php` **54**, `stripe-client.php` 39,
+  `wallet-rollback.php` 53 — 146 in all under `backend/bin/check`. The new script
+  passed on its first run, including the forced-failure case.
+- **Verified live against real Stripe**, not only by script, with `stripe listen`
+  forwarding to DDEV and `PC_STRIPE_WEBHOOK_SECRET` set to the CLI's `whsec_`:
+  - a real card payment took the player from **0 → 2 coins**, row `completed`,
+    `settled_at` written;
+  - **resending the same event from Stripe left the balance at 2** and wrote
+    `stripe_webhook_already_settled` — the sprint's Definition-of-Done behaviour,
+    observed rather than assumed;
+  - `stripe trigger charge.dispute.created` → 200, balance and row unchanged;
+  - the audit log shows every branch exercised: `settled`, `already_settled`,
+    `ignored`, `amount_mismatch`, `failed_event`, `signature_invalid`, `unsigned`,
+    `settle_failed`, `unknown_session`.
+- **Question 1 resolved as (a)** and implemented: a rolled-back settlement answers
+  **500 `wallet_write_failed`** so Stripe retries. Test 16 proves the retry then
+  settles normally.
+- **Deviations from the plan:** none.
+- **Deliberately not touched, each owned by Step 5:** `docs/TECH-STACK.md`'s
+  ANTI-PATTERNS line about the LiqPay callback (still literally true), the LiqPay
+  Integrations row (marked "being removed", not deleted), and `docs/DOMAIN.md`.
+- **Local-only state:** the `stripe-step3-check` player now holds 2 coins and a
+  `completed` top-up from the live test; `wp-config.php` carries a placeholder webhook
+  secret again (the CLI's `whsec_` is per-session).
