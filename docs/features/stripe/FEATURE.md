@@ -24,20 +24,36 @@ parking LiqPay for a later return — it is removed.
 - **Entry point:** one `require_once TEMPLATE_DIR . '/app/stripe/bootstrap.php'` line in `functions.php`; in the admin SPA, one route and one nav link
 - **Shared code it depends on** — all owned by `core`; touching any of it is a
   plan task marked **"touches shared code"**, and the money zone is
-  test-critical. From the record, to be confirmed by the delta-audit (Sprint 1
-  Step 1):
-  - Backend: `Wallet_Service` (`settle_topup`, `update_transaction_status`,
-    `find_transaction_by_external_ref`, plus a new `external_ref` setter);
-    `WalletController::topup` (rewritten in place — today it writes
-    `external_ref` through `$wpdb->update`, bypassing `Wallet_Service`);
-    `PaymentController` and `liqpay-client.php` (removed); `Install_Schema`
-    (option removal, `DB_VERSION`); `Audit_Log`.
-  - Player SPA: `components/ReplenishmentBalance.vue`, `stores/wallet.js`
-    (`startTopup`), `views/AccountView.vue` (`?topup=success|cancel` banner),
-    `services/liqpayCheckout.js` (removed).
-  - Admin SPA: `views/SettingsView.vue` (the LiqPay section), the router, `AdminLayout.vue`.
-  - Overlap with `realtime`: `stores/wallet.js` (their Sprint 2) and
-    `Wallet_Service` (they credit lots through `Machine_Ingest_Service`).
+  test-critical. Delta-audit 2026-09-17 (Sprint 1 Step 1), file:line against
+  `main`; the step that changes each is named:
+  - Backend: `Wallet_Service` — `settle_topup:178`, `update_transaction_status:146`,
+    `find_transaction_by_external_ref:137` exist and are reused as they are;
+    `set_external_ref` does **not** exist, new in Step 3. `WalletController::topup:83`
+    rewritten in place — the `$wpdb->update` bypass is real at `:127`, and the
+    response also carries `order_id` + `liqpay` (Step 3). `PaymentController.php` is
+    the LiqPay callback and **nothing else** (108 lines, one route), so it goes whole
+    with `liqpay-client.php` in Step 5 — plus their loaders `app/rest-api.php:38,91`
+    and `app/utils.php:15`. `Install_Schema` — `pc_liqpay_public_key:249`,
+    `DB_VERSION:15` (`1.8.0`), `pc_spa_base_url:242` for the return URLs (Step 3).
+    `Audit_Log` reused unchanged (Step 4).
+  - Player SPA: `components/ReplenishmentBalance.vue:4,72-79`;
+    `services/walletService.js:22-31` — **not previously listed**: `mapTopupResponse`
+    maps `order_id` and the `liqpay` envelope, so the response-shape change lands
+    here too (Steps 3, 5); `stores/wallet.js:44-61` (`startTopup` passes the result
+    through — a comment edit only); `views/AccountView.vue:56-95,117` (the banner,
+    unchanged); `services/liqpayCheckout.js` removed.
+  - Admin SPA: `views/SettingsView.vue:209-218` (LiqPay section → Stripe, Step 5).
+    `router/index.js` and `AdminLayout.vue` carry **no** LiqPay reference — Sprint 2
+    touchpoints only, for the `/topups` route and its nav link.
+  - Also carrying the name: `CAPTCHA_SETUP.md:46` and `app/utils/captcha-verifier.php:20`
+    cite `PC_LIQPAY_PRIVATE_KEY` as the example wp-config secret — edits in Step 5.
+  - **Correction:** Step 5 expects to "replace the LiqPay constant" in
+    `wp-config-sample.php` / `wp-config-ddev.php`; both are tracked and neither
+    defines any `PC_*` constant today, so that task **adds** the two Stripe
+    constants rather than replacing anything.
+  - Overlap with `realtime`: `stores/wallet.js` (their Sprint 2) and `Wallet_Service`
+    (they credit lots through `Machine_Ingest_Service`). Their own audit claims
+    neither `WalletController` nor the top-up path — no collision in Sprint 1.
 
 ## Data
 Owns no table; writes `wp_pc_transactions` and coin lots **only through

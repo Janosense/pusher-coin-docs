@@ -32,6 +32,8 @@ pusher-coin/
 │   │   └── workflows/
 │   │       └── main.yml                       # `php -l` over the theme on every push/PR; FTP deploy needs lint and runs only on push to main
 │   ├── .gitignore
+│   ├── bin/
+│   │   └── check                              # Check command: `php -l` over the theme (vendor/ excluded), then tests/ via `ddev wp eval-file` when DDEV is running
 │   ├── index.php                              # WordPress
 │   ├── license.txt                            # WordPress
 │   ├── readme.html                            # WordPress
@@ -136,6 +138,8 @@ pusher-coin/
     ├── .prettierrc.json
     ├── CLAUDE.md
     ├── README.md
+    ├── bin/
+    │   └── check                              # Check command: `npm run lint` (report-only), then `npm run build`
     ├── index.html                             # Vite entry HTML; GIS <script> commented out while Google is parked
     ├── jsconfig.json                          # `@` → `src/` alias for editors
     ├── package.json

@@ -19,6 +19,14 @@ Entry format:
 
 ---
 
+## 2026-09-17 — [stripe] A real delta-audit does not fit FEATURE.md's 80-line guideline
+- **Incident:** Step 1's delta-audit filled `docs/features/stripe/FEATURE.md` to 96 lines against the template's "Keep ≤80 lines" comment — the second time running: `realtime`'s own Step 1 audit left its FEATURE.md at 91 and logged the same overshoot as an open item. Both were compressed once and still did not fit.
+- **Root cause:** The template sizes FEATURE.md for a feature summary, but `/plan-step` reads its "Shared code it depends on" as the authoritative touchpoint list, and `/do-step` §2 forbids trimming neighbouring sections to make room. A per-file, per-line audit of a feature that rewrites an existing payment path is simply longer than 80 lines, so the guideline loses to the instruction that needs the detail.
+- **Fix applied here:** None — the audit detail was kept and the overshoot recorded, as `realtime` did. The durable fix is a playbook decision: either raise the guideline for features with a shared-code audit, or move the audit to its own file that FEATURE.md links.
+- **Transferred to playbook:** pending
+
+---
+
 ## 2026-09-15 — [core] `ddev start` silently rewrote a tracked config file
 - **Incident:** During the wallet-rollback ad-hoc, `ddev start` regenerated `backend/wp-config-ddev.php` and dropped the hand-added `JWT_AUTH_SECRET_KEY` and `GOOGLE_CLIENT_ID` defines. It showed up only as an unexpected `M` in `git status`; committing it would have broken local JWT login, and missing it would have left local login broken.
 - **Root cause:** The file still carries DDEV's `#ddev-generated` header, so DDEV treats it as its own and overwrites it on start, while the project keeps hand-written constants in it. The root `CLAUDE.md` lists `ddev start` as a routine command with no warning.

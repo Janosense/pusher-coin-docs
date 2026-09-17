@@ -96,23 +96,27 @@ the file hierarchy.
 
 ## Commands
 ```bash
-# No check command yet (docs/TECH-STACK.md -> Check command): lint every touched app, build every touched SPA.
+# Check command (docs/TECH-STACK.md -> Check command): backend/bin/check and frontend/bin/check.
+# admin/ has none yet — its gate is `npm run lint && npm run build`.
 
 # backend/ — WordPress under DDEV
 ddev start
 ddev wp pc seed-rooms
 ddev wp pc machine-ingest --help
-find wp-content/themes/pc -name '*.php' -print0 | xargs -0 -n1 php -l
+bin/check                         # php -l over the theme, then tests/ when DDEV is running
 
 # frontend/ — player SPA, dev server on :5173
 npm ci
 npm run dev
-npm run lint
+bin/check                         # npm run lint, then npm run build
+npm run lint                      # reports only
+npm run lint:fix                  # rewrites files
 npm run build
 
 # admin/ — operator SPA, dev server on :5174
 npm ci
 npm run dev
-npm run lint
+npm run lint                      # reports only
+npm run lint:fix                  # rewrites files
 npm run build
 ```

@@ -14,7 +14,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Delta-audit and the check command on the sprint branch
+### [x] Step 1 — Delta-audit and the check command on the sprint branch
 - **Tasks:**
   - Read `docs/features/core/FEATURE.md` (Interfaces, Invariants), `docs/features/realtime/FEATURE.md` (Shared code, Roadmap) and the shared code this feature touches: `app/utils/wallet-service.php`, `app/rest-api/WalletController.php`, `app/rest-api/PaymentController.php`, `app/utils/liqpay-client.php`, `app/utils/install-schema.php`; `frontend/src/components/ReplenishmentBalance.vue`, `stores/wallet.js`, `views/AccountView.vue`, `services/liqpayCheckout.js`; `admin/src/views/SettingsView.vue`, `admin/src/router/index.js`, `admin/src/components/AdminLayout.vue`. Confirm or correct every touchpoint listed in `FEATURE.md` → Fit into the host, including the `$wpdb->update` bypass and each place `realtime` will touch too. No code changes.
   - Copy from `realtime/sprint-1`, unchanged: `backend/bin/check`, `frontend/bin/check`, the `lint` / `lint:fix` scripts in `frontend/package.json` and `admin/package.json`, and the matching text of `docs/TECH-STACK.md` → Check command, `CLAUDE.md` → Commands and `docs/PROJECT-TREE.md`. *Touches shared code:* the lint scripts and the check command gate every later commit.
