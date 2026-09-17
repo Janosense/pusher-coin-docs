@@ -796,7 +796,7 @@ verification.
 
 ---
 
-## Plan — Sprint 1, Step 5: The SPA hand-off, and LiqPay leaves   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 5: The SPA hand-off, and LiqPay leaves   (status: closed)
 
 ### Branch
 `stripe/sprint-1-handoff` ← `stripe/sprint-1`, in **all four repositories** —

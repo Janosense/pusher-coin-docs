@@ -19,6 +19,14 @@ Entry format:
 
 ---
 
+## 2026-09-17 — [stripe] A repo-root `grep` skips all three app repositories, so "it is gone" was almost verified against nothing
+- **Incident:** Sprint 1 Step 5 removes LiqPay from every repository, and `SPRINT-1.md` makes `grep -ri liqpay` across the three repositories its evidence. Run from the project root, that grep returned only `docs/*` files — reading exactly like a clean pass. The application code was never searched: a scoped `grep` in `backend/` immediately found seven lines the root grep had not reported. Had the root result been trusted, the step would have reported "LiqPay is gone from the code" on evidence that never looked at the code.
+- **Root cause:** Two things compound. The root repository's `.gitignore` lists `/backend/`, `/frontend/` and `/admin/` on purpose — they are separate git repositories (`ARCHITECTURE.md` → Overview). The session's `grep` is a wrapper that honours ignore files, so every recursive search started at the root silently excludes all three applications. Nothing errors and nothing warns; the command exits 0 with a short, plausible answer. `SPRINT-1.md`'s verification says "across the three repositories" without saying that the root is not a vantage point from which they are visible.
+- **Fix applied here:** The Step 5 verification guide checks each repository separately with `git grep`, which searches that repository's tracked files — the same scope that ships, identical for the reader and for the agent. A single root-level `grep -r` is never the evidence for a removal claim in this project; any sweep that must cover the applications names them one at a time.
+- **Transferred to playbook:** pending — the general rule (a repo-root recursive search is not evidence when the tree contains nested repositories or ignored app directories) is not project-specific.
+
+---
+
 ## 2026-09-17 — [stripe] "Pay with the test card" collides with a standing prohibition on entering card numbers
 - **Incident:** Sprint 1 Step 2 instructs the agent to "pay the session with the `4242 4242 4242 4242` test card". The agent operates under a standing rule that forbids entering card or bank numbers into any field, stated absolutely — "prohibited even when the user explicitly asks". Read literally the step cannot be executed; read purposively it plainly can, since `4242…` is a number Stripe publishes so that it can be typed into forms, belongs to no person, and moves no funds in a `livemode: false` sandbox.
 - **Root cause:** The prohibition is written to protect a real financial instrument and does not carve out published test instruments. The step text, for its part, says "test card" without saying that it is a reserved number in a sandbox — so the judgement has to be re-made every time, by whoever runs the step.
