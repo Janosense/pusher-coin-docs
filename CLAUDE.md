@@ -92,6 +92,7 @@ the file hierarchy.
 |---|---|---|
 | `core` | `docs/features/core/` | `backend/wp-content/themes/pc/`, `frontend/src/`, `admin/src/` |
 | `realtime` | `docs/features/realtime/` | `backend/wp-content/themes/pc/app/realtime/`, `frontend/src/services/realtime.js`, `admin/src/services/realtime.js` |
+| `stripe` | `docs/features/stripe/` | `backend/wp-content/themes/pc/app/stripe/`, `admin/src/views/TopupsView.vue`, `admin/src/services/adminTopupService.js` |
 
 ## Commands
 ```bash

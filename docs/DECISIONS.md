@@ -187,3 +187,107 @@ Entry format:
 - **Consequences:** `docs/features/realtime/design/` stays empty and `FEATURE.md` → UI points at the `core` screens it changes. A later feature that adds a screen asks the question again for itself.
 
 ---
+
+## 2026-09-16 — Stripe replaces LiqPay for top-ups; Stripe's prohibited-business policy is an accepted risk
+- **Context:** The client asked for Stripe as the top-up provider and gave no reason. Discovery checked Stripe's own record before agreeing: the Prohibited and Restricted Businesses list (stripe.com/legal/restricted-businesses) names "games of chance including gambling, internet gambling, casino games, sweepstakes and contests … with a monetary or material prize" as prohibited; its FAQ extends that to "games of skill (or chance) with cash prizes" and names no country exception and no approval path; stripe.com/global does not list Ukraine among the countries where a business can open an account. Tymofii confirmed the risk is known to the client and the decision is to proceed.
+- **Decision:** Replace LiqPay Checkout with Stripe as the only top-up provider, and treat Stripe's policy — a review that can close the account and hold its balance — as a business risk the client accepted, not as a defect of the feature.
+- **Alternatives rejected:** Stripe next to LiqPay as a second provider — not what the client asked for, and two providers double the settlement surface in the money zone for no stated need. Stripe for withdrawals — out of scope; the 2026-05-13 decision (manual payouts, no KYC pipeline) stands. Declining the feature on policy grounds — the call is the client's, and it was made with the policy on the table.
+- **Consequences:** The 2026-05-13 entry "LiqPay Checkout for top-ups" is superseded on the provider only; its provider-independent consequences carry over — the webhook is the only place a transaction reaches `completed`, idempotent on the provider's reference. The Stripe account, its country of registration and its owner are open until the client names them, and the feature cannot be verified end-to-end in live mode before that. There is no fallback provider: if Stripe closes the account, top-ups stop until another provider is wired. What happens to the LiqPay code and to `wp_pc_transactions` rows carrying LiqPay `external_ref`s is decided in Phase B of this feature.
+
+---
+
+## 2026-09-16 — LiqPay is removed, not parked
+- **Context:** Stripe replaces LiqPay for top-ups (entry above). Tymofii confirmed the product is pre-launch — `ROADMAP.md` Phase 8 is open and the captcha is still a launch blocker — so no real LiqPay order is in flight when the switch ships.
+- **Decision:** Remove the LiqPay integration entirely: the callback route, `liqpay-client.php`, `liqpayCheckout.js`, the `PC_LIQPAY_PRIVATE_KEY` constant, the public-key option and its Settings hint. History rows in `wp_pc_transactions` whose `external_ref` is a LiqPay `order_id` stay untouched.
+- **Alternatives rejected:** Parking LiqPay behind configuration, like Google sign-in — two providers in the money zone to keep in mind, for a return nobody asked for. Keeping the callback alive for one more sprint to settle in-flight orders — there are none; the product has not launched.
+- **Consequences:** Root `CLAUDE.md` (invariants 2 and 5, the test-critical zones line), `docs/DOMAIN.md` → Top-up, `docs/ARCHITECTURE.md` → Integrations, `docs/CONTRACTS.md` and `docs/DESIGN.md` → Settings and Flows all name LiqPay and change in the same commits as the code that removes it. Going back to LiqPay is a git revert plus a new feature, not a switch. "Nothing disappears" holds for the ledger: the player's History and the admin views keep rendering LiqPay-era rows.
+
+---
+
+## 2026-09-16 — Top-ups stay UAH end to end under Stripe
+- **Context:** The Stripe account will belong to a non-Ukrainian legal entity, so settlement happens in that account's currency; the open question was what the player pays and what the wallet holds.
+- **Decision:** The player sees and pays UAH; the wallet, the coin price, the lots, withdrawals and history stay UAH to the kopiyka; converting to the settlement currency is Stripe's business, not the product's.
+- **Alternatives rejected:** Charging in the account's currency while the wallet stays UAH — needs an exchange-rate rule (who fixes it, when) that the domain has no owner for. Moving the wallet to another currency — rewrites the whole money zone for an unstated need.
+- **Consequences:** Every amount sent to Stripe is UAH in minor units (kopiykas), derived from the `DECIMAL(12,2)` string, never from a float (invariant 7). Whether the account's country allows `uah` as a presentment currency could not be verified from the public docs — the list is per account country — and is a spike exit criterion; if it is not allowed, this decision is reopened. Stripe's minimum charge applies after conversion to the settlement currency, so the smallest top-up is bounded by the account, not by the coin price.
+
+---
+
+## 2026-09-16 — Chargebacks and refunds are out of v1
+- **Context:** Stripe emits dispute and refund events. Today a LiqPay `reversed` arriving after settlement changes nothing in the product.
+- **Decision:** v1 does nothing on a dispute or a refund — no wallet movement, no ledger row, no operator notice; the operator handles it in the Stripe Dashboard and out of band, as today.
+- **Alternatives rejected:** Recording the event and letting the operator decide — a new admin state and a new transaction status for a case the operator has not yet seen. Debiting unplayed coins automatically — a new domain rule in the money zone (what if the coins are already played?), decided without the operator.
+- **Consequences:** The webhook handler acknowledges dispute and refund events with 200 and ignores them — never a non-2xx that would make Stripe retry. Every sprint of this feature lists it under Out of scope; a later feature reopens it with its own `DECISIONS.md` entry.
+
+---
+
+## 2026-09-17 — `stripe` has no UI design; the payment page is Stripe's
+- **Context:** The playbook asks once per feature whether its UI is designed before coding. This feature changes two screens (Replenishment balance, Settings) and adds one (an admin list of top-ups).
+- **Decision:** No design. The payment page is the one Stripe hosts, used as it comes; Replenishment balance and Settings keep their existing components; the admin Top-ups screen is built from the Withdrawals screen's layout and components.
+- **Alternatives rejected:** Claude Design artboards for Top-ups — a filterable status table the admin SPA already has in Withdrawals. Designing the payment page — Stripe's hosted page is not ours to design.
+- **Consequences:** `docs/features/stripe/design/` stays empty; `FEATURE.md` → UI names the three screens; `docs/DESIGN.md` gains a Top-ups row under Screens and its Top-up flow changes when the code lands; no new tokens or shared components. A later feature that adds a screen asks the question again for itself.
+
+---
+
+## 2026-09-17 — Top-ups go through Stripe Checkout's hosted page
+- **Context:** The payment page is Stripe's (entry above) and the amount is computed per player — `coin_qty × unit_price` — so it cannot be a fixed price.
+- **Decision:** `POST /wallet/topup` creates a Checkout Session server-side — `mode=payment`, one line item "N coins @ price", `currency=uah`, the amount in kopiykas derived from the `DECIMAL(12,2)` string, `client_reference_id` = the transaction id, `success_url`/`cancel_url` on the SPA's `/account?topup=success|cancel` — and returns the session's `url`; the SPA navigates to it.
+- **Alternatives rejected:** Payment Element (embedded form) — Stripe.js and a publishable key in the SPA, and more code for a page we chose not to design. Payment Links — fixed amounts; ours is computed per player. Fulfilling from the landing page as well (Stripe's optional pattern) — Checkout waits up to 10 s for the `checkout.session.completed` response before redirecting, so the wallet is normally credited before the player returns.
+- **Consequences:** No Stripe.js, no publishable key anywhere, PCI scope unchanged. `checkout_url` replaces the LiqPay envelope in the `POST /wallet/topup` response. `?topup=success` stays a UX cue, never a source of truth. A session that expires gives the pending row a terminal state through `checkout.session.expired` — LiqPay never had one.
+
+---
+
+## 2026-09-17 — Stripe is called without an SDK
+- **Context:** `backend/wp-content/themes/pc/vendor/` is git-ignored and CI FTP-syncs the checkout without `composer install`, so a Composer dependency does not reach production by itself. Core rule 1 requires approval for any new dependency; `liqpay-client.php` (85 lines) is the precedent for a hand-written client.
+- **Decision:** A hand-written client on `wp_remote_post` — create and retrieve a Checkout Session, a pinned `Stripe-Version` constant — and manual webhook signature verification exactly as Stripe documents it: split `Stripe-Signature` into `t` and `v1` values, HMAC-SHA256 of `{t}.{raw body}` with the endpoint secret, constant-time comparison, `v1` only, 300 s tolerance.
+- **Alternatives rejected:** `stripe/stripe-php` — correct, but needs a deploy-pipeline change (Composer in CI or a manual `vendor/` upload) before it can ship. A WordPress Stripe plugin — the theme can do it (`TECH-STACK.md` → ANTI-PATTERNS).
+- **Consequences:** Signature verification is ours to test — it is a test-critical zone. The raw request body must reach the verifier unmodified. The pinned API version is set by the spike and bumped deliberately, never implicitly. Adopting the SDK later starts with a deploy decision, not a `composer require`.
+
+---
+
+## 2026-09-17 — The Stripe webhook settles top-ups the way the LiqPay callback did
+- **Context:** Invariant 5 of the root `CLAUDE.md` names the LiqPay callback as the only place a transaction reaches `completed`. Stripe delivers events at least once, in no guaranteed order, and retries non-2xx for up to three days.
+- **Decision:** `POST /pc/v1/payments/stripe/webhook` — public route, the signature is the credential. `checkout.session.completed` and `checkout.session.async_payment_succeeded` with `payment_status = paid` → `Wallet_Service::settle_topup`; `checkout.session.async_payment_failed` and `checkout.session.expired` → `failed` with a note; every other event → 200, ignored. The row is found by `external_ref` = the session id, written through a new `Wallet_Service` setter right after creation (the `$wpdb->update` bypass in `WalletController::topup` moves into `Wallet_Service` in the same step). Settlement runs only from `pending`, after the event's `amount_total` and `currency` match the row; the event id goes into `Audit_Log` metadata.
+- **Alternatives rejected:** Settling on `payment_intent.succeeded` — the session is the object we created and reference. Retrieving the session from the API before settling (the docs' generic pattern) — the event carries the same session object and we verify it against our own row; an extra call per event buys nothing. Returning 4xx/5xx for an unknown or already-settled session — that only makes Stripe retry; 200 with a `note`, as LiqPay did.
+- **Consequences:** Root `CLAUDE.md` invariant 5 and the test-critical zones line are rewritten to name this route. A non-2xx leaves the handler only for a missing or invalid signature. Duplicate deliveries are traceable by event id in the audit log.
+
+---
+
+## 2026-09-17 — Stripe configuration: two wp-config constants, a derived status in Settings
+- **Context:** Hosted Checkout needs no publishable key; the only secrets are the API key and the endpoint signing secret. The operator asked to see Stripe in Settings.
+- **Decision:** `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` are wp-config constants; `pc_liqpay_public_key` is removed with a `pc_db_version` bump. The server exposes only `configured` (both constants present) and `mode` (`test` or `live`, from the key prefix); Settings shows them, red when unconfigured. Unconfigured → `POST /wallet/topup` answers `stripe_not_configured` 500. Development runs on test keys Tymofii provides; the client's account is still unnamed.
+- **Alternatives rejected:** A publishable-key WP option — nothing reads it with hosted Checkout. Showing a fragment of a key as a hint — nothing but presence and mode leaves the server.
+- **Consequences:** Until the client names its account, production can only carry test-mode keys, and the `test` badge in Settings is the visible warning. The webhook endpoint is registered in the Stripe Dashboard by hand per environment; its secret differs between test and live.
+
+---
+
+## 2026-09-17 — The admin gets a read-only Top-ups list
+- **Context:** The operator asked to see players' top-ups in the product, not only in the Stripe Dashboard. The Withdrawals screen already lists ledger rows with status filters.
+- **Decision:** `GET /pc/v1/admin/topups?status=pending|completed|failed|all&page&per_page` mirrors `admin/withdrawals` (player, amount, coins, unit price, status, `external_ref`, notes, dates); a **Top-ups** screen at `/topups` in the admin SPA, built from the Withdrawals layout, with no actions.
+- **Alternatives rejected:** Stripe Dashboard only — the operator asked for it here. Actions on a row (refund, block) — chargebacks and refunds are out of v1.
+- **Consequences:** Rows of any provider render — LiqPay-era `pc-topup-N` refs next to `cs_…` ones. `docs/CONTRACTS.md` and `docs/DESIGN.md` → Screens gain the endpoint and the screen. The admin SPA still has no deploy target, so the screen is local-only until Phase 8 gives it one.
+
+---
+
+## 2026-09-17 — `stripe` code lives in `app/stripe/`, registered by one bootstrap line
+- **Context:** `core` is frozen; `realtime` set the pattern of a feature directory with a `bootstrap.php` required once from `functions.php`.
+- **Decision:** `backend/wp-content/themes/pc/app/stripe/` (`bootstrap.php`, `stripe-client.php`, `StripeWebhookController.php`, `AdminTopupController.php`); `admin/src/views/TopupsView.vue` + `admin/src/services/adminTopupService.js`. No new file in the player SPA — `ReplenishmentBalance.vue` navigates to the returned `checkout_url`. `WalletController::topup` changes in place.
+- **Alternatives rejected:** Adding the webhook to `core`'s `PaymentController` — the frozen record would grow new work. A player-SPA `stripeCheckout.js` service — a one-line navigation needs no module.
+- **Consequences:** One Features-table row and one `docs/ARCHITECTURE.md` feature-map row; `docs/PROJECT-TREE.md` changes in the step that creates the directory. Everything the feature touches outside `app/stripe/` and the two admin files is `core` shared code.
+
+---
+
+## 2026-09-17 — Webhook checks are a WP-CLI eval script; local delivery is the Stripe CLI
+- **Context:** Interim money checks are WP-CLI eval scripts (2026-09-15), picked up by `backend/bin/check`. Stripe cannot reach a DDEV host, but its CLI can forward events to one.
+- **Decision:** `wp-content/themes/pc/tests/stripe-webhook.php` signs its own fixtures (the verifier takes the secret as a parameter) and checks: valid, invalid and stale signatures; a re-delivered event settles once; an amount or currency mismatch settles nothing; `expired` → `failed`; a dispute event → 200 and no change. Locally, `stripe listen --forward-to https://pusher-coin.ddev.site/wp-json/pc/v1/payments/stripe/webhook` delivers real events; the Stripe CLI is developer tooling, recorded in `docs/TECH-STACK.md`, not a project dependency.
+- **Alternatives rejected:** PHPUnit — the 2026-09-15 decision stands. An ngrok tunnel — the CLI needs no public URL.
+- **Consequences:** The script runs on every `backend/bin/check` with DDEV up. The CLI's `whsec_` differs from the Dashboard's — the local wp-config carries the CLI's.
+
+---
+
+## 2026-09-17 — The check command reaches `stripe/sprint-1` as copied files, not as a cherry-pick onto `main`
+- **Context:** `backend/bin/check`, `frontend/bin/check` and the report-only lint scripts exist only on `realtime/sprint-1` (its Step 1); `stripe/sprint-1` is cut from `main`, where `docs/TECH-STACK.md` still says there is none, and the playbook requires the first code step of a sprint to have a check command. Tymofii declined cherry-picking the four realtime commits onto `main`: a push of `backend` `main` is a production release, and `main` moves only at sprint boundaries.
+- **Decision:** Sprint 1 Step 1 copies the files byte-for-byte from `realtime/sprint-1` into `stripe/sprint-1` — `backend/bin/check`, `frontend/bin/check`, the `lint` / `lint:fix` scripts in both `package.json`, and the matching sections of `docs/TECH-STACK.md`, `CLAUDE.md` → Commands and `docs/PROJECT-TREE.md`. `main` receives them at whichever sprint boundary comes first.
+- **Alternatives rejected:** Cherry-picking onto `main` — declined: an out-of-boundary production push. Writing a second check command — two different files at one path conflict when the branches meet. Working without one until `realtime` merges — the sprint's money zone is exactly what the gate is for.
+- **Consequences:** Identical content merges cleanly whichever branch lands first. If `realtime` changes its check command before then, the copy is refreshed on the stripe branch through `/adhoc`, never diverged. Until a boundary, `main` still has no check command.
+
+---
