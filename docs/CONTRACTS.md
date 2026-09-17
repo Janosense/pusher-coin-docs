@@ -862,6 +862,58 @@ Errors: `missing_required_fields` 400 (no `data`/`signature` in body);
 `liqpay_signature_invalid` 401; `liqpay_payload_invalid` 400;
 `liqpay_not_configured` 500.
 
+### `POST /pc/v1/payments/stripe/webhook`
+
+Stripe settlement webhook. **Public route; the signature is the
+credential** — `Stripe-Signature` over the raw request body, verified
+against `PC_STRIPE_WEBHOOK_SECRET`. The only place a top-up reaches
+`completed`.
+
+Request: Stripe's event JSON, raw. The body is read unparsed
+(`$request->get_body()`) and never re-encoded — re-serialising changes
+bytes and the signature would not match.
+
+**Almost everything answers 200.** Stripe delivers at least once, in no
+guaranteed order, and retries any non-2xx for up to three days. An
+unknown session and an already-settled one are permanent conditions, so
+an error status would only buy an identical redelivery; the body's `note`
+says what happened, and every branch is written to
+`wp_pc_auth_audit_log` with the event id, event type and session id.
+
+Notes returned with 200:
+
+| `note` | Meaning |
+| --- | --- |
+| *(absent)* | Settled for the first time — coins credited |
+| `already_settled` | The row is no longer `pending`; a redelivery, or a late `expired` on a paid row |
+| `unknown_session` | No transaction carries that Checkout Session id |
+| `amount_mismatch` | `amount_total` ≠ the row's amount, or `currency` ≠ `uah`. Audited, never settled |
+| `ignored` | Any other event type, an unparseable body, or a settling event whose `payment_status` is not `paid` |
+
+State machine:
+- `checkout.session.completed` / `checkout.session.async_payment_succeeded`
+  with `payment_status = paid` → look the row up by `external_ref`, and
+  from `pending` only, after the money matches →
+  `Wallet_Service::settle_topup`. The coins credited come from the
+  **row** (`amount_coins`, `unit_price`), never from the event: Stripe
+  confirms the money, the ledger decides what was bought.
+- `checkout.session.async_payment_failed` / `checkout.session.expired`
+  → the row becomes `failed`, from `pending` only. A `completed` row
+  survives a late `expired`.
+- Anything else → 200, `ignored`.
+
+Idempotency rests on the row's status, never on arrival order — one
+payment's events are not delivered in creation order.
+
+Errors (the only non-2xx this route returns):
+`missing_required_fields` 400 (no signature header, or an empty body);
+`stripe_signature_invalid` 401 (bad, stale, or unverifiable signature —
+an unconfigured server lands here too, and Stripe's retries mean nothing
+is lost while the secret is restored); `wallet_write_failed` 500 (the
+settlement rolled back and the row is still `pending` — the one
+recoverable failure, so Stripe is asked to retry rather than being told
+all is well).
+
 ### `GET /pc/v1/admin/me`
 
 Probe used by the admin SPA to verify the current session is both
@@ -1461,7 +1513,7 @@ One canonical code per failure mode — do not invent variants.
 
 | Code | HTTP | Owning endpoint(s) |
 | --- | --- | --- |
-| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
+| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change, payments/stripe/webhook |
 | `missing_id_token` | 400 | google-auth/authentication |
 | `invalid_email` | 400 | sign-up, support/tickets |
 | `invalid_description` | 400 | support/tickets |
@@ -1502,6 +1554,7 @@ One canonical code per failure mode — do not invent variants.
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
+| `stripe_signature_invalid` | 401 | payments/stripe/webhook |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
 | `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
@@ -1529,7 +1582,7 @@ One canonical code per failure mode — do not invent variants.
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
-| `wallet_write_failed` | 500 | wallet/topup, wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject |
+| `wallet_write_failed` | 500 | wallet/topup, wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject, payments/stripe/webhook (settlement rolled back; Stripe retries) |
 | `ticket_write_failed` | 500 | support/tickets |
 | `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
