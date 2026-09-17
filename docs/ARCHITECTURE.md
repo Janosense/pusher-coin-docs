@@ -308,11 +308,23 @@ router also contains a `meta.requiresPlayReady` check, but no route sets that me
 visibility and calls `authStore.logout(true)` after 15 idle minutes. The
 access-token TTL is also 15 minutes.
 
-**Top-up — FIXED.** The SPA calls `POST /wallet/topup`, gets a signed
-`{ data, signature }` envelope, form-POSTs it to `liqpay.ua/api/3/checkout`, and on
-settlement LiqPay calls back `POST /payments/liqpay/callback`. The webhook handler is
-the only place that flips a transaction `pending → completed`, inserts the coin lot,
-and credits the wallet — atomic and idempotent on `(order_id, status)`.
+**Top-up — FIXED.** The SPA calls `POST /wallet/topup`. The server writes a `pending`
+transaction, asks Stripe for a Checkout Session (one line item, the whole order in
+kopiykas, `adaptive_pricing` off so the price cannot be converted), stores the session
+id as `external_ref`, and returns `checkout_url`; the browser goes to Stripe's hosted
+page. When the payment succeeds Stripe delivers `checkout.session.completed` to
+`POST /payments/stripe/webhook`, whose credential is the signature over the raw body.
+That handler is the only place that flips a transaction `pending → completed`, inserts
+the coin lot and credits the wallet — atomic, and idempotent on the row's own status
+rather than on delivery order, because Stripe delivers at least once and out of order.
+The coins credited come from the transaction row, never from the event: Stripe confirms
+the money, the ledger decides what was bought. An expired or failed session parks the
+row as `failed`. The player's return to `/account?topup=success` settles nothing; it is
+only a redirect.
+
+*Until Sprint 1 Step 5 the player SPA still speaks the LiqPay envelope, so the
+hand-off is broken between Steps 3 and 5 by design; the LiqPay callback also still
+exists, but nothing creates a row it could settle.*
 
 **Withdrawal — FIXED.** `POST /wallet/withdraw` FIFO-debits the lots into a `pending`
 transaction (consumed slices preserved on `consumed_lots` for refunds; one pending
@@ -394,7 +406,8 @@ persisted in the room's `pc_room_stream_url` post meta.
 | Service | What we use it for | Auth model | Failure / fallback | Credentials |
 |---|---|---|---|---|
 | **Home Assistant** | The physical machine: power on/off, `toss_coin()`, sensor reads (coin count, bonus number, light bitfield, relay state), relay open/close, a soft-failing batched snapshot for the admin view, `is_online()`. Only `Machine_Service` calls it. | Bearer token | 2s HTTP timeout; typed `WP_Error` (`machine_not_configured`, `machine_offline`, `machine_unauthorized`, `machine_call_failed`, `machine_unavailable_state`) mapped by callers to 502 / 503 so a machine fault never looks like an auth failure. The batched snapshot soft-fails per field. | `PC_MACHINE_TOKEN` (wp-config). Base URL + entity ids are `pc_machine_*` WP options, defaults matching `PUSHER-COIN-COMMANDS.txt`. |
-| **LiqPay** | Hosted Checkout for top-ups (UAH) and the settlement webhook. | HMAC signature on both directions | A callback with a bad signature is rejected; a repeated callback is a no-op (idempotent on `(order_id, status)`). | `PC_LIQPAY_PRIVATE_KEY` (wp-config); the public key is a WP option shown as a hint in the admin SPA. |
+| **Stripe** | Hosted Checkout for top-ups (UAH) and the settlement webhook — the only place a top-up reaches `completed`. Only `Stripe_Client` calls it. No SDK: plain `wp_remote_post` against a pinned API version (`2026-06-24.dahlia`). | Bearer secret key outbound; an HMAC signature over the raw body inbound | Session creation failing is `stripe_call_failed` 502 and the row is parked `failed`. Inbound: a bad signature is 401 and a rolled-back settlement is 500, both of which Stripe retries for three days; every other condition answers 200 with a `note` so Stripe stops. `adaptive_pricing` is sent `false` so the presented currency cannot be converted. | `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` (wp-config). The provider has no WP option at all. |
+| **LiqPay** | *Being removed (Sprint 1 Step 5).* Its callback route still exists, but nothing creates a row it could settle — top-ups have gone through Stripe since Step 3. | HMAC signature on both directions | A callback with a bad signature is rejected; a repeated callback is a no-op (idempotent on `(order_id, status)`). | `PC_LIQPAY_PRIVATE_KEY` (wp-config). Its public-key option was deleted at `pc_db_version` 1.9.0. |
 | **Mux** | LL-HLS playback of the venue's RTMP stream. | Playback URL only | `LiveStream.vue` falls back to `<video>` or an iframe by URL shape; Safari uses native HLS. | None in the app — the playback URL is `pc_room_stream_url` post meta. |
 | **Turnstile / hCaptcha** | Guest anti-abuse on `POST /support/tickets`. | siteverify call with a secret | **Unconfigured is the off switch**: with an empty provider or secret the guest path runs unchallenged and the admin panel flags it in red. This is a launch blocker — see `backend/wp-content/themes/pc/CAPTCHA_SETUP.md`. | `PC_CAPTCHA_SECRET` (wp-config); `pc_captcha_site_key` + provider are WP options. |
 | **Google Sign-In** | ID-token exchange, then the same email-code 2FA. | Google ID token verified with `google/apiclient` | Parked: the SPA hides the button while `VITE_GOOGLE_CLIENT_ID` is empty. Backend untouched. | `GOOGLE_CLIENT_ID` (wp-config, the audience). See `backend/wp-content/themes/pc/GOOGLE_AUTH_SETUP.md`. |

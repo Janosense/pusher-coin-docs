@@ -567,3 +567,201 @@ none
 - **`docs/DATA-MODEL.md` invariant 6 deliberately still says "the LiqPay callback"** —
   it still is, until Step 4 ships the webhook and Step 5 removes the route. That
   rewording is in Step 4's own docs list.
+
+---
+
+## Plan — Sprint 1, Step 4: The webhook and settlement   (status: approved, in progress)
+
+### Branch
+`stripe/sprint-1-webhook` ← `stripe/sprint-1`, **`backend/` and the root documentation
+repository**. `frontend/` and `admin/` are not touched.
+
+**No shared code is modified.** Unusually for this sprint, every code file is the
+feature's own: `Wallet_Service` and `Audit_Log` are *called*, not changed, and
+`functions.php` already requires the feature's bootstrap. The only `core`-owned files
+touched are documentation (root `CLAUDE.md`, `docs/ARCHITECTURE.md`).
+
+### Tasks (ordered)
+
+- [ ] **1. The webhook** — `app/stripe/StripeWebhookController.php`, registered from
+  `app/stripe/bootstrap.php` on `rest_api_init` (the feature's single entry point, so
+  `core`'s `app/rest-api.php` stays untouched).
+
+  **The credential.** `permission_callback => '__return_true'`, with the signature as
+  the credential — the shape ANTI-PATTERNS allows for a public route. The raw body
+  comes from `$request->get_body()` and is never re-encoded: re-serialising the JSON
+  changes bytes and the signature would not match.
+
+  **The only non-2xx the handler returns** (the rest is settled by the Questions
+  section below):
+  - no `Stripe-Signature` header, or an empty body → **400 `missing_required_fields`**
+    (already registered; the LiqPay callback uses it for the same thing)
+  - signature fails `Stripe_Client::verify_signature` → **401 `stripe_signature_invalid`**
+    (new code). A missing `PC_STRIPE_WEBHOOK_SECRET` lands here too, because the
+    verifier returns false on an empty secret — and 401 is the *right* outcome: Stripe
+    retries for three days, so events are not lost while the operator restores the
+    secret. The audit entry distinguishes the two.
+
+  **After a valid signature, every branch answers 200** with a `note`, exactly as the
+  LiqPay callback does, because a 4xx/5xx would only make Stripe retry something that
+  cannot improve (`DECISIONS.md` 2026-09-17):
+  | Condition | Answer |
+  |---|---|
+  | Body is not valid JSON, or carries no `type` | `note: ignored` |
+  | `checkout.session.completed` / `…async_payment_succeeded`, `payment_status` ≠ `paid` | `note: ignored` |
+  | …`paid`, no row for that `external_ref` | `note: unknown_session` |
+  | …row is not `pending` | `note: already_settled` |
+  | …`amount_total` ≠ the row, or `currency` ≠ `uah` | `note: amount_mismatch`, no settlement |
+  | …otherwise | `Wallet_Service::settle_topup`, no note |
+  | `checkout.session.async_payment_failed` / `…expired`, row `pending` | row → `failed`, note = the event type |
+  | …same events, row not `pending` | `note: already_settled`, nothing changes |
+  | any other event type | `note: ignored` |
+
+  The amount comparison is `Stripe_Client::to_kopiykas( $row['amount_money'] )` against
+  the event's `amount_total` — both integer strings, compared with `bccomp`, never a
+  float. `settle_topup` is called with the **row's** `amount_coins` and `unit_price`,
+  never the event's: Stripe confirms the money, the ledger defines the coins.
+
+  Every branch writes `Audit_Log::record` with the event id, event type and session id
+  in `metadata` (event-type names stay under the column's 64 characters).
+
+  `tests/stripe-webhook.php` (WP-CLI eval, same guard and `$check` harness as the two
+  existing scripts) signs its own fixtures with a known secret and drives the
+  controller through a `WP_REST_Request` with `set_body()` / `set_header()` — no HTTP,
+  no Stripe. Cases listed under **Tests** below.
+
+  `docs/CONTRACTS.md`: a new `POST /pc/v1/payments/stripe/webhook` section beside the
+  LiqPay callback, its `note` vocabulary, and `stripe_signature_invalid` 401 plus
+  `missing_required_fields` extended to the new route in the registry.
+  `docs/PROJECT-TREE.md`: the controller and the test script.
+  → backend commit `feat(stripe): the settlement webhook`
+  → docs commit `docs: CONTRACTS — the Stripe settlement webhook`
+
+- [ ] **2. The system-level record** — the docs that only become true once settlement
+  exists:
+  - root `CLAUDE.md` **invariant 5** — the Stripe webhook is the only place a
+    transaction flips `pending → completed`, idempotent on the session id and the
+    row's status (not `(order_id, status)`, which was LiqPay's scheme). The LiqPay
+    route still exists until Step 5, so the invariant says so in a parenthetical
+    rather than pretending it is already gone.
+  - root `CLAUDE.md` **test-critical zones** line — "the LiqPay callback — signature
+    verification and `(order_id, status)` idempotency" becomes the Stripe webhook and
+    its actual idempotency rule.
+  - `docs/ARCHITECTURE.md` → **Top-up data flow** rewritten to the Stripe path, and a
+    **Stripe row added** to Integrations. The LiqPay row is *not* removed here — it is
+    still wired until Step 5, which owns its removal.
+  - `docs/TECH-STACK.md` → the ANTI-PATTERNS line "Do not flip a transaction to
+    `completed` anywhere but the LiqPay callback" is Step 5's to rewrite; this step
+    leaves it, because until Step 5 that line is still literally true of the code.
+  → docs commit `docs: settlement moves to the Stripe webhook — invariants and data flow`
+
+### Files to create/change
+| File | Change |
+|---|---|
+| `app/stripe/StripeWebhookController.php` | **new** |
+| `app/stripe/bootstrap.php` | requires and registers the controller |
+| `tests/stripe-webhook.php` | **new** |
+| `docs/CONTRACTS.md` | the webhook section + two registry rows |
+| `docs/PROJECT-TREE.md` | both new files |
+| `CLAUDE.md` | invariant 5, test-critical zones line |
+| `docs/ARCHITECTURE.md` | Top-up data flow, Integrations (Stripe row added) |
+
+Unchanged on purpose: `Wallet_Service`, `Audit_Log`, `WalletController`,
+`functions.php`, `app/rest-api.php`, everything LiqPay, `frontend/`, `admin/`.
+
+### Tests to write
+`tests/stripe-webhook.php`, picked up automatically by `backend/bin/check`. This is the
+sprint's test-critical step — the webhook is named in the project profile — so the
+script is the gate, and it creates one throwaway user and removes every row it makes.
+
+1. Valid signature, `completed`, `paid` → row `completed`, **one** coin lot at the
+   row's `unit_price`, `balance_coins` up by `amount_coins`
+2. The identical event again → `already_settled`; balance, lots and row unchanged
+3. `async_payment_succeeded` with `paid` → settles the same way (the second settling type)
+4. `completed` with `payment_status: unpaid` → `ignored`, nothing written
+5. Invalid signature → 401, nothing written
+6. Timestamp beyond the tolerance → 401, nothing written
+7. Missing `Stripe-Signature` header → 400, nothing written
+8. `amount_total` one kopiyka off → `amount_mismatch`, row still `pending`, no lot
+9. `currency: "usd"` with the right amount → `amount_mismatch`, no settlement
+10. Unknown `external_ref` → `unknown_session`, nothing written
+11. `expired` on a `pending` row → row `failed`, no lot, balance unchanged
+12. `expired` on a `completed` row → **unchanged**, still `completed`, balance unchanged
+13. `async_payment_failed` on a `pending` row → row `failed`
+14. `charge.dispute.created` → 200 `ignored`, nothing changes anywhere
+15. Every branch above wrote an `Audit_Log` row carrying the event id
+
+Not tested here: `settle_topup`'s own rollback behaviour, already covered by
+`wallet-rollback.php`'s 53 checks; a live Stripe delivery, which is the manual
+verification.
+
+### Docs to update
+`docs/CONTRACTS.md`, `docs/PROJECT-TREE.md` (task 1); root `CLAUDE.md`,
+`docs/ARCHITECTURE.md` (task 2).
+
+### Checks
+- **ANTI-PATTERNS:** none violated. *Public route carries its own credential* — the
+  provider signature, the shape the list names. *No money column written outside
+  `Wallet_Service`* — the controller calls `settle_topup` and
+  `update_transaction_status`, and writes nothing itself. *Money never a float* — the
+  amount check is `bccomp` on integer strings of kopiykas. *No `ENUM`, no meta-key
+  literal, no new option, no dependency.* *Nothing is hard-deleted.* The one line that
+  will conflict — ANTI-PATTERNS' "do not flip a transaction to `completed` anywhere but
+  the LiqPay callback" — stays as written this step, because until Step 5 removes that
+  route it is still true of the shipped code; Step 5 owns the rewrite.
+- **Docs vs reality:**
+  1. **`wp_pc_transactions` has no `currency` column.** The step says to compare the
+     event's `currency` "to the row"; there is nothing on the row to compare to. The
+     check is therefore against the product's only currency, `uah` — the sprint's fixed
+     decision and root `CLAUDE.md` invariant 7. Recorded rather than silently dropped.
+  2. **There is nothing to "move into current" in CONTRACTS.** The step says the webhook
+     moves from planned to current, but `## Endpoints — planned` never listed a Stripe
+     webhook (only a machine one). Task 1 adds a new current section instead.
+  3. **The manual verification cannot use the SPA.** The step says "pay a session
+     created through the SPA"; the SPA's top-up button stays broken until Step 5
+     (Step 3's close). The session is created by calling `/wallet/topup` directly, as
+     in Step 3's guide, and then paid on Stripe's hosted page — which exercises exactly
+     the same server path.
+  4. **Both Step 4 and Step 5 name ARCHITECTURE's Integrations row.** Resolved by
+     splitting it the way the code splits: this step **adds** the Stripe row (Stripe is
+     live from now on), Step 5 **removes** the LiqPay row (it is still wired until then).
+  5. `settle_topup` deliberately does not check the row's status — its docblock makes
+     idempotency the caller's job. The controller's `pending` check is that guard, and
+     test 2 is what proves it.
+- **Design:** n/a — no screen.
+- **Check command:** `backend/bin/check` (and `frontend/bin/check`, unaffected), run
+  before every commit with DDEV up so all three scripts execute.
+- **Not locally verifiable:** n/a — `stripe listen` delivers real events to DDEV, as
+  the Step 2 spike proved, so the whole step is exercisable locally. Two things are
+  **not this step's** and belong to the sprint's Definition of Done: registering the
+  production webhook URL in the Stripe Dashboard, and the production `whsec_`, which
+  differs from the CLI's.
+
+### Questions / ambiguities
+
+1. **What should the webhook answer when settlement itself fails?**
+   `Wallet_Service::settle_topup` returns `false` when a database write fails: the
+   transaction rolls back and the row stays `pending` (proved by `wallet-rollback.php`).
+   The step and the 2026-09-17 decision both say a non-2xx is reserved for signature
+   failures — but neither considered this case, and the tasks differ by one branch.
+   - **(a) Answer 500 and let Stripe retry.** Stripe re-delivers for up to three days,
+     so a transient database fault heals itself and the player gets their coins with no
+     human involved. The cost: it is a third non-2xx, which the step's wording did not
+     anticipate.
+   - **(b) Answer 200 with `note: settle_failed` and an audit entry.** Keeps the
+     decision's wording exactly. The cost: the player has paid, the row sits `pending`
+     forever, and nobody finds out until someone reads the audit log.
+
+   **Resolved: approved as recommended — (a).** A failed settlement answers
+   **500 `wallet_write_failed`** (already in the registry) so Stripe retries; the row
+   stays `pending` and the audit entry records it. This is a third non-2xx beyond the
+   step's "signature only" wording, taken deliberately and recorded here. Test 16
+   covers it: a forced settlement failure answers 500 and leaves the row `pending`.
+
+   **Recommendation: (a).** The decision's own reasoning for answering 200 was that
+   retrying an *unknown or already-settled* session is pointless — both are permanent
+   conditions. A failed write is the opposite: transient, and precisely what a retry
+   fixes. Answering 200 here would convert a database hiccup into a silently unpaid
+   top-up, which is the one outcome the money zone exists to prevent. Under (a) the
+   error code is `wallet_write_failed` 500, already in the registry; the extra test is
+   "a forced settlement failure answers 500 and leaves the row `pending`".
