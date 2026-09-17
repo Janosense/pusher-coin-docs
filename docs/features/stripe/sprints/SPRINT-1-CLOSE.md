@@ -122,6 +122,13 @@ constant `'uah'`. Ten `stripe_webhook_*` audit event types.
   is still unnamed. The presentment-currency list is per account country, so this must
   be re-verified on the real account before go-live. `DECISIONS.md` 2026-09-17 says so
   in its own words.
+- **The first push releases more than this sprint.** `backend` `main` carries 17 commits
+  origin has never seen and `frontend` `main` eight — this sprint plus work that was
+  deliberately never pushed before it: the wallet-rollback fix (`35088818`), the machine
+  power-switch fix (`6d2cdf5e`), `bin/check` (`40fbfc8c`), and older chat / theme-song
+  work. The FTP release and the Vercel build ship all of it at once, so the first deploy
+  is a bigger event than "the Stripe sprint went live".
+
 - **The player-facing hand-off was never exercised through a browser by the agent** —
   signing in as a player needs a password. What is verified: the shipped bundle contains
   `location.assign(checkoutUrl)` and zero LiqPay, and the endpoint it calls returns a
