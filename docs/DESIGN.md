@@ -101,7 +101,7 @@ Breakpoints in use: 768, 1024, 1440, 1920.
 ## Flows
 
 - **Sign-up → play:** Sign up → Confirm email → Choose nickname → Accept terms → Rooms → Room.
-- **Top-up:** Room or Account → Replenishment balance → LiqPay hosted checkout (off-site) → back to the SPA; the balance moves when the webhook settles, not on return.
+- **Top-up:** Room or Account → Replenishment balance → Stripe's hosted Checkout page (off-site) → back to the SPA; the balance moves when the Stripe webhook settles, not on return.
 - **Play a turn:** Room → join queue → wait → your turn → Place bet (one toss at a time) → winnings appear in User controls.
 - **Withdraw:** Account → Withdrawal request → (operator) Withdrawals → approve or reject.
 - **Support:** Support → subject + description (+ captcha for guests) → (operator) Tickets.

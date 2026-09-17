@@ -218,7 +218,6 @@ pusher-coin/
     │   │   ├── chatService.js                 # Phase 6: room chat read (public) + post
     │   │   ├── googleAuthService.js
     │   │   ├── historyService.js              # Phase 4: GET /transactions
-    │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
     │   │   ├── queueService.js                # Phase 6: queue + play endpoints
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
