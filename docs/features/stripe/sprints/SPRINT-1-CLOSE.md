@@ -30,9 +30,13 @@ merges, the root docs repository five, `frontend/` and `admin/` two each.
 - [ ] **Sprint boundary: merged into `main`, `backend` and `frontend` `main` pushed;
   `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` in production `wp-config.php`
   and the production webhook URL registered in the Stripe Dashboard before the merge**
-  — `open — sprint boundary`. The repository side is done (merge commits in the report
-  below); **nothing is pushed**. The production wp-config and the Dashboard endpoint are
-  server-side facts no command here can observe.
+  — `open — sprint boundary`. **The merge into `main` is done** and every gate exits 0
+  there: docs `6da0126`, backend `75450469`, frontend `7210c59`, admin `c40773a`, all
+  `--no-ff`, zero conflicts, sprint branches kept. **Neither push has happened** —
+  confirmed against freshly fetched remotes on 2026-09-17: `main` is ahead of
+  `origin/main` by 17 commits in `backend`, 8 in `frontend`, 5 in `admin` and 29 in the
+  docs repository. The production wp-config and the Dashboard endpoint are server-side
+  facts no command here can observe.
 - [ ] **Tymofii paid with a test card on the deployed stack and saw the coins without
   reloading by hand** — `open — sprint boundary`. The equivalent was observed locally in
   Step 4 (0 → 2 coins, row `completed`); the deployed stack has never run this code.
