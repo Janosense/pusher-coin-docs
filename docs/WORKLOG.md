@@ -19,6 +19,13 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-17 — [stripe] Sprint 1 Step 1 — Delta-audit and the check command
+- Changed: `stripe/sprint-1` now carries the check command, copied byte-for-byte from `realtime/sprint-1` (blob-hash verified, not eyeballed) per DECISIONS 2026-09-17 — `backend/bin/check`, `frontend/bin/check`, and the `lint` / `lint:fix` split. **Touches shared code:** `npm run lint` is report-only in `frontend/` and `admin/` (both branches now carry the identical change; frontend CI reports fixable errors instead of repairing them). Backend `40fbfc8c`, frontend `9167691`, admin `c935d4d`, docs `01c82fe` `636af4b`
+- Decisions: none new — the copy was already settled by DECISIONS 2026-09-17. That entry's three doc targets were treated as exhaustive, so the realtime-only DECISIONS entry "The check command calls the WP-CLI eval scripts…" was deliberately **not** copied; the copied TECH-STACK text's `DECISIONS.md` 2026-09-15 citation resolves on this branch to "Interim money checks are WP-CLI eval scripts"
+- Open: the delta-audit corrected five things now recorded in `docs/features/stripe/FEATURE.md` with file:line — most importantly `frontend/src/services/walletService.js:22-31` was **missing** from the touchpoint list (Steps 3 and 5 must change it), and Step 5's "replace the LiqPay constant" in `wp-config-*` is an **addition**, not a replacement, because neither tracked config defines any `PC_*` constant. `SPRINT-1.md` Step 5's task text still reads "replace" — left as written; FEATURE.md is the corrected record. FEATURE.md is 96 lines over its ≤80-line guideline (LEARNINGS 2026-09-17). Nothing pushed; `stripe/sprint-1` exists in all four repositories
+
+---
+
 ## 2026-09-16 — [adhoc] [core] — Machine power switch points at a renamed entity
 - Changed: `Machine_Service::power_on()` / `power_off()` / `get_power_on()` now default to `switch.s60tpf`; `switch.sonoff_10024fb618` was renamed in the venue's Home Assistant and 404s, so the admin **Machine** screen could neither read nor change the machine's power. No migration — `Install_Schema` seeds no `pc_machine_*` option, so the code default is what every environment uses. Found by the `realtime` Sprint 1 Step 2 spike. Backend `6d2cdf5e`, docs `c65430e`
 - Decisions: — (the relay-sensor and coin-counter findings from the same spike are NOT fixed here: unproven until a real payout is observed)

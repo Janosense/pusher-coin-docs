@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 1, Step 1: Delta-audit and the check command   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 1: Delta-audit and the check command   (status: closed)
 
 ### Branch
 `stripe/sprint-1-check-command` ← `stripe/sprint-1` ← `main`, merged back `--no-ff`.
