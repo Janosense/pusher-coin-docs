@@ -210,17 +210,21 @@ service here, not a CMS. `index.php` renders nothing.
 
 ```
 themes/pc/
-├── functions.php            # Bootstrap: composer autoload, utils, REST API registration, jwt_auth_expire filter
+├── functions.php            # Bootstrap: composer autoload, utils, feature bootstraps, REST API registration, jwt_auth_expire filter
 ├── style.css                # Theme metadata header
 ├── index.php                # Empty/placeholder (no front-end rendering)
 ├── composer.json            # google/apiclient (Google ID-token verification)
 ├── GOOGLE_AUTH_SETUP.md     # Operator notes for Google OAuth (parked)
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
 ├── tests/
+│   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
     ├── rest-api/            # The 18 controllers listed above
+    ├── stripe/              # Feature `stripe` — the ONLY code that talks to Stripe
+    │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
+    │   └── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
     ├── utils.php
     └── utils/
         ├── role-player.php                 # Registers the `player` role
@@ -248,9 +252,15 @@ themes/pc/
             └── machine-ingest.php          # `wp pc machine-ingest` — replay / test a machine event
 ```
 
+**Feature directories.** A feature added after the playbook (`app/stripe/`, and
+`app/realtime/` when it lands) owns a directory beside `utils/` and is reached through
+exactly one `require_once` of its `bootstrap.php` in `functions.php`. Nothing else in
+the theme requires a file from a feature directory directly.
+
 **Must never do.** `Wallet_Service` is the only writer of `wp_pc_wallets`,
 `wp_pc_coin_lots` and `wp_pc_transactions`; `Machine_Service` is the only caller of
-Home Assistant; no controller may bypass either. A meta key is never written as a
+Home Assistant; `Stripe_Client` is the only caller of Stripe; no controller may bypass
+any of them. A meta key is never written as a
 string literal — it comes from `User_Meta_Keys` or `Post_Meta_Keys`.
 
 ### Plugins

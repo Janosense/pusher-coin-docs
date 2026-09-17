@@ -82,6 +82,9 @@ pusher-coin/
 │   │       │   │   │   ├── TransactionsController.php # Phase 4: GET /transactions
 │   │       │   │   │   ├── UserController.php
 │   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup + /withdraw
+│   │       │   │   ├── stripe/            # Feature `stripe`: reached only through bootstrap.php
+│   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
+│   │       │   │   │   └── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
 │   │       │   │   ├── utils.php
 │   │       │   │   └── utils/
 │   │       │   │       ├── audit-log.php       # Audit_Log writer
@@ -108,10 +111,11 @@ pusher-coin/
 │   │       │   │       ├── user-meta-keys.php  # User_Meta_Keys registry
 │   │       │   │       └── wallet-service.php # Phase 4: atomic wallet / lot / transaction ops
 │   │       │   ├── composer.json
-│   │       │   ├── functions.php              # Theme bootstrap
+│   │       │   ├── functions.php              # Theme bootstrap; requires app/utils.php, app/rest-api.php and app/stripe/bootstrap.php
 │   │       │   ├── index.php
 │   │       │   ├── style.css
 │   │       │   └── tests/
+│   │       │       ├── stripe-client.php     # `ddev wp eval-file` check: kopiyka conversion, mode/config, webhook signature scheme (DDEV only)
 │   │       │       └── wallet-rollback.php    # `ddev wp eval-file` check: wallet write failures roll back (DDEV only)
 │   │       ├── twentytwentythree/             # Default WP theme (not expanded)
 │   │       ├── twentytwentyfour/              # Default WP theme (not expanded)
