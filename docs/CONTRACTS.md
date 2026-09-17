@@ -716,35 +716,46 @@ Request:
 { "coin_qty": 5, "unit_price": "40.00" }
 ```
 `coin_qty` is a positive integer; `unit_price` is a decimal string
-within `[pc_coin_price_min, pc_coin_price_max]` (UAH). The amount sent
-to LiqPay is `coin_qty * unit_price` (UAH).
+within `[pc_coin_price_min, pc_coin_price_max]` (UAH). The amount is
+`coin_qty * unit_price` (UAH), sent to Stripe as an integer number of
+kopiykas — never a float.
 
 Response (`200`):
 ```json
 {
   "transaction_id": 17,
-  "order_id": "pc-topup-17",
+  "external_ref": "cs_test_a1rqvK7CJiVyPreIVeH59tAqpyefTmwCC6wbGa82sr8hY4vb6lGWmjIxhc",
   "amount": "200.00",
-  "checkout_url": "https://www.liqpay.ua/api/3/checkout",
-  "liqpay": {
-    "data": "<base64 params>",
-    "signature": "<base64 sha1>"
-  }
+  "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_…"
 }
 ```
 
-The SPA POSTs `liqpay.data` + `liqpay.signature` as form fields to
-`checkout_url` (`<form method="POST" action="…">` works in any
-browser — LiqPay's hosted page renders next).
+The SPA sends the browser to `checkout_url` — Stripe's hosted page
+renders next. `external_ref` is the Checkout Session id and is returned
+for correlation and support, not for the SPA to act on.
+
+The session is created with one line item: `quantity` 1 and
+`unit_amount` the whole order in kopiykas, so the session's
+`amount_total` equals the row's `amount_money` exactly, with no
+arithmetic performed on Stripe's side. `client_reference_id` carries the
+transaction id, and `adaptive_pricing[enabled]` is always sent `false`
+(`DECISIONS.md` 2026-09-17, the spike entry) so Stripe cannot present a
+converted currency. `Idempotency-Key` is `pc-topup-{transaction_id}`.
 
 A pending row is written to `wp_pc_transactions` immediately so the
-LiqPay callback has something to look up via `external_ref = order_id`.
-Settlement (status → `completed`, lot creation, wallet credit) happens
-**only** from the callback, never from the redirect back to the SPA.
+Stripe webhook has something to look up via
+`external_ref = <Checkout Session id>`. Settlement (status →
+`completed`, lot creation, wallet credit) happens **only** from the
+webhook, never from the redirect back to the SPA.
+
+When Stripe refuses the session the row is parked as `failed` with the
+reason in `notes`, so it never sits `pending` forever.
 
 Errors: `rest_forbidden` 401 (not authed); `email_not_verified` /
 `terms_not_accepted` / `nickname_required` 403; `invalid_coin_qty` 400;
-`coin_price_out_of_bounds` 400; `liqpay_not_configured` 500.
+`coin_price_out_of_bounds` 400; `stripe_not_configured` 500 (checked
+before anything is written, so no row is created);
+`stripe_call_failed` 502; `wallet_write_failed` 500.
 
 ### `POST /pc/v1/wallet/withdraw`
 
@@ -1518,19 +1529,20 @@ One canonical code per failure mode — do not invent variants.
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
-| `wallet_write_failed` | 500 | wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject |
+| `wallet_write_failed` | 500 | wallet/topup, wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject |
 | `ticket_write_failed` | 500 | support/tickets |
 | `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
-| `liqpay_not_configured` | 500 | wallet/topup, payments/liqpay/callback |
+| `liqpay_not_configured` | 500 | payments/liqpay/callback (the LiqPay route is removed in Sprint 1 Step 5) |
+| `stripe_not_configured` | 500 | wallet/topup |
 | `machine_not_configured` | 500 | admin/machine/state, admin/machine/power |
 | `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
-| `payment_failed` | 502 | wallet/topup (planned) |
+| `stripe_call_failed` | 502 | wallet/topup (Stripe refused or was unreachable; the row is parked `failed`) |
 | `machine_call_failed` | 502 | admin/machine/power |
 | `machine_unauthorized` | 502 | admin/machine/power |
 | `machine_offline` | 503 | admin/machine/power |
