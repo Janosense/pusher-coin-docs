@@ -181,7 +181,7 @@ Event types written today, by owning area:
 | --- | --- |
 | auth | `signup`, `request_verification`, `request_verification_failed`, `verify_success`, `verify_failure`, `refresh`, `refresh_reuse`, `logout`, `accept_terms`, `set_nickname`, `rate_limited` |
 | account | `request_email_confirmation`, `confirm_email`, `request_password_change`, `password_change`, `password_change_failure` |
-| payments | `liqpay_payload_invalid`, `liqpay_signature_invalid`, `liqpay_callback_misconfigured`, `liqpay_callback_unknown_order`, `liqpay_topup_settled`, `liqpay_topup_settle_failed`, `liqpay_topup_failed` |
+| payments | `stripe_webhook_unsigned`, `stripe_webhook_unconfigured`, `stripe_webhook_signature_invalid`, `stripe_webhook_ignored`, `stripe_webhook_unknown_session`, `stripe_webhook_already_settled`, `stripe_webhook_amount_mismatch`, `stripe_webhook_settled`, `stripe_webhook_settle_failed`, `stripe_webhook_failed_event` |
 | withdrawals | `withdrawal_approved`, `withdrawal_rejected` |
 | machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
 | chat | `chat_message_moderated`, `chat_user_muted` |
@@ -531,8 +531,11 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
    by readers, so a refund can re-credit at the original price.
 5. **`wp_pc_transactions` is the money trail only.** Top-ups and withdrawals. Machine
    payouts credit coin lots and are audited in `wp_pc_machine_events` instead.
-6. **A transaction reaches `completed` only through the LiqPay callback**, which is
-   idempotent on `(order_id, status)`.
+6. **A transaction reaches `completed` only through the Stripe webhook**
+   (`POST /pc/v1/payments/stripe/webhook`), which is idempotent on the row's own
+   `status` — never on delivery order, because Stripe delivers at least once and
+   out of order. Only a `pending` row settles, and only when the session's
+   `amount_total` and currency match it.
 7. **One pending withdrawal per player at a time**; `consumed_lots` must be populated
    before a withdrawal row is written, or a reject cannot refund.
 8. **`wp_pc_machine_events.event_key` is unique and a transport must supply it.**

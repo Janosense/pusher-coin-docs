@@ -59,7 +59,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (the webhook, its notes and error codes, moved into "current"); root `CLAUDE.md` invariant 5 and the test-critical zones line (LiqPay → Stripe); `docs/ARCHITECTURE.md` → Top-up data flow and Integrations row; `docs/PROJECT-TREE.md`.
 - **Depends on:** Step 3
 
-### [ ] Step 5 — The SPA hand-off, and LiqPay leaves
+### [x] Step 5 — The SPA hand-off, and LiqPay leaves
 - **Tasks:**
   - `frontend/src/components/ReplenishmentBalance.vue`: on a successful `startTopup`, `window.location.assign(result.checkout_url)`; the existing "browser navigates away" handling stays. Delete `services/liqpayCheckout.js` and every import of it. `AccountView`'s `success` / `cancel` banners stay as they are. *Touches shared code.*
   - Backend: delete `app/rest-api/PaymentController.php`'s LiqPay route (the whole file if nothing else lives there), `app/utils/liqpay-client.php`, every `PC_LIQPAY_PRIVATE_KEY` and `LiqPay_Client` reference, and the LiqPay lines of `backend/wp-content/themes/pc/README*` or setup notes if any. `wp-config-sample` / DDEV config: replace the LiqPay constant with the two Stripe ones. *Touches shared code.*

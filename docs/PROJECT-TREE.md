@@ -74,7 +74,6 @@ pusher-coin/
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
-│   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomChatController.php   # Phase 6: public chat read + gated post
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
 │   │       │   │   │   ├── RoomQueueController.php  # Phase 6: queue join/leave + play (toss)
@@ -97,7 +96,6 @@ pusher-coin/
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── cpt-support-subject.php # Registers pc_support_subject CPT (Phase 7)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
-│   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
 │   │       │   │       ├── machine-events.php  # Phase 5: Machine_Event_Log writer (wp_pc_machine_events)
 │   │       │   │       ├── machine-ingest-service.php # Phase 5: machine event → wallet credit (transport-agnostic)
 │   │       │   │       ├── machine-service.php # Phase 5: Home Assistant REST wrapper
@@ -218,7 +216,6 @@ pusher-coin/
     │   │   ├── chatService.js                 # Phase 6: room chat read (public) + post
     │   │   ├── googleAuthService.js
     │   │   ├── historyService.js              # Phase 4: GET /transactions
-    │   │   ├── liqpayCheckout.js              # Phase 4: builds + submits the LiqPay hosted-checkout form POST
     │   │   ├── queueService.js                # Phase 6: queue + play endpoints
     │   │   ├── roomsService.js                # /rooms read endpoints (Phase 3)
     │   │   ├── sessionService.js              # Inactivity timer
@@ -288,7 +285,7 @@ pusher-coin/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
-            ├── SettingsView.vue               # Phase 4: coin pricing form + LiqPay credential hints; Phase 5: bonus-map grid + relay coin count
+            ├── SettingsView.vue               # Phase 4: coin pricing form + Stripe configuration hint; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
             ├── SubjectsView.vue               # Phase 7: subject list editor + guest-captcha config panel
             ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply

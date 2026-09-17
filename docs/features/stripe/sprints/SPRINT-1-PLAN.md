@@ -793,3 +793,291 @@ verification.
 - **Local-only state:** the `stripe-step3-check` player now holds 2 coins and a
   `completed` top-up from the live test; `wp-config.php` carries a placeholder webhook
   secret again (the CLI's `whsec_` is per-session).
+
+---
+
+## Plan — Sprint 1, Step 5: The SPA hand-off, and LiqPay leaves   (status: closed)
+
+### Branch
+`stripe/sprint-1-handoff` ← `stripe/sprint-1`, in **all four repositories** —
+`frontend/`, `backend/`, `admin/` and the root documentation repository. This is the
+sprint's only step that touches every repository; they merge together into
+`stripe/sprint-1` at the close, and into `main` only at the sprint boundary
+(`/close-sprint`).
+
+**Touches shared code in all three apps — may affect other features.** Every code
+file here is owned by `core`; the feature's own `app/stripe/` is edited only where a
+comment points at a class this step deletes. Overlap with `realtime`:
+`frontend/src/stores/wallet.js` (their Sprint 2 — this step changes one docblock, no
+behaviour) and nothing else. `realtime`'s own shared list names `stores/queue.js`,
+`stores/chat.js` and `PlaceBet.vue`, none of which is touched.
+
+### Tasks (ordered)
+
+- [x] **1. The hand-off** — the player's top-up button works again. This task alone
+  closes the gap that Steps 3 and 4 opened deliberately.
+
+  `frontend/src/components/ReplenishmentBalance.vue`: the hidden-form POST becomes
+  `window.location.assign(result.checkoutUrl)`. The existing "browser navigates away"
+  handling stays exactly as it is — `submitting` is **not** reset on success, so the
+  button stays disabled if the player comes back before Stripe's page paints. The
+  `try/catch` around the old helper is replaced by the guard it existed for: a reply
+  without a `checkout_url` shows the error and re-enables the button.
+
+  `frontend/src/services/liqpayCheckout.js`: **deleted**, with its one import.
+
+  `frontend/src/services/walletService.js`: `mapTopupResponse` becomes
+  `{ transactionId, externalRef, amount, checkoutUrl }` — `orderId` and the `liqpay`
+  envelope are dropped. `order_id` has not been in the response since Step 3, so
+  `orderId` has been mapping `undefined`; nothing in the SPA reads either field
+  (verified by grep across `frontend/src/`).
+
+  `frontend/src/stores/wallet.js` (`startTopup` docblock) and
+  `frontend/src/views/AccountView.vue:56` (the "return-from-LiqPay banner" comment):
+  comment edits only, no behaviour. The `success` / `cancel` banners and
+  `handleTopupReturn` stay untouched — the return page still settles nothing.
+
+  Docs in the same task: `docs/ARCHITECTURE.md` → the `services/` row (drop
+  `liqpayCheckout.js`); `docs/PROJECT-TREE.md` → the `liqpayCheckout.js` line;
+  `docs/DESIGN.md` → Flows → Top-up; `docs/INVENTORY.md` → the Phase 4
+  `ReplenishmentBalance.vue` highlight gets a superseding clause (see Checks).
+
+  Gate: `frontend/bin/check` (lint, then build — the build is what proves no import
+  of the deleted module survives).
+  → frontend commit `feat(stripe): the player SPA hands off to Stripe's hosted page`
+  → docs commit `docs: the top-up hand-off is Stripe's hosted page`
+
+- [x] **2. LiqPay leaves the backend** — the route, the client, and every name that
+  points at them.
+
+  **Deleted whole:** `app/rest-api/PaymentController.php` (108 lines, one route,
+  nothing else lives there) and `app/utils/liqpay-client.php`.
+
+  **Loaders:** `app/rest-api.php` loses `use PC\PaymentController;` (:13), its
+  `require_once` (:38) and the two registration lines (:91-92); `app/utils.php` loses
+  the `liqpay-client.php` require (:15).
+
+  **Names that would dangle:** `WalletController::topup`'s docblock (:76-85) still
+  describes handing the SPA "a signed LiqPay envelope" and settling via
+  `POST /payments/liqpay/callback` — rewritten to the Stripe session and the Stripe
+  webhook. `app/stripe/stripe-client.php:97` cites `LiqPay_Client` as the precedent
+  for injecting a parameter — reworded, because after this task the class it names
+  does not exist. `app/utils/captcha-verifier.php:20` and
+  `backend/wp-content/themes/pc/CAPTCHA_SETUP.md:46` both cite
+  `PC_LIQPAY_PRIVATE_KEY` as the example wp-config secret → `PC_STRIPE_SECRET_KEY`.
+
+  **Kept on purpose:** `app/utils/install-schema.php` keeps every
+  `pc_liqpay_public_key` mention. `remove_retired_options()` is the upgrade path that
+  *deletes* that option; removing the name would strand the option forever on any
+  install still carrying it. Its comments already explain why.
+
+  **wp-config:** `wp-config-sample.php` and `wp-config-ddev.php` each gain two
+  **commented** placeholder lines for `PC_STRIPE_SECRET_KEY` and
+  `PC_STRIPE_WEBHOOK_SECRET`. Commented, not defined, for two reasons: a real key must
+  never be committed (core rule 4), and an empty define would read exactly like the
+  absent constant to `is_configured()` while looking like configuration. This is an
+  **addition**, not the replacement `SPRINT-1.md` Step 5 describes — neither file
+  defines any `PC_*` constant today (`FEATURE.md` → Fit into the host, the Step 1
+  delta-audit correction). The `wp-config-ddev.php` block carries a one-line note that
+  `ddev start` strips it and `git checkout --` restores it (`LEARNINGS.md`
+  2026-09-15), which is how `JWT_AUTH_SECRET_KEY` already lives in that file.
+
+  Docs in the same task: `docs/CONTRACTS.md` — the whole
+  `POST /pc/v1/payments/liqpay/callback` section is deleted, together with its three
+  registry rows (`liqpay_payload_invalid` 400, `liqpay_signature_invalid` 401,
+  `liqpay_not_configured` 500 — the last already carries the note "removed in Sprint 1
+  Step 5"), and the `GET /transactions` note calling `external_ref` a "LiqPay
+  order_id" is corrected to the Checkout Session id. `docs/ARCHITECTURE.md` — the ASCII
+  boundary diagram, the `PaymentController.php` row of the controller table, the "Must
+  never do" line, the public-route list entry, the trust-boundary bullet naming the
+  LiqPay private key, the backend tree's `liqpay-client.php` line, the
+  **Integrations LiqPay row deleted outright**, and the italic "*Until Sprint 1 Step 5
+  the player SPA still speaks the LiqPay envelope…*" paragraph deleted. The
+  "18 controllers" count is left at 18 but made precise — 17 in `app/rest-api/` plus
+  the `stripe` feature's webhook controller. `docs/PROJECT-TREE.md` — the
+  `PaymentController.php` and `liqpay-client.php` lines.
+
+  Gate: `backend/bin/check`, **with DDEV running** (see Tests).
+  → backend commit `refactor(stripe): remove the LiqPay integration`
+  → docs commit `docs: the LiqPay callback and client are gone`
+
+- [x] **3. Settings names Stripe** — `admin/src/views/SettingsView.vue`: the "LiqPay
+  credentials" section becomes "Stripe". Static text naming the two wp-config
+  constants and the webhook URL the operator must register in the Stripe Dashboard,
+  rendered from the SPA's existing `VITE_API_BASE_URL` as
+  `{base}/payments/stripe/webhook`, so each environment shows its own URL rather than
+  a hardcoded one. The `wp option update pc_liqpay_public_key …` CLI hint goes: there
+  is no provider option any more (`pc_db_version` 1.9.0 deleted it). The live
+  `configured` / `mode` badge is Sprint 2 and the section says so.
+
+  Docs in the same task: `docs/DESIGN.md` → the Settings screen row;
+  `docs/ARCHITECTURE.md` → the `/settings` row; `docs/PROJECT-TREE.md` → the
+  `SettingsView.vue` comment.
+
+  Gate: `npm run lint && npm run build` in `admin/` (it has no `bin/check`).
+  → admin commit `feat(stripe): Settings names the Stripe constants and the webhook URL`
+  → docs commit `docs: the admin Settings hint is Stripe`
+
+- [x] **4. The system record** — documentation only; the statements that become false
+  the moment tasks 1–3 land.
+
+  - root `CLAUDE.md` **invariant 2** — `PC_LIQPAY_PRIVATE_KEY` is replaced by
+    `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET`, and "LiqPay public key"
+    leaves the public-counterparts sentence: the top-up provider now has **no** WP
+    option at all.
+  - root `CLAUDE.md` **invariant 5** — the closing sentence "The LiqPay callback still
+    exists until Sprint 1 Step 5 removes it…" is deleted. It has done its job.
+  - `docs/DATA-MODEL.md` **invariant 6** — "A transaction reaches `completed` only
+    through the LiqPay callback, idempotent on `(order_id, status)`" becomes the
+    Stripe webhook, idempotent on the row's own status. Step 3's worklog assigned this
+    rewording to Step 4 and Step 4 did not carry it out; it lands here (Checks).
+  - `docs/DATA-MODEL.md` audit-log event table — the `payments` row's seven
+    `liqpay_*` types are replaced by the ten the Stripe webhook actually writes:
+    `stripe_webhook_unsigned`, `_unconfigured`, `_signature_invalid`, `_ignored`,
+    `_unknown_session`, `_already_settled`, `_amount_mismatch`, `_settled`,
+    `_settle_failed`, `_failed_event`. The `pc_liqpay_public_key` sentence under
+    Options stays — it records the 1.9.0 migration.
+  - `docs/TECH-STACK.md` — the ANTI-PATTERNS line "Do not flip a transaction to
+    `completed` anywhere but the LiqPay callback, and keep that handler idempotent on
+    `(order_id, status)`" becomes the Stripe webhook and the row's status; the
+    secrets line loses "LiqPay public key" from its public-counterparts parenthesis.
+  - `docs/DOMAIN.md` → **Top-up**: "through Stripe's hosted Checkout page".
+  - `docs/ROADMAP.md` → Phase 4 item 3 re-tagged with the provider, and the resolved
+    open question "Resolved Phase 4: **LiqPay Checkout** (UAH)" gains a superseding
+    clause rather than being rewritten — ROADMAP is a history document.
+  - `docs/INVENTORY.md` → the Phase 4 `ReplenishmentBalance.vue` highlight (task 1)
+    and nothing else; its REST-surface table is the frozen Phase 0 baseline and never
+    listed the LiqPay route (Checks).
+  - `docs/features/core/FEATURE.md` → **one line** under Interfaces: the top-up
+    provider path has moved to the feature `stripe`, `PaymentController` and its
+    callback are gone, leaving 17 controllers in `app/rest-api/`. The frozen Purpose
+    & scope paragraph — "the wallet with FIFO coin lots and LiqPay top-ups" — is
+    **not** edited: it describes the product as it stood on 2026-09-15.
+  - `docs/features/stripe/FEATURE.md` → Shipped so far (the hand-off is live; the
+    button is no longer broken), Fit into the host (the Step 5 touchpoints now read as
+    done), and the UI line for Settings.
+  → docs commit `docs: LiqPay is gone — invariants, domain and the frozen records`
+
+### Files to create/change
+
+| File | Change |
+|---|---|
+| `frontend/src/components/ReplenishmentBalance.vue` | `window.location.assign(checkoutUrl)`; import removed |
+| `frontend/src/services/liqpayCheckout.js` | **deleted** |
+| `frontend/src/services/walletService.js` | `mapTopupResponse` drops `orderId` + `liqpay`, adds `externalRef` |
+| `frontend/src/stores/wallet.js` | docblock only |
+| `frontend/src/views/AccountView.vue` | comment only |
+| `backend/.../app/rest-api/PaymentController.php` | **deleted** |
+| `backend/.../app/utils/liqpay-client.php` | **deleted** |
+| `backend/.../app/rest-api.php` | `use`, `require_once`, registration removed |
+| `backend/.../app/utils.php` | `require_once` removed |
+| `backend/.../app/rest-api/WalletController.php` | `topup()` docblock |
+| `backend/.../app/stripe/stripe-client.php` | one comment (cites a deleted class) |
+| `backend/.../app/utils/captcha-verifier.php` | one comment (example secret) |
+| `backend/.../CAPTCHA_SETUP.md` | one line (example secret) |
+| `backend/wp-config-sample.php`, `backend/wp-config-ddev.php` | two commented placeholders each |
+| `admin/src/views/SettingsView.vue` | the LiqPay section becomes Stripe |
+| `docs/CONTRACTS.md` | callback section + 3 registry rows deleted; `external_ref` note |
+| `docs/ARCHITECTURE.md` | diagram, controller table, must-never-do, route list, trust boundary, tree, Integrations row, the Step 5 note, `/settings`, `services/` |
+| `docs/DATA-MODEL.md` | invariant 6; the `payments` audit-event row |
+| `docs/PROJECT-TREE.md` | 3 deleted files + the `SettingsView.vue` comment |
+| `docs/DESIGN.md` | Flows → Top-up; the Settings screen row |
+| `docs/DOMAIN.md` | Top-up |
+| `docs/TECH-STACK.md` | ANTI-PATTERNS line; the secrets line |
+| `docs/ROADMAP.md` | Phase 4 item 3; the resolved provider question |
+| `docs/INVENTORY.md` | the Phase 4 `ReplenishmentBalance.vue` highlight |
+| `CLAUDE.md` | invariants 2 and 5 |
+| `docs/features/core/FEATURE.md` | one line under Interfaces |
+| `docs/features/stripe/FEATURE.md` | Shipped so far, Fit into the host, UI |
+
+Unchanged on purpose: `Wallet_Service`, `Audit_Log`, `Install_Schema` (its
+`pc_liqpay_public_key` names are the migration), `StripeWebhookController`,
+`functions.php`, `app/stripe/bootstrap.php`, `AccountView`'s banner logic,
+`docs/BACKEND-REVIEW.md`, `docs/WORKLOG.md`, `docs/DECISIONS.md`.
+
+### Tests to write
+**None new.** This step deletes code and rewires one call site; it adds no behaviour
+to assert. The step's own Tests line names the three existing gates, and the sprint's
+money and webhook scripts (39 + 54 + 53 = 146 checks) must keep passing untouched.
+
+What each gate actually proves here, because it is not obvious:
+
+- `frontend/bin/check` — **the build is the real test.** Vite resolves every import at
+  build time, so a surviving `import … from '@/services/liqpayCheckout.js'` fails the
+  build. Lint alone would not catch it.
+- `backend/bin/check` — **Stage 2 is the real test, and it only runs when DDEV is
+  running.** `php -l` cannot see a dangling `new PaymentController()`: it is valid
+  syntax. Stage 2 boots WordPress through `ddev wp eval-file`, which loads
+  `functions.php` → `app/rest-api.php`, so a missed `use`, `require_once` or
+  registration line is a fatal that fails the script. **With DDEV down, Stage 2 prints
+  a SKIPPED banner and the script still exits 0** — so no commit of task 2 is made
+  without DDEV up, and the check output must show the three "All N checks passed"
+  lines, not the banner.
+- `admin/` — `npm run lint && npm run build`, same reasoning as the player SPA.
+
+### Docs to update
+`docs/ARCHITECTURE.md`, `docs/PROJECT-TREE.md`, `docs/DESIGN.md`, `docs/INVENTORY.md`
+(task 1); `docs/CONTRACTS.md`, `docs/ARCHITECTURE.md`, `docs/PROJECT-TREE.md`
+(task 2); `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/PROJECT-TREE.md` (task 3);
+root `CLAUDE.md`, `docs/DATA-MODEL.md`, `docs/TECH-STACK.md`, `docs/DOMAIN.md`,
+`docs/ROADMAP.md`, `docs/features/core/FEATURE.md`,
+`docs/features/stripe/FEATURE.md` (task 4).
+
+### Checks
+- **ANTI-PATTERNS:** none violated. The step writes no money code at all — it deletes
+  a settlement path and rewires one browser navigation. The one ANTI-PATTERNS line
+  that names LiqPay is rewritten by task 4 *because* task 2 makes it false; that is
+  the line changing to match the code, not the code deviating from the line. No new
+  route, no new option, no hardcoded operator value (the admin webhook URL is composed
+  from the existing `VITE_API_BASE_URL`), no secret in the repository.
+- **Docs vs reality:** mismatches found, each resolved here rather than asked about —
+  - `SPRINT-1.md` Step 5 says "replace the LiqPay constant" in `wp-config-sample` /
+    DDEV config. Neither file defines any `PC_*` constant, so task 2 **adds**. Already
+    recorded as a correction in `FEATURE.md` → Fit into the host by the Step 1
+    delta-audit; `SPRINT-1.md`'s text is left as written, as it was then.
+  - `SPRINT-1.md` Step 5's verification expects `grep -ri liqpay` to find only
+    `DECISIONS.md`, `WORKLOG.md`, `ROADMAP.md`, `INVENTORY.md`, `BACKEND-REVIEW.md`
+    and one line in `core/FEATURE.md`. That list is incomplete in two ways, and the
+    verification guide will use the corrected one: **(a)**
+    `backend/.../app/utils/install-schema.php` keeps the name deliberately — it is the
+    upgrade path that deletes the option; **(b)** this sprint's own records —
+    `SPRINT-1.md`, `SPRINT-1-PLAN.md`, `SPRINT-2.md` and the Step 1 / Step 3
+    verification guides — are history in the same sense as `WORKLOG.md`.
+  - `docs/DATA-MODEL.md` invariant 6 still names the LiqPay callback, and its
+    audit-log `payments` row still lists only `liqpay_*` events. Step 3's worklog
+    assigned the rewording to Step 4; Step 4's docs list did not carry it and it was
+    missed. Step 5 is where it stops being merely stale and becomes false, and the
+    sprint's Definition of Done names DATA-MODEL, so task 4 fixes both. DATA-MODEL is
+    not in Step 5's own "Docs to update" list — it is here under core rule 5, as
+    documentation describing code this step changes.
+  - Same reasoning for root `CLAUDE.md` (invariants 2 and 5 name a constant and a
+    route this step deletes) and `docs/CONTRACTS.md` (a shipped route leaving the
+    surface takes its contract and its error codes with it — root `CLAUDE.md`'s
+    documentation table makes that same-commit work).
+  - `docs/INVENTORY.md` → REST surface is the **frozen Phase 0 baseline** and never
+    listed `POST /payments/liqpay/callback`; its own closing sentence says so. Step 5's
+    "INVENTORY REST surface" instruction therefore has nothing to change there. The
+    single LiqPay mention is a Phase 4 highlight, which task 1 gives a superseding
+    clause.
+  - `docs/BACKEND-REVIEW.md` items 2 ("a duplicate LiqPay notification can credit
+    coins twice") and 11 ("LiqPay `sandbox` payments count as real money") describe
+    defects in code this step deletes. `SPRINT-1.md` routes BACKEND-REVIEW items to
+    `/adhoc` and its grep list keeps the file as history, so they are **not** touched
+    here — flagged for `/close-sprint` or an `/adhoc` to mark resolved-by-removal.
+  - `docs/features/stripe/FEATURE.md` remains over its ≤80-line guideline
+    (`LEARNINGS.md` 2026-09-17). Task 4 edits it without growing it.
+- **Design:** matches. No new screen and no new token. **Replenishment balance**
+  changes only where it navigates; **Account** is untouched; **Settings** (admin)
+  swaps one static section — the three screens `docs/DESIGN.md` and
+  `FEATURE.md` → UI already name for this sprint. `design/` stays empty
+  (`DECISIONS.md` 2026-09-17 "`stripe` has no UI design").
+- **Check command:** `backend/bin/check` and `frontend/bin/check`
+  (`docs/TECH-STACK.md` → Check command); `admin/` has none — its gate is
+  `npm run lint && npm run build`.
+- **Not locally verifiable:** n/a. Every claim of this step is verifiable on the DDEV
+  site and the two dev servers. The deployed-stack payment and the registration of the
+  production webhook URL in the Stripe Dashboard are the **sprint's** Definition of
+  Done, not this step's.
+
+### Questions / ambiguities
+none.

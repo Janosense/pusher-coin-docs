@@ -142,6 +142,9 @@ real API calls.
   operator-set bounds, and submits a hidden form POST to LiqPay's
   hosted checkout. Settlement happens via the webhook in
   `PaymentController`; the SPA only refreshes the wallet on return.
+  *Superseded in `stripe` Sprint 1 Step 5: the component navigates to a
+  Stripe Checkout Session URL, and settlement is
+  `StripeWebhookController`. LiqPay is gone.*
 - ~~`components/PlaceBet.vue` — same as above.~~ Rewritten in Phase 4
   Step 5: reads `useWalletStore`, clamps the coin-quantity input to
   the player's balance, +/- buttons disable at the bounds, empty
