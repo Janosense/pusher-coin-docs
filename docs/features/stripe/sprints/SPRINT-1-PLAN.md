@@ -847,7 +847,7 @@ behaviour) and nothing else. `realtime`'s own shared list names `stores/queue.js
   → frontend commit `feat(stripe): the player SPA hands off to Stripe's hosted page`
   → docs commit `docs: the top-up hand-off is Stripe's hosted page`
 
-- [ ] **2. LiqPay leaves the backend** — the route, the client, and every name that
+- [x] **2. LiqPay leaves the backend** — the route, the client, and every name that
   points at them.
 
   **Deleted whole:** `app/rest-api/PaymentController.php` (108 lines, one route,

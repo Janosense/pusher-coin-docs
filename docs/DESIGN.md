@@ -96,7 +96,7 @@ Breakpoints in use: 768, 1024, 1440, 1920.
 | Tickets | admin | `/support/tickets` | `TicketsView.vue` | filtered, expanded, status transitions |
 | Subjects | admin | `/support/subjects` | `SubjectsView.vue` | list editor, captcha panel (configured / **unconfigured in red**) |
 | Chat moderation | admin | `/chat` | `ChatView.vue` | filters, hide, restore, mute |
-| Settings | admin | `/settings` | `SettingsView.vue` | pricing, LiqPay hint, 4×3 bonus grid, relay coin count |
+| Settings | admin | `/settings` | `SettingsView.vue` | pricing, Stripe hint (constants + webhook URL), 4×3 bonus grid, relay coin count |
 
 ## Flows
 
