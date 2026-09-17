@@ -67,6 +67,9 @@ What `core` exposes for anything else to build on:
 - **The `pc/v1` REST namespace** — 18 controllers, catalogued with request /
   response / error shapes in `docs/CONTRACTS.md`. Changing a shape there is
   "touches shared surface".
+  *(`stripe` Sprint 1 Step 5: the top-up provider path has moved to that feature —
+  `PaymentController` and its LiqPay callback are deleted, leaving 17 controllers
+  in `app/rest-api/` plus the feature's own webhook controller.)*
 - **Permission callbacks** — `Permissions::require_logged_in`, `require_chat_ready`,
   `require_play_ready`, `require_admin`, and `UserController::check_permission`. A new
   feature reuses these rather than writing its own gate.

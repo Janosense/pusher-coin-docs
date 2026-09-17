@@ -35,8 +35,8 @@ Phase status lives in `ROADMAP.md`.
                                                                         │
                     ┌───────────────────────────┬────────────────────────┼──────────────────────────┐
                     ▼                           ▼                        ▼                          ▼
-         /wp-json/jwt-auth/v1        Home Assistant REST         LiqPay checkout            Turnstile / hCaptcha
-         (plugin validates            (Machine_Service,           (form POST out,            siteverify
+         /wp-json/jwt-auth/v1        Home Assistant REST         Stripe Checkout            Turnstile / hCaptcha
+         (plugin validates            (Machine_Service,           (hosted page out,          siteverify
           incoming bearer JWTs)        PC_MACHINE_TOKEN)           signed webhook in)        (Captcha_Verifier)
 ```
 
@@ -77,7 +77,7 @@ parse or trust the JWT payload (the token is opaque to it).
 | `views/` | Page-level components mapped 1:1 to routes: `RoomsView` (`/`), `RoomView` (`/room/:id`, public), `SignInView`, `SignUpView`, `AccountView`, `HistoryView`, `SupportView` (public), and the three gate / landing views `AcceptTermsView`, `ChooseNicknameView`, `ConfirmEmailView`. `AboutView` exists but is not in the route table. |
 | `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (live, 3s poll, owns its poll lifecycle), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
 | `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue, 3s poll that doubles as the heartbeat), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
-| `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `liqpayCheckout.js` builds and submits the hosted-checkout form; `sessionService.js` is the inactivity timer. |
+| `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `sessionService.js` is the inactivity timer. The top-up hand-off needs no service of its own — `ReplenishmentBalance.vue` navigates to the `checkout_url` that `walletService.topup()` returns. |
 | `assets/` | Global CSS (`main.css`, `styles/colors.css`, block-scoped CSS in `styles/blocks/`), images, the brand SVG logo. |
 | `public/` | Static files served verbatim by Vite (`favicon.ico`). |
 
@@ -114,7 +114,7 @@ Rooms, Withdrawals, Machine, Support, Chat, Settings:
 | `/support/tickets` | `TicketsView` | Ticket queue: status filter, search, expandable message with IP / UA, status transitions, mailto reply. |
 | `/support/subjects` | `SubjectsView` | Subject list editor (reorder, hide, replace-all save) plus the guest-captcha provider / site-key panel. |
 | `/chat` | `ChatView` | Chat moderation queue: room / status / text filters, hide and restore a message, and a timed account-wide mute. |
-| `/settings` | `SettingsView` | Coin price default / min / max, LiqPay public-key hint, bonus-map 4×3 grid, relay coin count. |
+| `/settings` | `SettingsView` | Coin price default / min / max, Stripe configuration hint (the two wp-config constants + the webhook URL to register), bonus-map 4×3 grid, relay coin count. |
 
 Stores: `auth.js` (two-step sign-in + `/admin/me` gate), `rooms.js`,
 `withdrawals.js`. Services mirror the backend admin controllers one to one:
@@ -135,10 +135,12 @@ dashboard aggregating the six sections.
 **Responsibility.** Validate input, declare the permission callback, delegate to a
 service, shape the response. Controllers hold no domain logic.
 
-**Public surface.** The `pc/v1` namespace — 18 controllers. The complete catalogue
+**Public surface.** The `pc/v1` namespace — 18 controllers: 17 in `app/rest-api/`
+plus the `stripe` feature's own `StripeWebhookController`, registered from
+`app/stripe/bootstrap.php`. The complete catalogue
 with request / response / error shapes is `CONTRACTS.md`.
 
-**Must never do.** Talk to Home Assistant, LiqPay or the captcha provider directly;
+**Must never do.** Talk to Home Assistant, Stripe or the captcha provider directly;
 write to a custom table without going through its service; register a route without
 an explicit `permission_callback`.
 
@@ -152,7 +154,6 @@ an explicit `permission_callback`.
 | `RoomQueueController.php` | `/rooms/{id}/queue`, join, leave, play (toss) |
 | `RoomChatController.php` | `/rooms/{id}/messages`: public read, gated post |
 | `WalletController.php` | `GET /wallet`, `POST /wallet/topup`, `POST /wallet/withdraw` |
-| `PaymentController.php` | LiqPay signed webhook |
 | `TransactionsController.php` | `GET /transactions` (paginated, filterable) |
 | `SupportController.php` | Public `/support/subjects` + `/support/tickets` |
 | `AdminController.php` | `/admin/me` capability probe |
@@ -172,8 +173,8 @@ Routes grouped by the permission callback that gates them:
   `GET /rooms`, `/rooms/{id}`, `/rooms/{id}/schedule`; `GET /support/subjects`,
   `POST /support/tickets` (rate-limited, captcha-checked for guests when
   configured); `GET /rooms/{id}/messages` (chat is readable by guests, like the
-  room page it sits on); `POST /payments/liqpay/callback` (LiqPay signature
-  verified in the handler).
+  room page it sits on); `POST /payments/stripe/webhook` (the `Stripe-Signature`
+  over the raw body is verified in the handler).
 - **Public, `UserController::check_permission`** — `POST /user/sign-up`,
   `/user/request-verification`, `/user/verify-code`. These rely on `Rate_Limiter`
   and the email code rather than a capability.
@@ -210,17 +211,21 @@ service here, not a CMS. `index.php` renders nothing.
 
 ```
 themes/pc/
-├── functions.php            # Bootstrap: composer autoload, utils, REST API registration, jwt_auth_expire filter
+├── functions.php            # Bootstrap: composer autoload, utils, feature bootstraps, REST API registration, jwt_auth_expire filter
 ├── style.css                # Theme metadata header
 ├── index.php                # Empty/placeholder (no front-end rendering)
 ├── composer.json            # google/apiclient (Google ID-token verification)
 ├── GOOGLE_AUTH_SETUP.md     # Operator notes for Google OAuth (parked)
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
 ├── tests/
+│   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
     ├── rest-api/            # The 18 controllers listed above
+    ├── stripe/              # Feature `stripe` — the ONLY code that talks to Stripe
+    │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
+    │   └── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
     ├── utils.php
     └── utils/
         ├── role-player.php                 # Registers the `player` role
@@ -235,7 +240,6 @@ themes/pc/
         ├── cpt-support-subject.php         # Registers pc_support_subject CPT
         ├── room-schedule-calculator.php    # Computes current_window / next_window from weekly rules
         ├── wallet-service.php              # Atomic wallet / coin-lot / ledger ops (SELECT … FOR UPDATE)
-        ├── liqpay-client.php               # LiqPay sign / verify / decode
         ├── machine-service.php             # Home Assistant REST wrapper (2s timeout, typed WP_Error)
         ├── machine-events.php              # Machine_Event_Log writer → wp_pc_machine_events
         ├── machine-ingest-service.php      # Machine event → wallet credit; transport-agnostic
@@ -248,9 +252,15 @@ themes/pc/
             └── machine-ingest.php          # `wp pc machine-ingest` — replay / test a machine event
 ```
 
+**Feature directories.** A feature added after the playbook (`app/stripe/`, and
+`app/realtime/` when it lands) owns a directory beside `utils/` and is reached through
+exactly one `require_once` of its `bootstrap.php` in `functions.php`. Nothing else in
+the theme requires a file from a feature directory directly.
+
 **Must never do.** `Wallet_Service` is the only writer of `wp_pc_wallets`,
 `wp_pc_coin_lots` and `wp_pc_transactions`; `Machine_Service` is the only caller of
-Home Assistant; no controller may bypass either. A meta key is never written as a
+Home Assistant; `Stripe_Client` is the only caller of Stripe; no controller may bypass
+any of them. A meta key is never written as a
 string literal — it comes from `User_Meta_Keys` or `Post_Meta_Keys`.
 
 ### Plugins
@@ -298,11 +308,19 @@ router also contains a `meta.requiresPlayReady` check, but no route sets that me
 visibility and calls `authStore.logout(true)` after 15 idle minutes. The
 access-token TTL is also 15 minutes.
 
-**Top-up — FIXED.** The SPA calls `POST /wallet/topup`, gets a signed
-`{ data, signature }` envelope, form-POSTs it to `liqpay.ua/api/3/checkout`, and on
-settlement LiqPay calls back `POST /payments/liqpay/callback`. The webhook handler is
-the only place that flips a transaction `pending → completed`, inserts the coin lot,
-and credits the wallet — atomic and idempotent on `(order_id, status)`.
+**Top-up — FIXED.** The SPA calls `POST /wallet/topup`. The server writes a `pending`
+transaction, asks Stripe for a Checkout Session (one line item, the whole order in
+kopiykas, `adaptive_pricing` off so the price cannot be converted), stores the session
+id as `external_ref`, and returns `checkout_url`; the browser goes to Stripe's hosted
+page. When the payment succeeds Stripe delivers `checkout.session.completed` to
+`POST /payments/stripe/webhook`, whose credential is the signature over the raw body.
+That handler is the only place that flips a transaction `pending → completed`, inserts
+the coin lot and credits the wallet — atomic, and idempotent on the row's own status
+rather than on delivery order, because Stripe delivers at least once and out of order.
+The coins credited come from the transaction row, never from the event: Stripe confirms
+the money, the ledger decides what was bought. An expired or failed session parks the
+row as `failed`. The player's return to `/account?topup=success` settles nothing; it is
+only a redirect.
 
 **Withdrawal — FIXED.** `POST /wallet/withdraw` FIFO-debits the lots into a `pending`
 transaction (consumed slices preserved on `consumed_lots` for refunds; one pending
@@ -373,7 +391,7 @@ persisted in the room's `pc_room_stream_url` post meta.
   rate limit, or a captcha instead of a session. Hardening those — nonces, captcha
   coverage, tighter limits — is the open security-review item in `ROADMAP.md`.
 - The backend is the only party that holds machine and payment credentials; the SPAs
-  never see the HA endpoint, the LiqPay private key, or the captcha secret.
+  never see the HA endpoint, the Stripe secret key, or the captcha secret.
 - A custom `player` role is added at `init` with a `play` capability, and
   administrators are given `play` for parity. **No code checks `play` today** — every
   gate goes through `Permissions::*`, which checks login state, user meta, and
@@ -384,7 +402,7 @@ persisted in the room's `pc_room_stream_url` post meta.
 | Service | What we use it for | Auth model | Failure / fallback | Credentials |
 |---|---|---|---|---|
 | **Home Assistant** | The physical machine: power on/off, `toss_coin()`, sensor reads (coin count, bonus number, light bitfield, relay state), relay open/close, a soft-failing batched snapshot for the admin view, `is_online()`. Only `Machine_Service` calls it. | Bearer token | 2s HTTP timeout; typed `WP_Error` (`machine_not_configured`, `machine_offline`, `machine_unauthorized`, `machine_call_failed`, `machine_unavailable_state`) mapped by callers to 502 / 503 so a machine fault never looks like an auth failure. The batched snapshot soft-fails per field. | `PC_MACHINE_TOKEN` (wp-config). Base URL + entity ids are `pc_machine_*` WP options, defaults matching `PUSHER-COIN-COMMANDS.txt`. |
-| **LiqPay** | Hosted Checkout for top-ups (UAH) and the settlement webhook. | HMAC signature on both directions | A callback with a bad signature is rejected; a repeated callback is a no-op (idempotent on `(order_id, status)`). | `PC_LIQPAY_PRIVATE_KEY` (wp-config); the public key is a WP option shown as a hint in the admin SPA. |
+| **Stripe** | Hosted Checkout for top-ups (UAH) and the settlement webhook — the only place a top-up reaches `completed`. Only `Stripe_Client` calls it. No SDK: plain `wp_remote_post` against a pinned API version (`2026-06-24.dahlia`). | Bearer secret key outbound; an HMAC signature over the raw body inbound | Session creation failing is `stripe_call_failed` 502 and the row is parked `failed`. Inbound: a bad signature is 401 and a rolled-back settlement is 500, both of which Stripe retries for three days; every other condition answers 200 with a `note` so Stripe stops. `adaptive_pricing` is sent `false` so the presented currency cannot be converted. | `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` (wp-config). The provider has no WP option at all. |
 | **Mux** | LL-HLS playback of the venue's RTMP stream. | Playback URL only | `LiveStream.vue` falls back to `<video>` or an iframe by URL shape; Safari uses native HLS. | None in the app — the playback URL is `pc_room_stream_url` post meta. |
 | **Turnstile / hCaptcha** | Guest anti-abuse on `POST /support/tickets`. | siteverify call with a secret | **Unconfigured is the off switch**: with an empty provider or secret the guest path runs unchallenged and the admin panel flags it in red. This is a launch blocker — see `backend/wp-content/themes/pc/CAPTCHA_SETUP.md`. | `PC_CAPTCHA_SECRET` (wp-config); `pc_captcha_site_key` + provider are WP options. |
 | **Google Sign-In** | ID-token exchange, then the same email-code 2FA. | Google ID token verified with `google/apiclient` | Parked: the SPA hides the button while `VITE_GOOGLE_CLIENT_ID` is empty. Backend untouched. | `GOOGLE_CLIENT_ID` (wp-config, the audience). See `backend/wp-content/themes/pc/GOOGLE_AUTH_SETUP.md`. |

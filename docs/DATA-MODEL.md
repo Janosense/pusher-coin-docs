@@ -181,7 +181,7 @@ Event types written today, by owning area:
 | --- | --- |
 | auth | `signup`, `request_verification`, `request_verification_failed`, `verify_success`, `verify_failure`, `refresh`, `refresh_reuse`, `logout`, `accept_terms`, `set_nickname`, `rate_limited` |
 | account | `request_email_confirmation`, `confirm_email`, `request_password_change`, `password_change`, `password_change_failure` |
-| payments | `liqpay_payload_invalid`, `liqpay_signature_invalid`, `liqpay_callback_misconfigured`, `liqpay_callback_unknown_order`, `liqpay_topup_settled`, `liqpay_topup_settle_failed`, `liqpay_topup_failed` |
+| payments | `stripe_webhook_unsigned`, `stripe_webhook_unconfigured`, `stripe_webhook_signature_invalid`, `stripe_webhook_ignored`, `stripe_webhook_unknown_session`, `stripe_webhook_already_settled`, `stripe_webhook_amount_mismatch`, `stripe_webhook_settled`, `stripe_webhook_settle_failed`, `stripe_webhook_failed_event` |
 | withdrawals | `withdrawal_approved`, `withdrawal_rejected` |
 | machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
 | chat | `chat_message_moderated`, `chat_user_muted` |
@@ -253,7 +253,10 @@ amount_money    DECIMAL(12,2)
 amount_coins    INT
 unit_price      DECIMAL(8,2)
 status          VARCHAR(16)    -- 'pending' | 'completed' | 'failed' | 'refunded'
-external_ref    VARCHAR(128)   -- payment provider id (LiqPay order_id)
+external_ref    VARCHAR(128)   -- payment provider id: Stripe Checkout Session
+                               -- id (`cs_…`, 66 chars observed). Rows from the
+                               -- LiqPay era keep their `pc-topup-N` refs and
+                               -- still render in the player's History.
 notes           TEXT
 consumed_lots   LONGTEXT       -- JSON [{qty,unit_price},...], withdrawals only
 created_at      DATETIME
@@ -412,7 +415,7 @@ so an old ticket still resolves its label.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.8.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
+| `pc_db_version` | string | `'1.9.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -420,14 +423,22 @@ so an old ticket still resolves its label.
 | `pc_password_change_ttl_seconds` | int | `900` | Read by `request-password-change`. |
 | `pc_spa_base_url` | string | `home_url()` | Operator-set; builds outbound email links such as `/confirm-email?token=…`. |
 
-**Coin pricing & LiqPay** — stored as decimal strings to avoid PHP float drift.
+**Coin pricing** — stored as decimal strings to avoid PHP float drift.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `pc_coin_price_default` | decimal string | `'40.00'` | Approximates 1 USD in UAH for an operator who hasn't visited the admin SPA yet. |
 | `pc_coin_price_min` | decimal string | `'10.00'` | Floor enforced by `/wallet/topup`. |
 | `pc_coin_price_max` | decimal string | `'500.00'` | Ceiling enforced by `/wallet/topup`. |
-| `pc_liqpay_public_key` | string | `''` | Merchant public key, operator-set in the admin SPA. The private key is `PC_LIQPAY_PRIVATE_KEY` in wp-config — never in the DB. |
+
+The top-up provider has **no option at all**. Both Stripe credentials are
+wp-config constants — `PC_STRIPE_SECRET_KEY` (the `sk_…` key, sent only as a
+Bearer header by `Stripe_Client`) and `PC_STRIPE_WEBHOOK_SECRET` (the `whsec_…`
+the webhook verifies signatures with). Neither is ever written to the database
+or logged, and the SPAs are told only `mode` (`test` / `live`, derived from the
+key prefix), never a key. `pc_liqpay_public_key` was the last provider option
+and is deleted by `Install_Schema::remove_retired_options()` at `pc_db_version`
+`1.9.0`; rotation of either Stripe key is a wp-config edit.
 
 **Machine** — defaults match `PUSHER-COIN-COMMANDS.txt`, so a fresh install talks to
 the production HA endpoint with no configuration beyond the bearer token.
@@ -520,8 +531,11 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
    by readers, so a refund can re-credit at the original price.
 5. **`wp_pc_transactions` is the money trail only.** Top-ups and withdrawals. Machine
    payouts credit coin lots and are audited in `wp_pc_machine_events` instead.
-6. **A transaction reaches `completed` only through the LiqPay callback**, which is
-   idempotent on `(order_id, status)`.
+6. **A transaction reaches `completed` only through the Stripe webhook**
+   (`POST /pc/v1/payments/stripe/webhook`), which is idempotent on the row's own
+   `status` — never on delivery order, because Stripe delivers at least once and
+   out of order. Only a `pending` row settles, and only when the session's
+   `amount_total` and currency match it.
 7. **One pending withdrawal per player at a time**; `consumed_lots` must be populated
    before a withdrawal row is written, or a reject cannot refund.
 8. **`wp_pc_machine_events.event_key` is unique and a transport must supply it.**
@@ -535,8 +549,10 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
 12. **Meta keys come from `User_Meta_Keys` / `Post_Meta_Keys`.** A literal meta-key
     string is a defect.
 13. **Secrets never reach the database**: `JWT_AUTH_SECRET_KEY`,
-    `PC_LIQPAY_PRIVATE_KEY`, `PC_MACHINE_TOKEN`, `PC_CAPTCHA_SECRET`,
-    `GOOGLE_CLIENT_ID`, `APPLE_*` are wp-config constants. Only their public
-    counterparts are options.
+    `PC_STRIPE_SECRET_KEY`, `PC_STRIPE_WEBHOOK_SECRET`, `PC_MACHINE_TOKEN`,
+    `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*` are wp-config constants.
+    Only their public counterparts are options — and the top-up provider now has
+    none: Stripe's keys are **both** constants, and the SPAs are told only
+    `mode` (`test` / `live`), never a key.
 14. **Money is `DECIMAL`, read and written as decimal strings.** A float anywhere in
     a money path is a defect.

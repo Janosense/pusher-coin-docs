@@ -716,35 +716,46 @@ Request:
 { "coin_qty": 5, "unit_price": "40.00" }
 ```
 `coin_qty` is a positive integer; `unit_price` is a decimal string
-within `[pc_coin_price_min, pc_coin_price_max]` (UAH). The amount sent
-to LiqPay is `coin_qty * unit_price` (UAH).
+within `[pc_coin_price_min, pc_coin_price_max]` (UAH). The amount is
+`coin_qty * unit_price` (UAH), sent to Stripe as an integer number of
+kopiykas — never a float.
 
 Response (`200`):
 ```json
 {
   "transaction_id": 17,
-  "order_id": "pc-topup-17",
+  "external_ref": "cs_test_a1rqvK7CJiVyPreIVeH59tAqpyefTmwCC6wbGa82sr8hY4vb6lGWmjIxhc",
   "amount": "200.00",
-  "checkout_url": "https://www.liqpay.ua/api/3/checkout",
-  "liqpay": {
-    "data": "<base64 params>",
-    "signature": "<base64 sha1>"
-  }
+  "checkout_url": "https://checkout.stripe.com/c/pay/cs_test_…"
 }
 ```
 
-The SPA POSTs `liqpay.data` + `liqpay.signature` as form fields to
-`checkout_url` (`<form method="POST" action="…">` works in any
-browser — LiqPay's hosted page renders next).
+The SPA sends the browser to `checkout_url` — Stripe's hosted page
+renders next. `external_ref` is the Checkout Session id and is returned
+for correlation and support, not for the SPA to act on.
+
+The session is created with one line item: `quantity` 1 and
+`unit_amount` the whole order in kopiykas, so the session's
+`amount_total` equals the row's `amount_money` exactly, with no
+arithmetic performed on Stripe's side. `client_reference_id` carries the
+transaction id, and `adaptive_pricing[enabled]` is always sent `false`
+(`DECISIONS.md` 2026-09-17, the spike entry) so Stripe cannot present a
+converted currency. `Idempotency-Key` is `pc-topup-{transaction_id}`.
 
 A pending row is written to `wp_pc_transactions` immediately so the
-LiqPay callback has something to look up via `external_ref = order_id`.
-Settlement (status → `completed`, lot creation, wallet credit) happens
-**only** from the callback, never from the redirect back to the SPA.
+Stripe webhook has something to look up via
+`external_ref = <Checkout Session id>`. Settlement (status →
+`completed`, lot creation, wallet credit) happens **only** from the
+webhook, never from the redirect back to the SPA.
+
+When Stripe refuses the session the row is parked as `failed` with the
+reason in `notes`, so it never sits `pending` forever.
 
 Errors: `rest_forbidden` 401 (not authed); `email_not_verified` /
 `terms_not_accepted` / `nickname_required` 403; `invalid_coin_qty` 400;
-`coin_price_out_of_bounds` 400; `liqpay_not_configured` 500.
+`coin_price_out_of_bounds` 400; `stripe_not_configured` 500 (checked
+before anything is written, so no row is created);
+`stripe_call_failed` 502; `wallet_write_failed` 500.
 
 ### `POST /pc/v1/wallet/withdraw`
 
@@ -814,42 +825,64 @@ Response (`200`):
 
 Top-ups and withdrawals only. Game results live on `wp_pc_bet_sessions`
 (Phase 6) and are deliberately excluded from this view. `external_ref`
-(LiqPay order_id) and `consumed_lots` are admin-only audit data and
+(the Stripe Checkout Session id; LiqPay-era rows keep their
+`pc-topup-N` refs) and `consumed_lots` are admin-only audit data and
 are not exposed here.
 
 Errors: `rest_forbidden` 401; `invalid_transaction_type` 400;
 `invalid_date` 400.
 
-### `POST /pc/v1/payments/liqpay/callback`
+### `POST /pc/v1/payments/stripe/webhook`
 
-LiqPay webhook. Public route; the signed payload is the credential.
-Phase 4.
+Stripe settlement webhook. **Public route; the signature is the
+credential** — `Stripe-Signature` over the raw request body, verified
+against `PC_STRIPE_WEBHOOK_SECRET`. The only place a top-up reaches
+`completed`.
 
-Request (form-encoded by LiqPay):
-```
-data=<base64 params>
-signature=<base64 sha1>
-```
+Request: Stripe's event JSON, raw. The body is read unparsed
+(`$request->get_body()`) and never re-encoded — re-serialising changes
+bytes and the signature would not match.
 
-Always returns 200 on a valid signature even for unrecoverable
-conditions (unknown `order_id`, already-settled txn). LiqPay treats
-non-2xx as a delivery failure and retries indefinitely, so the
-controller swallows recoverable surprises and writes them to
-`wp_pc_auth_audit_log` instead. The body's `note` field disambiguates:
-`already_settled`, `unknown_order`, or absent on first-time success.
+**Almost everything answers 200.** Stripe delivers at least once, in no
+guaranteed order, and retries any non-2xx for up to three days. An
+unknown session and an already-settled one are permanent conditions, so
+an error status would only buy an identical redelivery; the body's `note`
+says what happened, and every branch is written to
+`wp_pc_auth_audit_log` with the event id, event type and session id.
+
+Notes returned with 200:
+
+| `note` | Meaning |
+| --- | --- |
+| *(absent)* | Settled for the first time — coins credited |
+| `already_settled` | The row is no longer `pending`; a redelivery, or a late `expired` on a paid row |
+| `unknown_session` | No transaction carries that Checkout Session id |
+| `amount_mismatch` | `amount_total` ≠ the row's amount, or `currency` ≠ `uah`. Audited, never settled |
+| `ignored` | Any other event type, an unparseable body, or a settling event whose `payment_status` is not `paid` |
 
 State machine:
-- LiqPay `success` / `sandbox` → `Wallet_Service::settle_topup` (atomic
-  transaction-status flip + lot insert + wallet credit).
-- LiqPay `failure` / `error` / `reversed` → mark transaction `failed`.
-- Anything else (`processing`, `wait_secure`, `wait_accept`, …) →
-  leave `pending`, wait for the next callback.
-- Re-delivery of the same final status is a no-op (idempotent via the
-  `pending`-status check).
+- `checkout.session.completed` / `checkout.session.async_payment_succeeded`
+  with `payment_status = paid` → look the row up by `external_ref`, and
+  from `pending` only, after the money matches →
+  `Wallet_Service::settle_topup`. The coins credited come from the
+  **row** (`amount_coins`, `unit_price`), never from the event: Stripe
+  confirms the money, the ledger decides what was bought.
+- `checkout.session.async_payment_failed` / `checkout.session.expired`
+  → the row becomes `failed`, from `pending` only. A `completed` row
+  survives a late `expired`.
+- Anything else → 200, `ignored`.
 
-Errors: `missing_required_fields` 400 (no `data`/`signature` in body);
-`liqpay_signature_invalid` 401; `liqpay_payload_invalid` 400;
-`liqpay_not_configured` 500.
+Idempotency rests on the row's status, never on arrival order — one
+payment's events are not delivered in creation order.
+
+Errors (the only non-2xx this route returns):
+`missing_required_fields` 400 (no signature header, or an empty body);
+`stripe_signature_invalid` 401 (bad, stale, or unverifiable signature —
+an unconfigured server lands here too, and Stripe's retries mean nothing
+is lost while the secret is restored); `wallet_write_failed` 500 (the
+settlement rolled back and the row is still `pending` — the one
+recoverable failure, so Stripe is asked to retry rather than being told
+all is well).
 
 ### `GET /pc/v1/admin/me`
 
@@ -1450,7 +1483,7 @@ One canonical code per failure mode — do not invent variants.
 
 | Code | HTTP | Owning endpoint(s) |
 | --- | --- | --- |
-| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
+| `missing_required_fields` | 400 | sign-up, request-verification, verify-code, google-auth/verify-code, auth/refresh, confirm-password-change, payments/stripe/webhook |
 | `missing_id_token` | 400 | google-auth/authentication |
 | `invalid_email` | 400 | sign-up, support/tickets |
 | `invalid_description` | 400 | support/tickets |
@@ -1477,7 +1510,6 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_coin_price` | 400 | admin/coin-pricing PUT |
 | `coin_price_out_of_bounds` | 400 | wallet/topup |
 | `coin_price_bounds_invalid` | 400 | admin/coin-pricing PUT |
-| `liqpay_payload_invalid` | 400 | payments/liqpay/callback |
 | `token_invalid` | 401 | auth/refresh, confirm-email |
 | `authentication_failed` | 401 | request-verification, verify-code, confirm-password-change |
 | `invalid_verification_code` | 401 | verify-code, google-auth/verify-code, confirm-password-change |
@@ -1490,7 +1522,7 @@ One canonical code per failure mode — do not invent variants.
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
-| `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
+| `stripe_signature_invalid` | 401 | payments/stripe/webhook |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
 | `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
@@ -1518,19 +1550,19 @@ One canonical code per failure mode — do not invent variants.
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
-| `wallet_write_failed` | 500 | wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject |
+| `wallet_write_failed` | 500 | wallet/topup, wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject, payments/stripe/webhook (settlement rolled back; Stripe retries) |
 | `ticket_write_failed` | 500 | support/tickets |
 | `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
-| `liqpay_not_configured` | 500 | wallet/topup, payments/liqpay/callback |
+| `stripe_not_configured` | 500 | wallet/topup |
 | `machine_not_configured` | 500 | admin/machine/state, admin/machine/power |
 | `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_library_missing` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
 | `jwt_encoding_failed` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |
-| `payment_failed` | 502 | wallet/topup (planned) |
+| `stripe_call_failed` | 502 | wallet/topup (Stripe refused or was unreachable; the row is parked `failed`) |
 | `machine_call_failed` | 502 | admin/machine/power |
 | `machine_unauthorized` | 502 | admin/machine/power |
 | `machine_offline` | 503 | admin/machine/power |

@@ -14,7 +14,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Delta-audit and the check command on the sprint branch
+### [x] Step 1 — Delta-audit and the check command on the sprint branch
 - **Tasks:**
   - Read `docs/features/core/FEATURE.md` (Interfaces, Invariants), `docs/features/realtime/FEATURE.md` (Shared code, Roadmap) and the shared code this feature touches: `app/utils/wallet-service.php`, `app/rest-api/WalletController.php`, `app/rest-api/PaymentController.php`, `app/utils/liqpay-client.php`, `app/utils/install-schema.php`; `frontend/src/components/ReplenishmentBalance.vue`, `stores/wallet.js`, `views/AccountView.vue`, `services/liqpayCheckout.js`; `admin/src/views/SettingsView.vue`, `admin/src/router/index.js`, `admin/src/components/AdminLayout.vue`. Confirm or correct every touchpoint listed in `FEATURE.md` → Fit into the host, including the `$wpdb->update` bypass and each place `realtime` will touch too. No code changes.
   - Copy from `realtime/sprint-1`, unchanged: `backend/bin/check`, `frontend/bin/check`, the `lint` / `lint:fix` scripts in `frontend/package.json` and `admin/package.json`, and the matching text of `docs/TECH-STACK.md` → Check command, `CLAUDE.md` → Commands and `docs/PROJECT-TREE.md`. *Touches shared code:* the lint scripts and the check command gate every later commit.
@@ -24,7 +24,7 @@
 - **Docs to update:** `docs/features/stripe/FEATURE.md` → Fit into the host; `docs/TECH-STACK.md` → Check command; `CLAUDE.md` → Commands; `docs/PROJECT-TREE.md`.
 - **Depends on:** —
 
-### [ ] Step 2 — Spike: Stripe on the test keys
+### [x] Step 2 — Spike: Stripe on the test keys
 - **Tasks:**
   - Timeboxed to one working session. Spike code is throwaway and is not merged into `main`; the keys Tymofii provides go into the local `wp-config-ddev.php` only, never into a commit.
   - Record the account's country (Dashboard → Settings) — the presentment-currency list depends on it.
@@ -38,7 +38,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the spike entry); `docs/LEARNINGS.md` if the CLI or DDEV needed a workaround.
 - **Depends on:** —
 
-### [ ] Step 3 — The Stripe client and the Checkout Session
+### [x] Step 3 — The Stripe client and the Checkout Session
 - **Tasks:**
   - `app/stripe/bootstrap.php`, required once from `functions.php` (the single entry point). `app/stripe/stripe-client.php`: `is_configured()` (both constants present), `mode()` (`test` / `live` from the key prefix), `create_checkout_session()` over `wp_remote_post` with a Bearer key, the pinned `Stripe-Version` header, an `Idempotency-Key` of `pc-topup-{txn_id}`, and a typed `WP_Error` on any non-2xx (`stripe_call_failed`) that never echoes the key; `verify_signature( string $raw_body, string $header, string $secret, int $tolerance = 300 ): bool` per the 2026-09-17 decision.
   - `WalletController::topup` — keep the validation and the `pending` row exactly as they are; then create the session with the amount in kopiykas (`bcmul` on the decimal string, never a float), `currency=uah`, `client_reference_id = txn_id`, `success_url` = `{pc_spa_base_url}account?topup=success`, `cancel_url` = `{pc_spa_base_url}account?topup=cancel`; store the session id as `external_ref` through a new `Wallet_Service::set_external_ref( int $txn_id, string $ref ): bool` (replaces the `$wpdb->update`; checked like every other write); respond `{ transaction_id, external_ref, amount, checkout_url }`. Unconfigured → `stripe_not_configured` 500. A failed session creation marks the row `failed` with the error code as the note and answers 502. *Touches shared code:* `WalletController`, `Wallet_Service`.
@@ -49,7 +49,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (`POST /wallet/topup` response and error codes; `liqpay_not_configured` retired); `docs/DATA-MODEL.md` (constants, the removed option, `DB_VERSION`, the `external_ref` convention); `docs/PROJECT-TREE.md` (`app/stripe/`, `tests/stripe-client.php`).
 - **Depends on:** Step 1, Step 2
 
-### [ ] Step 4 — The webhook and settlement
+### [x] Step 4 — The webhook and settlement
 - **Tasks:**
   - `app/stripe/StripeWebhookController.php`: `POST /pc/v1/payments/stripe/webhook`, `permission_callback` `__return_true` with the signature as the credential — read the raw body (`$request->get_body()`), verify with `PC_STRIPE_WEBHOOK_SECRET`; a missing or invalid signature is 400/401 and the only non-2xx the handler ever returns.
   - Event routing per the 2026-09-17 decision: `checkout.session.completed` and `checkout.session.async_payment_succeeded` with `payment_status = paid` → look up the row by `external_ref`; unknown → 200 `note: unknown_session`; not `pending` → 200 `note: already_settled`; `amount_total` or `currency` differing from the row → 200 `note: amount_mismatch`, `Audit_Log`, no settlement; otherwise `Wallet_Service::settle_topup`. `checkout.session.async_payment_failed` and `checkout.session.expired` → `failed` with the event type as the note (from `pending` only). Any other type → 200 `note: ignored`. Every branch writes `Audit_Log` with the event id, type and session id in metadata.
@@ -59,7 +59,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (the webhook, its notes and error codes, moved into "current"); root `CLAUDE.md` invariant 5 and the test-critical zones line (LiqPay → Stripe); `docs/ARCHITECTURE.md` → Top-up data flow and Integrations row; `docs/PROJECT-TREE.md`.
 - **Depends on:** Step 3
 
-### [ ] Step 5 — The SPA hand-off, and LiqPay leaves
+### [x] Step 5 — The SPA hand-off, and LiqPay leaves
 - **Tasks:**
   - `frontend/src/components/ReplenishmentBalance.vue`: on a successful `startTopup`, `window.location.assign(result.checkout_url)`; the existing "browser navigates away" handling stays. Delete `services/liqpayCheckout.js` and every import of it. `AccountView`'s `success` / `cancel` banners stay as they are. *Touches shared code.*
   - Backend: delete `app/rest-api/PaymentController.php`'s LiqPay route (the whole file if nothing else lives there), `app/utils/liqpay-client.php`, every `PC_LIQPAY_PRIVATE_KEY` and `LiqPay_Client` reference, and the LiqPay lines of `backend/wp-content/themes/pc/README*` or setup notes if any. `wp-config-sample` / DDEV config: replace the LiqPay constant with the two Stripe ones. *Touches shared code.*
@@ -71,13 +71,13 @@
 - **Depends on:** Step 4
 
 ## Definition of Done
-- [ ] Every step closed via /close-step (report + verification guide + worklog)
-- [ ] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch, in both `backend/` and `frontend/`; `admin/` passes `npm run lint && npm run build`
-- [ ] Docs match reality (DATA-MODEL, ARCHITECTURE, CONTRACTS, DOMAIN, DECISIONS current; no LiqPay outside history entries)
+- [x] Every step closed via /close-step (report + verification guide + worklog) — five guides `verification/sprint-1-step-{1..5}.md`, five WORKLOG entries, five `--no-ff` merges (docs `acc2491` `2c574a9` `0633cf6` `e29ddaa` `044a227`)
+- [x] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch, in both `backend/` and `frontend/`; `admin/` passes `npm run lint && npm run build` — run at the close: `php -l: 48 files OK`, `All 39 / 54 / 53 checks passed` (146), exit 0 in all three
+- [x] Docs match reality (DATA-MODEL, ARCHITECTURE, CONTRACTS, DOMAIN, DECISIONS current; no LiqPay outside history entries) — each updated in the step that changed the code it describes; LiqPay verified per repository with `git grep` (frontend none, admin none, backend seven deliberate lines — see `SPRINT-1-CLOSE.md`)
 - [ ] Sprint boundary: the sprint's work merged into `main` per the git model, `backend` `main` pushed (the production FTP release) and `frontend` `main` pushed (the Vercel build). `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` exist in production `wp-config.php` and the production webhook URL is registered in the Stripe Dashboard **before** the merge — otherwise the first release answers `stripe_not_configured`.
 - [ ] Tymofii paid with a test card on the deployed stack and saw the coins in the wallet without reloading anything by hand
 - [ ] The same event resent from the Stripe Dashboard credited nothing a second time, observed in that player's balance
-- [ ] Step 2 closed with a `DECISIONS.md` entry that names the account country, the `uah` answer and the pinned API version
+- [x] Step 2 closed with a `DECISIONS.md` entry that names the account country, the `uah` answer and the pinned API version — `DECISIONS.md` 2026-09-17 spike entry: `acct_1TtSrOElMyJqvLDl` (US), HTTP 200 `currency: uah` / `amount_total: 12000`, `2026-06-24.dahlia`
 
 ## Out of scope
 - The admin **Top-ups** list, `GET /admin/topups`, `GET /admin/stripe/status` and the live status badge in Settings — Sprint 2.

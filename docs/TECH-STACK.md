@@ -25,6 +25,7 @@
 | Testing | **none** | — | No PHPUnit, no Vitest, no Playwright, in any of the three repositories |
 | Node | 20 (CI) | — | `frontend/.github/workflows/ci.yml` |
 | Local env | DDEV (nginx-fpm), host `https://pusher-coin.ddev.site` | — | — |
+| Stripe CLI (developer tooling, **not** a project dependency) | `stripe` | 1.43.8 on the development machine | `stripe listen --forward-to …` delivers real test events to DDEV, which Stripe cannot reach; it also supplies the per-session `whsec_`. Installed per developer, never committed, never required by CI — `DECISIONS.md` 2026-09-17 |
 | Deploy | GitHub Actions FTP sync (backend), Vercel (player SPA), none (admin SPA) | — | See `ARCHITECTURE.md` → Environments & deploy |
 
 The two SPAs have drifted apart on patch/minor versions (Vue 3.5.21 vs 3.5.34, Axios
@@ -33,33 +34,42 @@ recorded here so nobody assumes they do.
 
 ## Check command
 
-**There is none.** No repository has a single committed command that runs tests,
-lint, static analysis and build and exits non-zero on the first failure.
-
-What exists instead, per repository:
+One committed script each in `backend/` and `frontend/`; each stops at the first failure
+with a non-zero exit and runs from any directory. Commit only on exit 0.
 
 ```bash
-find wp-content/themes/pc -name '*.php' -print0 | xargs -0 -n1 php -l   # backend, also run by CI
-npm run lint && npm run build                                           # frontend, also run by CI
-npm run lint && npm run build                                           # admin, no CI
+backend/bin/check    # 1. php -l over every PHP file of the pc theme, vendor/ excluded
+                     # 2. every wp-content/themes/pc/tests/*.php through `ddev wp eval-file`
+frontend/bin/check   # 1. npm run lint (report-only)   2. npm run build
 ```
 
-Test-critical checks that exist so far — scripts run by hand against the local DDEV
-database, not by CI (they need one), and each refuses to run outside WP-CLI on DDEV:
+`admin/` has no check script yet; its gate is `npm run lint && npm run build`.
+
+`backend/bin/check` runs stage 2 only when the DDEV project is already running
+(`ddev describe` reports it running and `ddev wp core is-installed` answers). Otherwise
+it prints a boxed `SKIPPED: DDEV checks did not run` notice and still exits 0 — a green
+run that shows that notice has not executed the money checks. It never starts DDEV
+itself, because `ddev start` rewrites `wp-config-ddev.php` (`docs/LEARNINGS.md`).
+
+Test-critical checks that exist so far — WP-CLI eval scripts in
+`backend/wp-content/themes/pc/tests/`, run by `backend/bin/check` against the local DDEV
+database. CI does not run them (it has no database), and each refuses to run outside
+WP-CLI on DDEV:
 
 ```bash
-ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back
+ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back (53 checks)
 ```
 
-Until a real check command lands, the commit gate is: lint every app the step
-touched, build every SPA it touched, and run every check script above that covers
-code it touched. Creating the check command is the job of the
-first code step of the first new feature's Sprint 1 — see `/do-step` §3,
-which cannot be satisfied properly before then.
+A new script in `tests/` is picked up by `backend/bin/check` without editing it, and must
+keep the WP-CLI + DDEV guard (`DECISIONS.md` 2026-09-15).
 
-Two caveats a check command has to deal with: `npm run lint` is defined with
-`--fix`, so it *mutates* files rather than only reporting; and the backend lint is a
-syntax check only, not a style or static-analysis pass.
+`npm run lint` only reports; `npm run lint:fix` is the one that rewrites files. CI runs
+the underlying commands rather than the scripts: `php -l` over the theme in `backend`,
+`npm run lint` and `npm run build` in `frontend`.
+
+Two caveats: the backend lint is a syntax check only, not a style or static-analysis
+pass; and `backend/bin/check` lints with the host's `php` (8.5 on the development
+machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP rejects.
 
 ## ANTI-PATTERNS (mandatory reading before writing code)
 
@@ -91,8 +101,10 @@ syntax check only, not a style or static-analysis pass.
   player out.
 - **Do not debit a coin before the machine answers 200.** `toss_coin()` enforces the
   200; the caller re-credits the exact lot price on anything else.
-- **Do not flip a transaction to `completed` anywhere but the LiqPay callback,** and
-  keep that handler idempotent on `(order_id, status)`.
+- **Do not flip a transaction to `completed` anywhere but the Stripe webhook,** and
+  keep that handler idempotent on the row's own `status`, never on delivery order —
+  Stripe delivers at least once and out of order. The player's return from the
+  hosted page settles nothing.
 - **Do not register a REST route without an explicit `permission_callback`,** and do
   not invent a new gate inline — use `Permissions::require_logged_in` /
   `require_chat_ready` / `require_play_ready` / `require_admin`. If a route must be
@@ -120,8 +132,8 @@ syntax check only, not a style or static-analysis pass.
   without a decision first. Some duplication of Vue tooling and primitives is
   deliberate; a monorepo or shared package was explicitly deferred.
 - **Do not put a secret in a WP option or in the repository.** wp-config constants
-  only, never logged. Public counterparts (LiqPay public key, captcha site key) are
-  options.
+  only, never logged. The captcha site key is the public counterpart that is an
+  option; the top-up provider has none at all — hosted Checkout needs no public key.
 - **Do not hardcode an operator-tunable value.** Coin price bounds, machine entity
   ids, the bonus map, the queue idle timeout, TTLs, the support address and the
   captcha provider are all WP options with defaults in `Install_Schema`.

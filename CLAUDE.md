@@ -12,7 +12,7 @@ whole API — and the only party that ever holds machine or payment credentials.
 ## Project profile
 - Verification: user-verified — the user does not read code; explain all changes in plain language and write verification guides for a non-developer
 - Deploy: **manual per repository, and a merge is a deploy.** `backend/` — GitHub Actions FTP-syncs the whole tree on every push to `main` (pushing `main` *is* a production release); `frontend/` — Vercel builds from `main` with `.env.production`; `admin/` — no deploy target and no CI at all, local-only today.
-- Test-critical zones (code without tests here = unfinished task): money — `Wallet_Service`, coin lots, transactions, withdrawal approve/reject; the LiqPay callback — signature verification and `(order_id, status)` idempotency; refresh-token rotation and reuse detection; every `Permissions::*` callback; machine-event idempotency and crediting. **There is no automated test suite in any of the three repositories today** — see `docs/TECH-STACK.md` → Check command.
+- Test-critical zones (code without tests here = unfinished task): money — `Wallet_Service`, coin lots, transactions, withdrawal approve/reject; the Stripe webhook — signature verification and settle-once idempotency; refresh-token rotation and reuse detection; every `Permissions::*` callback; machine-event idempotency and crediting. **There is no automated test suite in any of the three repositories today** — see `docs/TECH-STACK.md` → Check command.
 - Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments track `main` (or the deployment branch named under Deploy) — never a task or sprint branch; deploys happen at the sprint boundary via `/close-sprint`, never inside a step.
 
 ## Documentation (read before the relevant task)
@@ -72,10 +72,10 @@ Outside the step cycle:
 
 ## Domain invariants
 1. Every REST route declares an explicit `permission_callback`. Whatever the SPA enforces — coin-quantity clamps, zero-balance routing, the nickname / terms / email gates — is re-checked server-side. The browser is untrusted; only the JWT identifies the caller.
-2. Secrets are wp-config constants on the server: `JWT_AUTH_SECRET_KEY`, `PC_LIQPAY_PRIVATE_KEY`, `PC_MACHINE_TOKEN`, `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*`. Never in the database, never in the repository, never logged. Their public counterparts (LiqPay public key, captcha site key) are WP options.
+2. Secrets are wp-config constants on the server: `JWT_AUTH_SECRET_KEY`, `PC_STRIPE_SECRET_KEY`, `PC_STRIPE_WEBHOOK_SECRET`, `PC_MACHINE_TOKEN`, `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*`. Never in the database, never in the repository, never logged. The top-up provider has no public counterpart at all — hosted Checkout needs none; the captcha site key is a WP option.
 3. Every wallet mutation goes through `Wallet_Service` under `SELECT … FOR UPDATE`. Coins are a FIFO stack of `(qty, unit_price)` lots, so a coin always pays back at the price it was bought at.
 4. A coin is debited only after `Machine_Service::toss_coin()` answers HTTP 200. Any other answer re-credits the exact lot price that was taken.
-5. `POST /payments/liqpay/callback` is the only place a transaction flips `pending → completed`, and it is idempotent on `(order_id, status)`.
+5. `POST /payments/stripe/webhook` is the only place a transaction flips `pending → completed`. Idempotency rests on the row's own status, not on delivery order — Stripe delivers at least once and out of order. The route answers 200 with a `note` for everything except an unverifiable signature (400 / 401) and a settlement that rolled back (500, so Stripe retries).
 6. Machine events are idempotent on `event_key`. Machine payouts credit coin lots directly and are audited in `wp_pc_machine_events` — they never pass through the transaction ledger, because the player's history shows money movements only.
 7. Money is UAH, stored `DECIMAL(12,2)` and serialised as decimal strings end to end. Never a JavaScript float.
 8. `Machine_Service` is the only code that talks to Home Assistant. Its typed `WP_Error`s map to gateway statuses (502 / 503) so a machine fault never reaches a SPA as a 401 and never trips the refresh interceptor.
@@ -96,23 +96,27 @@ the file hierarchy.
 
 ## Commands
 ```bash
-# No check command yet (docs/TECH-STACK.md -> Check command): lint every touched app, build every touched SPA.
+# Check command (docs/TECH-STACK.md -> Check command): backend/bin/check and frontend/bin/check.
+# admin/ has none yet — its gate is `npm run lint && npm run build`.
 
 # backend/ — WordPress under DDEV
 ddev start
 ddev wp pc seed-rooms
 ddev wp pc machine-ingest --help
-find wp-content/themes/pc -name '*.php' -print0 | xargs -0 -n1 php -l
+bin/check                         # php -l over the theme, then tests/ when DDEV is running
 
 # frontend/ — player SPA, dev server on :5173
 npm ci
 npm run dev
-npm run lint
+bin/check                         # npm run lint, then npm run build
+npm run lint                      # reports only
+npm run lint:fix                  # rewrites files
 npm run build
 
 # admin/ — operator SPA, dev server on :5174
 npm ci
 npm run dev
-npm run lint
+npm run lint                      # reports only
+npm run lint:fix                  # rewrites files
 npm run build
 ```
