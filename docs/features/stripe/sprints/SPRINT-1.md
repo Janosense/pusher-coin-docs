@@ -24,7 +24,7 @@
 - **Docs to update:** `docs/features/stripe/FEATURE.md` → Fit into the host; `docs/TECH-STACK.md` → Check command; `CLAUDE.md` → Commands; `docs/PROJECT-TREE.md`.
 - **Depends on:** —
 
-### [ ] Step 2 — Spike: Stripe on the test keys
+### [x] Step 2 — Spike: Stripe on the test keys
 - **Tasks:**
   - Timeboxed to one working session. Spike code is throwaway and is not merged into `main`; the keys Tymofii provides go into the local `wp-config-ddev.php` only, never into a commit.
   - Record the account's country (Dashboard → Settings) — the presentment-currency list depends on it.

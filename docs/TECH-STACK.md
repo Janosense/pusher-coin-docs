@@ -25,6 +25,7 @@
 | Testing | **none** | — | No PHPUnit, no Vitest, no Playwright, in any of the three repositories |
 | Node | 20 (CI) | — | `frontend/.github/workflows/ci.yml` |
 | Local env | DDEV (nginx-fpm), host `https://pusher-coin.ddev.site` | — | — |
+| Stripe CLI (developer tooling, **not** a project dependency) | `stripe` | 1.43.8 on the development machine | `stripe listen --forward-to …` delivers real test events to DDEV, which Stripe cannot reach; it also supplies the per-session `whsec_`. Installed per developer, never committed, never required by CI — `DECISIONS.md` 2026-09-17 |
 | Deploy | GitHub Actions FTP sync (backend), Vercel (player SPA), none (admin SPA) | — | See `ARCHITECTURE.md` → Environments & deploy |
 
 The two SPAs have drifted apart on patch/minor versions (Vue 3.5.21 vs 3.5.34, Axios

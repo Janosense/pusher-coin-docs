@@ -167,7 +167,7 @@ none
 
 ---
 
-## Plan — Sprint 1, Step 2: Spike — Stripe on the test keys   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 2: Spike — Stripe on the test keys   (status: closed)
 
 ### Branch
 `stripe/sprint-1-spike-keys` ← `stripe/sprint-1`, **root documentation repository
