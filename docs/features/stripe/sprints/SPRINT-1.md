@@ -38,7 +38,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the spike entry); `docs/LEARNINGS.md` if the CLI or DDEV needed a workaround.
 - **Depends on:** —
 
-### [ ] Step 3 — The Stripe client and the Checkout Session
+### [x] Step 3 — The Stripe client and the Checkout Session
 - **Tasks:**
   - `app/stripe/bootstrap.php`, required once from `functions.php` (the single entry point). `app/stripe/stripe-client.php`: `is_configured()` (both constants present), `mode()` (`test` / `live` from the key prefix), `create_checkout_session()` over `wp_remote_post` with a Bearer key, the pinned `Stripe-Version` header, an `Idempotency-Key` of `pc-topup-{txn_id}`, and a typed `WP_Error` on any non-2xx (`stripe_call_failed`) that never echoes the key; `verify_signature( string $raw_body, string $header, string $secret, int $tolerance = 300 ): bool` per the 2026-09-17 decision.
   - `WalletController::topup` — keep the validation and the `pending` row exactly as they are; then create the session with the amount in kopiykas (`bcmul` on the decimal string, never a float), `currency=uah`, `client_reference_id = txn_id`, `success_url` = `{pc_spa_base_url}account?topup=success`, `cancel_url` = `{pc_spa_base_url}account?topup=cancel`; store the session id as `external_ref` through a new `Wallet_Service::set_external_ref( int $txn_id, string $ref ): bool` (replaces the `$wpdb->update`; checked like every other write); respond `{ transaction_id, external_ref, amount, checkout_url }`. Unconfigured → `stripe_not_configured` 500. A failed session creation marks the row `failed` with the error code as the note and answers 502. *Touches shared code:* `WalletController`, `Wallet_Service`.

@@ -362,7 +362,7 @@ workaround.
 
 ---
 
-## Plan — Sprint 1, Step 3: The Stripe client and the Checkout Session   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 3: The Stripe client and the Checkout Session   (status: closed)
 
 ### Branch
 `stripe/sprint-1-checkout-session` ← `stripe/sprint-1`, **`backend/` and the root

@@ -60,7 +60,16 @@ Owns no table; writes `wp_pc_transactions` and coin lots **only through
 `Wallet_Service`**. Owns the wp-config constants `PC_STRIPE_SECRET_KEY` and
 `PC_STRIPE_WEBHOOK_SECRET` (never options, never logged) and the top-up `external_ref`
 convention — a Checkout Session id (`cs_…`; LiqPay-era rows keep `pc-topup-N`).
-Removes the WP option `pc_liqpay_public_key`. No other feature writes any of this.
+Removed the WP option `pc_liqpay_public_key` at `pc_db_version` `1.9.0`
+(Sprint 1 Step 3), through `Install_Schema::remove_retired_options()` — the first
+upgrade path the installer has had. No other feature writes any of this.
+
+**Shipped so far** (Sprint 1 Step 3): `app/stripe/bootstrap.php` and
+`app/stripe/stripe-client.php`; `Wallet_Service::set_external_ref()`, which replaced
+the last raw `$wpdb->update` of a money column; `POST /wallet/topup` creating a real
+Checkout Session. The webhook that settles one is Step 4 — until then no Stripe
+payment can reach `completed`, and the player SPA still expects the LiqPay envelope
+until Step 5.
 
 ## Invariants
 1. **The player pays UAH and the wallet stays UAH.** Every amount sent to Stripe
