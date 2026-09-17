@@ -33,33 +33,42 @@ recorded here so nobody assumes they do.
 
 ## Check command
 
-**There is none.** No repository has a single committed command that runs tests,
-lint, static analysis and build and exits non-zero on the first failure.
-
-What exists instead, per repository:
+One committed script each in `backend/` and `frontend/`; each stops at the first failure
+with a non-zero exit and runs from any directory. Commit only on exit 0.
 
 ```bash
-find wp-content/themes/pc -name '*.php' -print0 | xargs -0 -n1 php -l   # backend, also run by CI
-npm run lint && npm run build                                           # frontend, also run by CI
-npm run lint && npm run build                                           # admin, no CI
+backend/bin/check    # 1. php -l over every PHP file of the pc theme, vendor/ excluded
+                     # 2. every wp-content/themes/pc/tests/*.php through `ddev wp eval-file`
+frontend/bin/check   # 1. npm run lint (report-only)   2. npm run build
 ```
 
-Test-critical checks that exist so far — scripts run by hand against the local DDEV
-database, not by CI (they need one), and each refuses to run outside WP-CLI on DDEV:
+`admin/` has no check script yet; its gate is `npm run lint && npm run build`.
+
+`backend/bin/check` runs stage 2 only when the DDEV project is already running
+(`ddev describe` reports it running and `ddev wp core is-installed` answers). Otherwise
+it prints a boxed `SKIPPED: DDEV checks did not run` notice and still exits 0 — a green
+run that shows that notice has not executed the money checks. It never starts DDEV
+itself, because `ddev start` rewrites `wp-config-ddev.php` (`docs/LEARNINGS.md`).
+
+Test-critical checks that exist so far — WP-CLI eval scripts in
+`backend/wp-content/themes/pc/tests/`, run by `backend/bin/check` against the local DDEV
+database. CI does not run them (it has no database), and each refuses to run outside
+WP-CLI on DDEV:
 
 ```bash
-ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back
+ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back (53 checks)
 ```
 
-Until a real check command lands, the commit gate is: lint every app the step
-touched, build every SPA it touched, and run every check script above that covers
-code it touched. Creating the check command is the job of the
-first code step of the first new feature's Sprint 1 — see `/do-step` §3,
-which cannot be satisfied properly before then.
+A new script in `tests/` is picked up by `backend/bin/check` without editing it, and must
+keep the WP-CLI + DDEV guard (`DECISIONS.md` 2026-09-15).
 
-Two caveats a check command has to deal with: `npm run lint` is defined with
-`--fix`, so it *mutates* files rather than only reporting; and the backend lint is a
-syntax check only, not a style or static-analysis pass.
+`npm run lint` only reports; `npm run lint:fix` is the one that rewrites files. CI runs
+the underlying commands rather than the scripts: `php -l` over the theme in `backend`,
+`npm run lint` and `npm run build` in `frontend`.
+
+Two caveats: the backend lint is a syntax check only, not a style or static-analysis
+pass; and `backend/bin/check` lints with the host's `php` (8.5 on the development
+machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP rejects.
 
 ## ANTI-PATTERNS (mandatory reading before writing code)
 
