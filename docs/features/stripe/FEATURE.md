@@ -64,12 +64,14 @@ Removed the WP option `pc_liqpay_public_key` at `pc_db_version` `1.9.0`
 (Sprint 1 Step 3), through `Install_Schema::remove_retired_options()` — the first
 upgrade path the installer has had. No other feature writes any of this.
 
-**Shipped so far** (Sprint 1 Step 3): `app/stripe/bootstrap.php` and
-`app/stripe/stripe-client.php`; `Wallet_Service::set_external_ref()`, which replaced
-the last raw `$wpdb->update` of a money column; `POST /wallet/topup` creating a real
-Checkout Session. The webhook that settles one is Step 4 — until then no Stripe
-payment can reach `completed`, and the player SPA still expects the LiqPay envelope
-until Step 5.
+**Shipped so far** (Sprint 1 Steps 3-4): `app/stripe/` — `bootstrap.php`,
+`stripe-client.php` and `StripeWebhookController.php`;
+`Wallet_Service::set_external_ref()`, which replaced the last raw `$wpdb->update` of a
+money column; `POST /wallet/topup` creating a real Checkout Session, and
+`POST /payments/stripe/webhook` settling one. **A paid session now credits the wallet
+end to end** — observed live, including a re-delivered event crediting nothing twice.
+The player SPA still expects the LiqPay envelope until Step 5, so the button is broken
+between Steps 3 and 5 by design.
 
 ## Invariants
 1. **The player pays UAH and the wallet stays UAH.** Every amount sent to Stripe
@@ -78,7 +80,11 @@ until Step 5.
    from `pending`, only after amount and currency match the row; a re-delivered
    event settles nothing twice.
 3. **A dispute or a refund changes nothing.** The webhook acknowledges those
-   events and ignores them; a non-2xx leaves the handler only for a bad signature.
+   events and ignores them. It answers non-2xx in exactly three cases: an
+   unsigned request (400), an unverifiable signature (401), and a settlement
+   that rolled back (500, so Stripe retries — `DECISIONS.md` 2026-09-17). Every
+   other condition answers 200 with a `note`, because Stripe retries anything
+   else and no retry could improve it.
 4. **LiqPay-era ledger rows keep rendering** in the player's History and in the
    admin views. Nothing disappears.
 5. **The SPAs never see a Stripe secret** — the server exposes only `configured`
