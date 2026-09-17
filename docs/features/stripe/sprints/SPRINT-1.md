@@ -71,13 +71,13 @@
 - **Depends on:** Step 4
 
 ## Definition of Done
-- [ ] Every step closed via /close-step (report + verification guide + worklog)
-- [ ] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch, in both `backend/` and `frontend/`; `admin/` passes `npm run lint && npm run build`
-- [ ] Docs match reality (DATA-MODEL, ARCHITECTURE, CONTRACTS, DOMAIN, DECISIONS current; no LiqPay outside history entries)
+- [x] Every step closed via /close-step (report + verification guide + worklog) — five guides `verification/sprint-1-step-{1..5}.md`, five WORKLOG entries, five `--no-ff` merges (docs `acc2491` `2c574a9` `0633cf6` `e29ddaa` `044a227`)
+- [x] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch, in both `backend/` and `frontend/`; `admin/` passes `npm run lint && npm run build` — run at the close: `php -l: 48 files OK`, `All 39 / 54 / 53 checks passed` (146), exit 0 in all three
+- [x] Docs match reality (DATA-MODEL, ARCHITECTURE, CONTRACTS, DOMAIN, DECISIONS current; no LiqPay outside history entries) — each updated in the step that changed the code it describes; LiqPay verified per repository with `git grep` (frontend none, admin none, backend seven deliberate lines — see `SPRINT-1-CLOSE.md`)
 - [ ] Sprint boundary: the sprint's work merged into `main` per the git model, `backend` `main` pushed (the production FTP release) and `frontend` `main` pushed (the Vercel build). `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` exist in production `wp-config.php` and the production webhook URL is registered in the Stripe Dashboard **before** the merge — otherwise the first release answers `stripe_not_configured`.
 - [ ] Tymofii paid with a test card on the deployed stack and saw the coins in the wallet without reloading anything by hand
 - [ ] The same event resent from the Stripe Dashboard credited nothing a second time, observed in that player's balance
-- [ ] Step 2 closed with a `DECISIONS.md` entry that names the account country, the `uah` answer and the pinned API version
+- [x] Step 2 closed with a `DECISIONS.md` entry that names the account country, the `uah` answer and the pinned API version — `DECISIONS.md` 2026-09-17 spike entry: `acct_1TtSrOElMyJqvLDl` (US), HTTP 200 `currency: uah` / `amount_total: 12000`, `2026-06-24.dahlia`
 
 ## Out of scope
 - The admin **Top-ups** list, `GET /admin/topups`, `GET /admin/stripe/status` and the live status badge in Settings — Sprint 2.
