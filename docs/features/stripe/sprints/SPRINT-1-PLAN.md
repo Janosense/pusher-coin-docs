@@ -164,3 +164,198 @@ none
   trimming other sections was outside this step's scope.
 - **Carried from Checks → Docs vs reality:** `docs/PROJECT-TREE.md` lists a
   `frontend/CLAUDE.md` that does not exist — an `/adhoc` candidate, untouched here.
+
+---
+
+## Plan — Sprint 1, Step 2: Spike — Stripe on the test keys   (status: implemented, awaiting close)
+
+### Branch
+`stripe/sprint-1-spike-keys` ← `stripe/sprint-1`, **root documentation repository
+only** — the step commits no application code, so `backend/`, `frontend/` and
+`admin/` stay on `stripe/sprint-1` untouched.
+
+Spike artefacts are throwaway and live outside every repository: probe scripts and
+logs in the session scratchpad, and the one file that *must* live inside the
+WordPress tree (the webhook sink) under `backend/wp-content/mu-plugins/`, which
+`backend/.gitignore:35` already ignores — it cannot reach a commit, and task 6
+deletes it and proves it gone.
+
+Timebox: one working session. Tasks 1–2 answer the decisive question and can stop
+the sprint on their own; 3–5 need `stripe listen` running alongside.
+
+### Tasks (ordered)
+
+- [x] **1. Account facts, from the API rather than the Dashboard** — `GET
+  https://api.stripe.com/v1/account` with the test key in an environment variable.
+  Record `id`, `country`, `default_currency`, `business_type`. Sending **no**
+  `Stripe-Version` header makes Stripe answer with the account's default version in
+  the `Stripe-Version` **response header** — that is the account default the step
+  asks for, read without Dashboard access. Then fetch Stripe's API changelog for the
+  latest dated version, and choose one, recording why. *No commit.*
+
+- [x] **2. The decisive question: does this account accept `uah`?** — create a
+  Checkout Session with a raw `curl` (not the CLI, not an SDK — the point is to pin
+  the exact HTTP shape `create_checkout_session()` will send through `wp_remote_post`
+  in Step 3): `mode=payment`, one line item with `currency=uah` and `unit_amount` in
+  **kopiykas**, `client_reference_id`, `success_url` =
+  `{pc_spa_base_url}account?topup=success`, `cancel_url` = `…?topup=cancel`
+  (`pc_spa_base_url` defaults to `home_url()`, `install-schema.php:242`). Record the
+  complete response — `id`, `url`, `expires_at`, `payment_status`, `amount_total`,
+  `currency` — and the `Idempotency-Key` behaviour if a repeat is cheap to try.
+  **If `uah` is refused: record the error verbatim and stop the spike here.** Per the
+  sprint's fixed decisions the currency is not switched in code; see Questions for
+  what "stop" means when the account is provisional. *No commit.*
+
+- [x] **3. Webhook sink + `stripe listen`** — `backend/wp-content/mu-plugins/zz-stripe-spike.php`
+  (gitignored, throwaway): registers `POST /pc/v1/payments/stripe/webhook` with
+  `permission_callback => '__return_true'`, and appends every delivery — all headers,
+  the **raw** unparsed body via `$request->get_body()`, and the arrival timestamp — to
+  a log under `wp-content/uploads/`. It verifies nothing and settles nothing; it is a
+  recorder. Then `stripe listen --forward-to
+  https://pusher-coin.ddev.site/wp-json/pc/v1/payments/stripe/webhook`, pay the task-2
+  session with `4242 4242 4242 4242`, and record: the `Stripe-Signature` header shape,
+  the `checkout.session.completed` payload (`id`, `payment_status`, `amount_total`,
+  `currency`, `client_reference_id`), and the measured delay between paying and
+  delivery. *No commit.*
+
+- [x] **4. Prove the manual signature scheme works here** — a scratchpad PHP script
+  recomputing `HMAC-SHA256` over `{timestamp}.{raw body}` with the `whsec_` that
+  `stripe listen` printed, compared against the `v1` value in the logged header. This
+  is the exact scheme `verify_signature()` implements in Step 3, so it must be proved
+  against a real delivery, not assumed. Record the result and the tolerance field
+  (`t`). *No commit.*
+
+- [x] **5. Expiry** — expire a session through Stripe's expire API
+  (`POST /v1/checkout/sessions/{id}/expire`) rather than by waiting: `expires_at` has a
+  30-minute minimum, which does not fit a timeboxed session. Record whether
+  `checkout.session.expired` arrives, how long it took, and its payload. *No commit.*
+
+- [x] **6. Write it down, then remove the spike** — a `docs/DECISIONS.md` entry
+  recording, as observations rather than intentions: the account id and **country**,
+  the verbatim answer to `uah` (accepted, with the session `url`; or the refusal), the
+  pinned API version and why, one real `checkout.session.completed` payload, the
+  signature-scheme result, the `expired` observation, and the measured timings. It
+  states plainly which account the evidence came from and that the `uah` answer binds
+  to that account's country only. `docs/LEARNINGS.md` gets an entry if the CLI, DDEV
+  or the certificate needed a workaround. Then delete
+  `backend/wp-content/mu-plugins/zz-stripe-spike.php` and the uploads log, and confirm
+  with `ls` that both are gone.
+  → docs commit `docs: spike — Stripe on the test keys`
+
+### Files to create/change
+- `docs/DECISIONS.md` — the spike entry (task 6; the step's actual deliverable)
+- `docs/LEARNINGS.md` — only if a workaround was needed (task 6)
+- `docs/features/stripe/sprints/SPRINT-1-PLAN.md` — status lines only
+- **Never committed, deleted by task 6:** `backend/wp-content/mu-plugins/zz-stripe-spike.php`
+  (gitignored at `.gitignore:35`) and its log under `wp-content/uploads/` (also gitignored)
+- **Scratchpad only:** the `curl` probes, the signature checker, and the session logs
+
+### Tests to write
+None — the sprint step lists none, and the step writes no code that survives it. No
+test-critical zone is touched: no money path, no wallet, no permission, no product
+code changes anywhere. `backend/bin/check` is still run before the documentation
+commit, and must show `Success: All 53 checks passed` rather than the `SKIPPED` box,
+since DDEV is up for the spike anyway.
+
+### Docs to update
+`docs/DECISIONS.md` (the spike entry); `docs/LEARNINGS.md` if the CLI or DDEV needed a
+workaround.
+
+### Checks
+- **ANTI-PATTERNS:** none violated — no product code changes at all. The throwaway
+  route is deleted by the same task that records the findings, so "every REST route
+  declares an explicit `permission_callback`" is satisfied literally (`__return_true`,
+  the documented shape for a provider webhook) and temporarily. No money column is
+  touched, no transaction reaches `completed`, no dependency is installed (the Stripe
+  CLI is already present and is developer tooling, not a project dependency —
+  `DECISIONS.md` 2026-09-17). Amounts are computed as integer kopiykas, never a float.
+- **Docs vs reality:**
+  1. **The Stripe CLI is already installed and logged in** — `stripe` 1.43.8, account
+     `acct_1TtSrOElMyJqvLDl`, display name **"Ask Debt Pros Sandbox sandbox"**, a
+     `sk_test_` key valid until **2026-10-13**. The sprint assumed keys would have to
+     be provided; a working test account is already on this machine. Whether it is the
+     *right* account is the open question below.
+  2. No `PC_STRIPE_SECRET_KEY` or `PC_STRIPE_WEBHOOK_SECRET` exists anywhere — neither
+     config file defines any `PC_*` constant (confirmed by Step 1's audit). The spike
+     needs none: session creation is a raw `curl` from the host with the key in an
+     environment variable, and the sink only logs. Where the constants finally live is
+     Step 3's problem, not this step's.
+  3. `backend/wp-config.php` is gitignored (safe for secrets) but carries the
+     `#ddev-generated` header, so `ddev start` can silently wipe anything added by
+     hand — `LEARNINGS.md` 2026-09-15. A reason not to put the keys there for a spike
+     that does not need them.
+  4. DDEV is running and serving `https://pusher-coin.ddev.site`, so the
+     `stripe listen --forward-to` target in the step text is reachable as written.
+- **Design:** n/a — no screen. `stripe` has no UI design (`DECISIONS.md` 2026-09-17).
+- **Check command:** `backend/bin/check`, `frontend/bin/check` — present on this
+  branch since Step 1, both expected green throughout (no application code changes);
+  run before the documentation commit.
+- **Not locally verifiable:** n/a in the deploy sense — nothing here is deployed. But
+  the whole step is **evidence gathering against a third party**: its findings are only
+  as good as the account they came from, and none of it re-runs identically later.
+
+### Risks / notes
+- `stripe listen` forwarding to DDEV's HTTPS host may reject its locally-trusted
+  certificate. Fallback is the CLI's `--skip-verify`; if it is needed, that is a
+  `LEARNINGS.md` line, not a silent workaround.
+- The CLI's `whsec_` is **not** the Dashboard's — the local config carries the CLI's,
+  production carries the Dashboard's (sprint Risks). The spike records which one it
+  proved the scheme against.
+- The CLI's test key expires **2026-10-13**. Not a problem for one session; worth
+  knowing before Step 3 leans on it.
+- The spike sends real (test-mode) API calls to Stripe. Nothing is charged, but the
+  account's test-mode logs will show these sessions.
+
+### Questions / ambiguities
+
+1. **Which Stripe account should the spike run against?** This changes what the
+   step's decisive answer is worth, so it is worth settling before the work starts.
+   The Stripe CLI on this machine is logged into `acct_1TtSrOElMyJqvLDl`, display name
+   **"Ask Debt Pros Sandbox sandbox"** — a name that does not look like Pusher Coin,
+   and possibly a leftover from unrelated work.
+   - **(a) Use it.** The spike runs today. The `DECISIONS.md` entry names the account
+     and its country and states that the `uah` answer binds to *that country only*,
+     to be re-verified on the client's real account before go-live.
+   - **(b) You provide a Pusher Coin test account** (new sandbox, or existing keys).
+     The spike runs against that instead; nothing else in the plan changes. Until the
+     keys exist, the step is blocked.
+
+   **Recommendation: (a), with the provisional caveat written into the entry.** The
+   sprint itself says the client's account, country and owner are still unnamed, so
+   there is no "right" account to wait for yet, and a recorded answer from a named
+   country beats no answer. Choose (b) only if you already know the country the client
+   will register in and can create the sandbox there — that is the one case where (a)'s
+   answer could actively mislead.
+
+   **Resolved: approved as recommended — (a).** The spike runs against
+   `acct_1TtSrOElMyJqvLDl` ("Ask Debt Pros Sandbox sandbox"), and the `DECISIONS.md`
+   entry names that account and its country and states that the `uah` answer binds to
+   that country only, to be re-verified on the client's real account before go-live.
+   Under (a) a `uah` refusal means **stop and report**, with the currency question
+   reopened for the user — not the sprint abandoned on a provisional account's behalf.
+
+   **A consequence worth agreeing now.** The step text says a `uah` refusal stops the
+   sprint. Under (a) that is too strong: a refusal would be a fact about *this
+   sandbox's* country, not about the client's future account. So under (a), a refusal
+   means **stop and report**, with the currency decision reopened as a question for you
+   — not the sprint abandoned on a provisional account's behalf. Under (b), with an
+   account in the client's real country, the step text stands as written.
+
+### Execution notes (for `/close-step`)
+- **Account used:** `acct_1TtSrOElMyJqvLDl` — country **US**, `charges_enabled: false`,
+  "Ask Debt Pros Sandbox sandbox", `sk_test_` expiring 2026-10-13. Provisional, per the
+  resolved question; every finding is flagged as US-sandbox evidence.
+- **The decisive answer: `uah` is accepted** (HTTP 200, `currency: uah`,
+  `amount_total: 12000`, page rendered "UAH 120.00"). The sprint does **not** stop.
+- **Findings the sprint did not anticipate**, all in the `DECISIONS.md` entry:
+  Adaptive Pricing is on by default and must be disabled in Step 3; the signature
+  header carries three parts (`t`, `v1`, `v0`); events do not arrive in creation order;
+  an idempotent replay returns the cached original body, not live state.
+- **No `LEARNINGS.md` entry:** the plan called for one only if the CLI, DDEV or the
+  certificate needed a workaround. None did — `stripe listen` accepted DDEV's
+  certificate without `--skip-verify`.
+- **Spike removed and verified:** `wp-content/mu-plugins/zz-stripe-spike.php` and its
+  uploads log deleted; `POST /wp-json/pc/v1/payments/stripe/webhook` now answers **404**;
+  `backend/`, `frontend/` and `admin/` all report zero changes.
+- **Payment method:** Stripe's published test number `4242…` in a `livemode: false`
+  sandbox — a reserved number that belongs to nobody and moves no funds.
