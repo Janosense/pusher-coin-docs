@@ -825,42 +825,12 @@ Response (`200`):
 
 Top-ups and withdrawals only. Game results live on `wp_pc_bet_sessions`
 (Phase 6) and are deliberately excluded from this view. `external_ref`
-(LiqPay order_id) and `consumed_lots` are admin-only audit data and
+(the Stripe Checkout Session id; LiqPay-era rows keep their
+`pc-topup-N` refs) and `consumed_lots` are admin-only audit data and
 are not exposed here.
 
 Errors: `rest_forbidden` 401; `invalid_transaction_type` 400;
 `invalid_date` 400.
-
-### `POST /pc/v1/payments/liqpay/callback`
-
-LiqPay webhook. Public route; the signed payload is the credential.
-Phase 4.
-
-Request (form-encoded by LiqPay):
-```
-data=<base64 params>
-signature=<base64 sha1>
-```
-
-Always returns 200 on a valid signature even for unrecoverable
-conditions (unknown `order_id`, already-settled txn). LiqPay treats
-non-2xx as a delivery failure and retries indefinitely, so the
-controller swallows recoverable surprises and writes them to
-`wp_pc_auth_audit_log` instead. The body's `note` field disambiguates:
-`already_settled`, `unknown_order`, or absent on first-time success.
-
-State machine:
-- LiqPay `success` / `sandbox` → `Wallet_Service::settle_topup` (atomic
-  transaction-status flip + lot insert + wallet credit).
-- LiqPay `failure` / `error` / `reversed` → mark transaction `failed`.
-- Anything else (`processing`, `wait_secure`, `wait_accept`, …) →
-  leave `pending`, wait for the next callback.
-- Re-delivery of the same final status is a no-op (idempotent via the
-  `pending`-status check).
-
-Errors: `missing_required_fields` 400 (no `data`/`signature` in body);
-`liqpay_signature_invalid` 401; `liqpay_payload_invalid` 400;
-`liqpay_not_configured` 500.
 
 ### `POST /pc/v1/payments/stripe/webhook`
 
@@ -1540,7 +1510,6 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_coin_price` | 400 | admin/coin-pricing PUT |
 | `coin_price_out_of_bounds` | 400 | wallet/topup |
 | `coin_price_bounds_invalid` | 400 | admin/coin-pricing PUT |
-| `liqpay_payload_invalid` | 400 | payments/liqpay/callback |
 | `token_invalid` | 401 | auth/refresh, confirm-email |
 | `authentication_failed` | 401 | request-verification, verify-code, confirm-password-change |
 | `invalid_verification_code` | 401 | verify-code, google-auth/verify-code, confirm-password-change |
@@ -1553,7 +1522,6 @@ One canonical code per failure mode — do not invent variants.
 | `apple_token_invalid` | 401 | apple-auth/* (when configured) |
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
-| `liqpay_signature_invalid` | 401 | payments/liqpay/callback |
 | `stripe_signature_invalid` | 401 | payments/stripe/webhook |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
@@ -1589,7 +1557,6 @@ One canonical code per failure mode — do not invent variants.
 | `email_send_failed` | 500 | request-verification, google-auth/authentication, request-email-confirmation, request-password-change |
 | `google_not_configured` | 500 | google-auth/* |
 | `apple_not_configured` | 500 | apple-auth/* |
-| `liqpay_not_configured` | 500 | payments/liqpay/callback (the LiqPay route is removed in Sprint 1 Step 5) |
 | `stripe_not_configured` | 500 | wallet/topup |
 | `machine_not_configured` | 500 | admin/machine/state, admin/machine/power |
 | `jwt_not_configured` | 500 | verify-code, google-auth/verify-code, auth/refresh, confirm-password-change |

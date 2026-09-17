@@ -74,7 +74,6 @@ pusher-coin/
 │   │       │   │   │   ├── AppleAuthController.php   # Apple Sign-In (stub until enrolled)
 │   │       │   │   │   ├── AuthController.php       # /auth/logout, /auth/refresh + token-pair helpers
 │   │       │   │   │   ├── GoogleAuthController.php
-│   │       │   │   │   ├── PaymentController.php    # Phase 4: LiqPay webhook
 │   │       │   │   │   ├── RoomChatController.php   # Phase 6: public chat read + gated post
 │   │       │   │   │   ├── RoomController.php       # Phase 3: public /rooms read endpoints
 │   │       │   │   │   ├── RoomQueueController.php  # Phase 6: queue join/leave + play (toss)
@@ -97,7 +96,6 @@ pusher-coin/
 │   │       │   │       ├── cpt-room.php        # Registers pc_room CPT (Phase 3)
 │   │       │   │       ├── cpt-support-subject.php # Registers pc_support_subject CPT (Phase 7)
 │   │       │   │       ├── install-schema.php  # Custom-table installer
-│   │       │   │       ├── liqpay-client.php   # Phase 4: LiqPay sign/verify/decode helper
 │   │       │   │       ├── machine-events.php  # Phase 5: Machine_Event_Log writer (wp_pc_machine_events)
 │   │       │   │       ├── machine-ingest-service.php # Phase 5: machine event → wallet credit (transport-agnostic)
 │   │       │   │       ├── machine-service.php # Phase 5: Home Assistant REST wrapper

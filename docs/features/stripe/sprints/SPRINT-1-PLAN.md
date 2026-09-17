@@ -814,7 +814,7 @@ behaviour) and nothing else. `realtime`'s own shared list names `stores/queue.js
 
 ### Tasks (ordered)
 
-- [ ] **1. The hand-off** — the player's top-up button works again. This task alone
+- [x] **1. The hand-off** — the player's top-up button works again. This task alone
   closes the gap that Steps 3 and 4 opened deliberately.
 
   `frontend/src/components/ReplenishmentBalance.vue`: the hidden-form POST becomes
