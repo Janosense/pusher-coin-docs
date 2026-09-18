@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 1, Step 1: Delta-audit   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 1: Delta-audit   (status: closed)
 
 ### Branch
 `realtime/sprint-1-delta-audit` ← `realtime/sprint-1` ← `main`, merged back `--no-ff` by `/close-step`.
@@ -214,10 +214,14 @@ none
 - **Precondition met.** The first `/do-step` run stopped: all five abandoned branches
   still existed. The user deleted them; the second run found `git branch --list
   'realtime/*'` empty in all four repositories.
-- **`main` had moved since planning:** `cfc3d75` → `1cfa370` ("docs(realtime): update
-  Sprint 2 plan and goal…"). That commit records the same sprint-file, FEATURE.md and
-  DECISIONS text the plan was read from (it sat uncommitted on disk during planning), and
-  Step 1's text is unchanged, so the plan held. `realtime/sprint-1` was cut from `1cfa370`.
+- **`main` was `1cfa370`, not the `cfc3d75` the plan names** ("docs(realtime): update
+  Sprint 2 plan and goal…"). *Corrected at close:* the reflog shows `main` moved at
+  12:39:44, 21 minutes before the plan file was written (13:01:02), so the plan took
+  `cfc3d75` from the session-start git snapshot rather than a live `git rev-parse main`.
+  (The first version of this note said the sprint text "sat uncommitted on disk during
+  planning" — a guess the reflog does not support; `docs/LEARNINGS.md` 2026-09-18.) Step 1's
+  text on `1cfa370` is the text the plan was derived from, so the plan held.
+  `realtime/sprint-1` was cut from `1cfa370`.
 - **Gate evidence (task 4).** At `backend` `main` `5ebe9610` and `frontend` `main`
   `7210c59`, both clean: `backend/bin/check` exit 0 — 49 files linted, stage 2
   **executed** (`stripe-client.php`, `stripe-webhook.php`, `wallet-rollback.php` passed,

@@ -18,6 +18,13 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-18 — [realtime] Sprint 1 Step 1 — Delta-audit
+- Changed: `docs/features/realtime/FEATURE.md` → Fit into the host only, no code anywhere. It lists 13 backend and 7 player-SPA `core` files with file:line, why each matters and the step that changes it, plus the conflicts with `core`'s and `stripe`'s invariants. It confirms the one-line `app/realtime/bootstrap.php` entry (the `Features` block of `functions.php`, routes on `rest_api_init` as `stripe` does), records check coverage and its gaps, and confirms no step of Sprints 1–3 edits `admin/`. Review §12 → S1.3, §15 → S2.5. **Shared code: read, not modified.** `realtime/sprint-1` exists in the root docs repository only; docs `46fa55f` `99b6120`. The user deleted the five abandoned `realtime/*` branches first
+- Decisions: none new. LEARNINGS 2026-09-18: the plan took its base commit from the session-start snapshot (`cfc3d75`; `main` was `1cfa370`)
+- Open: **a late payout credits the next player.** A last declared coin closes the turn at once (`queue-service.php:237-240`), and attribution re-syncs before answering, so coins falling after it go to the next head or nobody. That is against the Sprint 1 goal, and no step names it (re-planning or `/adhoc`). Review §10's failed-refund and 2-s-timeout bullets are **unassigned**. The Room screen's balance does not move on a machine credit, only winnings do, so S1.5's plan must say which it reads. `/adhoc` candidates: `Install_Schema` seeds no `pc_machine_*` option although TECH-STACK → ANTI-PATTERNS says it does; `MachineView.vue` sensor labels may go stale after S1.2. FEATURE.md is 123 lines (≤80 guideline)
+
+---
+
 ## 2026-09-18 — [stripe] Sprint 2 Step 2 — The Top-ups screen and the Stripe badge in Settings
 - Changed: the admin SPA gains **Top-ups** at `/topups`. It is read-only, with tabs All / Pending / Completed / Failed, 8 columns (Notes kept), and ChatView's pager above 50 rows. There is no action, dialog or store. **Settings**' Stripe section gains a live status line: green `Configured · test|live`, red `Not configured`, and the error box on a failed load. New files are `TopupsView.vue` and `adminTopupService.js`. **Touches shared code (`core`):** `router/index.js`, `AdminLayout.vue` (a nav link after Withdrawals), `SettingsView.vue`. `realtime` claims none of them. Admin `76b66d6` `b3d63f6`, docs `6292a81` `d16f689`
 - Decisions: none new. Resolved from the sources: the badge is **red** per `DECISIONS.md` 2026-09-17, because the captcha panel it was told to copy is amber (LEARNINGS 2026-09-18). **Notes** stays as a column, per DECISIONS and "Withdrawals minus the action column". The pager is ChatView's, because Withdrawals has none
