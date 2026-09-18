@@ -26,7 +26,34 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
 - **Code location:** `backend/wp-content/themes/pc/app/realtime/`, `frontend/src/services/realtime.js`, `admin/src/services/realtime.js`
 - **Host area:** the repository root — the project's single code area, governed by the root `CLAUDE.md`
 - **Entry point:** one `require_once TEMPLATE_DIR . '/app/realtime/bootstrap.php'` line in `functions.php`, the same pattern `app/stripe/bootstrap.php` uses; in each SPA, one import from the store that consumes the channel
-- **Shared code it depends on:** `Machine_Ingest_Service` and `Machine_Event_Log` (the ingest seam), `Queue_Service` (attribution and the open bet session), `Machine_Service` (relay and sensor reads), `Room_Schedule_Calculator` (broadcast windows, for alerts), `Rate_Limiter`, `Audit_Log`, `Install_Schema`. On the SPA side `stores/queue.js`, `stores/chat.js` and `components/PlaceBet.vue` — all owned by `core`, so touching them is a plan task marked **"touches shared code"**. Sprint 1 Step 1 refines this list.
+- **Shared code it depends on** — all owned by `core`; editing any of it is a plan task
+  marked **"touches shared code"**. Delta-audit 2026-09-18 (Sprint 1 Step 1), file:line
+  on `main` (backend `5ebe9610`, frontend `7210c59`); "S1.4" = Sprint 1 Step 4.
+  - Backend, `backend/wp-content/themes/pc/`:
+    - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
+    - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart.
+    - `app/utils/queue-service.php` — attribution. `room_id_for_machine:435` takes the first `publish`/`draft` room with the machine id, ignoring `available` (S1.3). `resolve_player_for_machine:386` runs `sync_turn` before answering, and a last declared coin closes the turn on the spot (`consume_coin:237-240`), so a payout landing after it goes to the **next** head, or to nobody. `sync_turn:253` is the §15 race (S2.5); hooks `:496-497`.
+    - `app/utils/machine-service.php` — sensor reads. `get_coin_count:61` documented cumulative; `get_relay_closed:76` reads `sensor.relay_on` via `normalise_truthy:248`, which takes the idle `1` as "closed"; `HTTP_TIMEOUT:30`; `is_online:115`. S1.2 settles the model; S1.4, S2.3, S3.1.
+    - `app/utils/cli/machine-ingest.php` — today's only producer; calls all three ingest methods (`:50-58`), so S1.4's change to `ingest_coins_dropped` reaches it.
+    - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:155`. S2.3, S3.2.
+    - `app/rest-api/AdminRoomController.php` — `create_room:105` and `update_room:135` both write status and machine id in `write_room_meta:352`: where S1.3's refusal goes.
+    - `app/utils/install-schema.php` — `DB_VERSION:15` (`1.9.0`), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/rate-limiter.php` — `check:21`; `client_ip:42` trusts `X-Forwarded-For` (review item 5, open), so S1.4 must not key the ingest limit on the caller's IP alone.
+    - `app/utils/audit-log.php` — `record:21` into `wp_pc_auth_audit_log`, insert unchecked. S1.4 audits every call; Sprint 3 reads it.
+    - `app/utils/room-schedule-calculator.php` — `compute:43`, site timezone: how S3.1 tells the daily power-off from an outage.
+    - `app/utils/support-service.php` — `notify_support:271` mails `pc_support_email` but is **private**; S3.1 reusing it changes shared code.
+    - `functions.php` — the entry line (above).
+  - Player SPA, `frontend/src/`:
+    - `stores/queue.js` — the 3-s poll (`:19`, `:78`) that is also the heartbeat; winnings are the open session's `coinsWon` (`:49-51`). S2.2.
+    - `stores/wallet.js` — the balance. The Room screen fetches it on entry (`views/RoomView.vue:54`) and sets it after a toss (`stores/queue.js:113`), never on a poll: a machine credit shows at once as winnings, but in the balance only after the next toss or a reload. Bears on S1.5's check and S2.2.
+    - `stores/chat.js` — 3-s poll on the `after` cursor (`:22`, `:82`), started from `components/RoomChat.vue:64,74`. S2.4.
+    - `components/PlaceBet.vue` — the toss button (`:176-182`), the 423 message (`:31`). S2.3.
+    - `components/UserControls.vue` — balance `:25`, winnings `:31`. S2.2.
+    - `components/RoomQueue.vue`, `components/RoomChat.vue` — render the stores; no step changes them.
+- **Conflicts with the siblings' invariants:**
+  - `core` 2 / root invariant 8 (`Machine_Service` is the only caller of Home Assistant): S1.5's WebSocket-worker option would be a second client outside WordPress; the HA-automation option (HA calls WordPress) is not. S1.2's entry answers it if it picks the worker.
+  - `core` 3 (one open session per room makes a payout attributable): asserted, not enforced (`queue-service.php:253`, S2.5). And the last-coin handover above sends a late payout to the next player, against the Sprint 1 goal "the player who holds the turn". **No step names it**; S1.2's latency says how often it bites.
+  - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`). `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
 
 ## Data
 Owns no table. It writes `wp_pc_machine_events` **only through
