@@ -353,8 +353,9 @@ exact lot price. A successful toss increments `coins_played` on the session.
 writes `wp_pc_machine_events` (idempotent on `event_key`); `Machine_Ingest_Service`
 turns a bonus / relay-closed / coins-dropped event into a wallet credit, resolving
 the player through the `pc_machine_event_player` filter and announcing the credit
-through `pc_machine_event_credited`. `Queue_Service` hooks both (machine id → room
-via `pc_room_machine_id` → open session → player; then bumps `coins_won` /
+through `pc_machine_event_credited`. `Queue_Service` hooks both (machine id → the
+available room carrying that `pc_room_machine_id`, which `realtime`'s one-machine rule
+keeps unique, else the room that carries it → open session → player; then bumps `coins_won` /
 `money_won` on the session, which `UserControls` shows as per-turn winnings).
 Machine payouts credit coin lots directly at the player's FIFO-head lot price and
 are audited in `wp_pc_machine_events`, never in the ledger — the player's history
