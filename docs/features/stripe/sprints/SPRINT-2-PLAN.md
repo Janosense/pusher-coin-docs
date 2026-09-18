@@ -345,7 +345,7 @@ land in the same task as the screen, so no link ever points at a missing page.
   → admin commit `feat(stripe): the Top-ups screen — a read-only list at /topups`;
     docs commit `docs(stripe): the Top-ups screen in DESIGN, ARCHITECTURE, PROJECT-TREE, FEATURE`
 
-- [ ] **2. The live Stripe badge in Settings.**
+- [x] **2. The live Stripe badge in Settings.**
   - **`src/services/adminTopupService.js`:** `getStripeStatus()` calls
     `GET /admin/stripe/status` and returns `{ configured: !!configured, mode: mode || null }`.
     Nothing else exists to map. The endpoint sends only these two fields.

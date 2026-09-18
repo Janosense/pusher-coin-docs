@@ -274,7 +274,7 @@ pusher-coin/
         │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminSupportService.js         # Phase 7: /admin/support tickets + subjects
-        │   ├── adminTopupService.js           # Feature `stripe`: GET /admin/topups (read-only)
+        │   ├── adminTopupService.js           # Feature `stripe`: GET /admin/topups (read-only) + GET /admin/stripe/status
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
@@ -287,7 +287,7 @@ pusher-coin/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
-            ├── SettingsView.vue               # Phase 4: coin pricing form + Stripe configuration hint; Phase 5: bonus-map grid + relay coin count
+            ├── SettingsView.vue               # Phase 4: coin pricing form + Stripe configuration hint and live status badge; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
             ├── SubjectsView.vue               # Phase 7: subject list editor + guest-captcha config panel
             ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply

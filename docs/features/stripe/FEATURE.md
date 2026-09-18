@@ -107,8 +107,9 @@ only because that is the code that deletes it. Sprint 2 Step 1 added
 ## UI
 - **Screens:** Replenishment balance (player, **done** — hands off to Stripe's
   page); Account (player, unchanged — the `success` / `cancel` banner it already
-  has); Settings (admin, **done** — the LiqPay section is now a static Stripe
-  section naming the two constants and the webhook URL; the live badge is Sprint 2);
+  has); Settings (admin, **done** — the LiqPay section is now a Stripe section
+  naming the two constants and the webhook URL, with a live `configured` / `mode`
+  badge, red when unconfigured);
   **Top-ups** (admin, **done** — `/topups`, built from Withdrawals, read-only). No design files:
   `design/` stays empty (`DECISIONS.md` 2026-09-17).
 - **Reuses:** the Withdrawals view's filter tabs and table, existing tokens.

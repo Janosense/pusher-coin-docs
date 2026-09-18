@@ -115,7 +115,7 @@ Rooms, Withdrawals, Top-ups, Machine, Support, Chat, Settings:
 | `/support/tickets` | `TicketsView` | Ticket queue: status filter, search, expandable message with IP / UA, status transitions, mailto reply. |
 | `/support/subjects` | `SubjectsView` | Subject list editor (reorder, hide, replace-all save) plus the guest-captcha provider / site-key panel. |
 | `/chat` | `ChatView` | Chat moderation queue: room / status / text filters, hide and restore a message, and a timed account-wide mute. |
-| `/settings` | `SettingsView` | Coin price default / min / max, Stripe configuration hint (the two wp-config constants + the webhook URL to register), bonus-map 4×3 grid, relay coin count. |
+| `/settings` | `SettingsView` | Coin price default / min / max, Stripe configuration hint (the two wp-config constants + the webhook URL to register) with a live status badge from `GET /admin/stripe/status` (green `Configured · test` / `live`, red `Not configured`), bonus-map 4×3 grid, relay coin count. |
 
 Stores: `auth.js` (two-step sign-in + `/admin/me` gate), `rooms.js`,
 `withdrawals.js`. Services mirror the backend admin controllers one to one:
