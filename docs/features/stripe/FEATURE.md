@@ -76,7 +76,9 @@ Step 5 reconnected the player's button (`ReplenishmentBalance.vue` navigates to
 `checkout_url`) and **removed LiqPay from all three repositories**: the callback route,
 `liqpay-client.php`, `liqpayCheckout.js` and the Settings hint are gone, and
 `POST /payments/liqpay/callback` answers 404. `Install_Schema` keeps the option name
-only because that is the code that deletes it.
+only because that is the code that deletes it. Sprint 2 Step 1 added
+`AdminTopupController.php` (both admin routes, read-only, `require_admin`; `mode` is
+`null` unless configured) — the admin screens that read them are Step 2.
 
 ## Invariants
 1. **The player pays UAH and the wallet stays UAH.** Every amount sent to Stripe
@@ -105,9 +107,10 @@ only because that is the code that deletes it.
 ## UI
 - **Screens:** Replenishment balance (player, **done** — hands off to Stripe's
   page); Account (player, unchanged — the `success` / `cancel` banner it already
-  has); Settings (admin, **done** — the LiqPay section is now a static Stripe
-  section naming the two constants and the webhook URL; the live badge is Sprint 2);
-  **Top-ups** (admin, new — `/topups`, built from Withdrawals). No design files:
+  has); Settings (admin, **done** — the LiqPay section is now a Stripe section
+  naming the two constants and the webhook URL, with a live `configured` / `mode`
+  badge, red when unconfigured);
+  **Top-ups** (admin, **done** — `/topups`, built from Withdrawals, read-only). No design files:
   `design/` stays empty (`DECISIONS.md` 2026-09-17).
 - **Reuses:** the Withdrawals view's filter tabs and table, existing tokens.
 - **Introduces:** —

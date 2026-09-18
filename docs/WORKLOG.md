@@ -18,6 +18,21 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-18 — [stripe] Sprint 2 Step 2 — The Top-ups screen and the Stripe badge in Settings
+- Changed: the admin SPA gains **Top-ups** at `/topups`. It is read-only, with tabs All / Pending / Completed / Failed, 8 columns (Notes kept), and ChatView's pager above 50 rows. There is no action, dialog or store. **Settings**' Stripe section gains a live status line: green `Configured · test|live`, red `Not configured`, and the error box on a failed load. New files are `TopupsView.vue` and `adminTopupService.js`. **Touches shared code (`core`):** `router/index.js`, `AdminLayout.vue` (a nav link after Withdrawals), `SettingsView.vue`. `realtime` claims none of them. Admin `76b66d6` `b3d63f6`, docs `6292a81` `d16f689`
+- Decisions: none new. Resolved from the sources: the badge is **red** per `DECISIONS.md` 2026-09-17, because the captcha panel it was told to copy is amber (LEARNINGS 2026-09-18). **Notes** stays as a column, per DECISIONS and "Withdrawals minus the action column". The pager is ChatView's, because Withdrawals has none
+- Open: **the signed-in screens were never seen by the agent**. It would have had to put a token into a browser (LEARNINGS 2026-09-18), so guide §2–§9 are the first real check. The pager cannot appear locally (4 rows); it is exercised against production at the boundary. DESIGN.md's Subjects row still claims "unconfigured in red" (`/adhoc`). The Sprint 2 Definition of Done is open: push `backend` `main` (the two endpoints go live), then check the local admin build against production's API. `SPRINT-1-CLOSE.md` recorded production answering HTTP 500, so re-check the deploy first
+- Sprint 2 complete — all steps closed, stripe/sprint-2 merged into main
+
+---
+
+## 2026-09-18 — [stripe] Sprint 2 Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
+- Changed: two admin-only, read-only routes in the new `app/stripe/AdminTopupController.php`, registered from the feature's `bootstrap.php`. `GET /admin/topups`: every `topup` row, newest first (`created_at DESC, id DESC`), filter `pending|completed|failed|all` (default `all`), paged 1 / 50, 12 fields per row, money as decimal strings. `GET /admin/stripe/status`: exactly `{ configured, mode }`, no key or fragment. **No shared code modified**: `require_admin`, `Wallet_Service` and `Stripe_Client` are called unchanged, and the ledger is only read. Backend `8bcf2d76` `106bdd5e`, docs `459fef0` `e1617a2`
+- Decisions: none new in `DECISIONS.md`. Three choices are written into CONTRACTS. An unknown status is refused with a new `invalid_transaction_status` 400; withdrawals silently falls back to `pending` and is left as it is. `refunded` is refused for top-ups. `mode` is `null` whenever Stripe is not configured, including when only the secret key is present. The status route shares the controller because `DECISIONS.md` 2026-09-17 fixes the feature's file list
+- Open: **the local DB had no LiqPay-era row**, so a `failed` fixture `pc-topup-268` (user 50) was created through `Wallet_Service`. LEARNINGS 2026-09-18, `pending`. The agent did not observe `configured: false`; guide §9 covers it. `docs/TECH-STACK.md` → Check command still names only `wallet-rollback.php` among the three eval scripts (`/adhoc`). Nothing deployed; `admin/` untouched, its `stripe/sprint-2` is Step 2's to create
+
+---
+
 ## 2026-09-18 — [stripe] Sprint 1 closed
 - Merged: `stripe/sprint-1` → `main` `--no-ff` in all four repositories — docs `6da0126`, backend `75450469`, frontend `7210c59`, admin `c40773a`; zero conflicts, every gate exit 0 on `main` (146 checks). Sprint branches kept. **Stripe replaced LiqPay end to end**: hosted Checkout hand-off, the settlement webhook as the only path to `completed`, and LiqPay gone from all three repositories. `SPRINT-1-CLOSE.md` is the handoff
 - Deployed: **claimed, not corroborated.** The three boundary items are ticked `confirmed by user 2026-09-18`. At close time `main` was 17 commits ahead of `origin/main` in `backend` (its `origin/main` still `b23e5f2a`, 2026-07-28), 8 in `frontend`, and `https://pusher-coin.envstage.link` answered HTTP 500 "Error establishing a database connection" on every URL. `SPRINT-1-CLOSE.md` records this in full — **re-check the deploy before trusting anything that assumes a live release**

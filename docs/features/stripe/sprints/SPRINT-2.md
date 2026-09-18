@@ -12,7 +12,7 @@
 
 ## Steps
 
-### [ ] Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
+### [x] Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
 - **Tasks:**
   - `app/stripe/AdminTopupController.php`, registered by the existing `app/stripe/bootstrap.php`. `GET /pc/v1/admin/topups` behind `Permissions::require_admin`: `?status=pending|completed|failed|all` (default `all` — unlike withdrawals, there is no queue to work), `?page&per_page` (defaults 1 / 50), rows of `type = topup` newest first, read the way `AdminWithdrawalController::list_withdrawals` reads them; items carry `id`, `user_id`, `user_email`, `user_nickname`, `amount_money`, `amount_coins`, `unit_price`, `status`, `external_ref`, `notes`, `created_at`, `settled_at`; `total`, `page`, `per_page` as in withdrawals. Invalid status → `invalid_transaction_status` 400 (reuse the existing code if withdrawals has one).
   - `GET /pc/v1/admin/stripe/status` behind `require_admin`: `{ "configured": bool, "mode": "test" | "live" | null }` from `Stripe_Client::is_configured()` and `mode()`. Nothing else in the body.
@@ -22,7 +22,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (both endpoints, current); `docs/PROJECT-TREE.md`; `docs/features/stripe/FEATURE.md` → Interfaces if a shape changed.
 - **Depends on:** —
 
-### [ ] Step 2 — The Top-ups screen and the Stripe badge in Settings
+### [x] Step 2 — The Top-ups screen and the Stripe badge in Settings
 - **Tasks:**
   - `admin/src/services/adminTopupService.js` (`listTopups({ status, page, perPage })`, `getStripeStatus()`); `admin/src/views/TopupsView.vue` built from `WithdrawalsView.vue`'s filter tabs and table, minus the action column and dialogs — columns: player (nickname + email), amount (UAH, decimal string as-is), coins × unit price, status, reference (`external_ref`), created, settled; empty and loading states as Withdrawals has them.
   - Route `/topups` (name `topups`) in `admin/src/router/index.js` next to `/withdrawals`; a nav entry in `components/AdminLayout.vue`. *Touches shared code:* the router and the layout.

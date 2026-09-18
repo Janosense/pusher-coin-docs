@@ -82,6 +82,7 @@ pusher-coin/
 │   │       │   │   │   ├── UserController.php
 │   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup + /withdraw
 │   │       │   │   ├── stripe/            # Feature `stripe`: reached only through bootstrap.php
+│   │       │   │   │   ├── AdminTopupController.php # GET /admin/topups (read-only list) + GET /admin/stripe/status (configured, mode)
 │   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
 │   │       │   │   │   ├── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
 │   │       │   │   │   └── StripeWebhookController.php # POST /payments/stripe/webhook — the only place a top-up reaches `completed`
@@ -273,6 +274,7 @@ pusher-coin/
         │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminSupportService.js         # Phase 7: /admin/support tickets + subjects
+        │   ├── adminTopupService.js           # Feature `stripe`: GET /admin/topups (read-only) + GET /admin/stripe/status
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
@@ -285,9 +287,10 @@ pusher-coin/
             ├── RoomFormView.vue               # Create / edit room (shared)
             ├── RoomListView.vue               # Table + create / edit / schedule / trash actions
             ├── RoomScheduleView.vue           # Weekly rules editor (atomic replace)
-            ├── SettingsView.vue               # Phase 4: coin pricing form + Stripe configuration hint; Phase 5: bonus-map grid + relay coin count
+            ├── SettingsView.vue               # Phase 4: coin pricing form + Stripe configuration hint and live status badge; Phase 5: bonus-map grid + relay coin count
             ├── SignInView.vue                 # Email/password + 6-digit code form
             ├── SubjectsView.vue               # Phase 7: subject list editor + guest-captcha config panel
             ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply
+            ├── TopupsView.vue                 # Feature `stripe`: read-only top-ups list — filter tabs, pager, no actions
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```
