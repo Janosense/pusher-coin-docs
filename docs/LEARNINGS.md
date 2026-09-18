@@ -19,6 +19,14 @@ Entry format:
 
 ---
 
+## 2026-09-18 — [realtime] A plan named its base commit from the session-start snapshot, and the execution notes then guessed why it differed
+- **Incident:** `/plan-step realtime 1 1` wrote "`main` (`cfc3d75` at plan time)". That id came from the git status the session is handed at start, not from a live `git rev-parse main`, and `main` had already moved to `1cfa370` at 12:39:44, 21 minutes before the plan file was written. `/do-step` saw the difference and correctly checked that Step 1's text was unchanged. But it then wrote in the plan's execution notes that the sprint text "sat uncommitted on disk during planning". That was an inference stated as fact, and the reflog does not support it. It was corrected at `/close-step`.
+- **Root cause:** The session-start git status is a snapshot, and nothing in `/plan-step` asks for a named commit id to be read live. When reality later differed, the agent explained the gap instead of looking it up. `git reflog --date=iso main` answers it in one line.
+- **Fix applied here:** The execution notes are corrected in the close commit. For this project, a plan that names a commit id reads it with `git rev-parse` at plan time. A difference found later is explained from `git reflog`, never by inference.
+- **Transferred to playbook:** pending — `/plan-step` §3 could require every commit id it records to be read live, not taken from the session context.
+
+---
+
 ## 2026-09-18 — [stripe] A step plan promised a signed-in browser check that the agent's own rules forbid
 - **Incident:** `/plan-step stripe 2 2` wrote that `/do-step` would check the new admin screens in a browser by placing a session "in `localStorage` from a token minted by `\PC\AuthController::issue_access_token`". At execution the agent declined that very action: writing an access token into a browser to authenticate falls under its standing prohibition on entering credentials or tokens, which holds even on request. Only the signed-out redirect was observed. Every signed-in screen state went to the user's guide, which the plan had presented as the fallback for a *missing extension*, not for the plan's own method.
 - **Root cause:** The plan chose a verification method without checking it against the agent's standing prohibitions — the same class of collision as the 2026-09-17 test-card entry. The admin SPA's only other way in is the two-step sign-in, whose 6-digit code arrives by email (Mailpit locally), so an agent has no permitted route past it.

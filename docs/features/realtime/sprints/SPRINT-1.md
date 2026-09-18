@@ -22,7 +22,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Delta-audit
+### [x] Step 1 — Delta-audit
 - **Tasks:**
   - Read `docs/features/core/FEATURE.md` and `docs/features/stripe/FEATURE.md` (Interfaces, Invariants) and the shared code this feature will touch: `app/utils/machine-ingest-service.php`, `machine-events.php`, `queue-service.php`, `machine-service.php`; on the SPA side `stores/queue.js`, `stores/chat.js`, `components/PlaceBet.vue`. Write the touchpoints into `FEATURE.md` → Fit into the host → Shared code it depends on, and list any conflict with either sibling's invariants.
   - Confirm `app/realtime/` will register exactly the way `app/stripe/` does — one `require_once … bootstrap.php` line in `functions.php` — and note it in `FEATURE.md` → Entry point.
