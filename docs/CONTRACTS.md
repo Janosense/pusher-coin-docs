@@ -1052,6 +1052,73 @@ with `settled_at` populated.
 Errors: `withdrawal_not_found` 404; `withdrawal_not_pending` 409;
 `wallet_write_failed` 500.
 
+### `GET /pc/v1/admin/topups`
+
+Every top-up ever made, **read-only**. Bearer + admin gate. Feature
+`stripe` (`AdminTopupController`, registered from `app/stripe/bootstrap.php`).
+Mirrors `GET /admin/withdrawals`, with no approve / refund / block action
+anywhere — chargebacks and refunds are out of v1 (`DECISIONS.md`
+2026-09-16, 2026-09-17).
+
+Query: `?status=pending|completed|failed|all` (default `all` — unlike
+withdrawals there is no queue to work; an empty `status` also means
+`all`), `?page=N&per_page=M` (default 1 / 50, `per_page` capped at 100).
+`refunded` is not accepted: only a rejected withdrawal is ever
+`refunded`.
+
+Rows of `type = topup`, newest first (`created_at DESC, id DESC` — the
+`id` keeps paging stable between rows created in the same second).
+Rows of every provider render side by side: LiqPay-era rows keep their
+`pc-topup-N` refs, Stripe rows carry the Checkout Session id (`cs_…`).
+`external_ref` is `null` on a row parked `failed` before Stripe answered
+(`stripe_call_failed`). Money fields are decimal strings.
+
+Response (`200`):
+```json
+{
+  "items": [
+    {
+      "id": 95,
+      "user_id": 50,
+      "user_email": "player@example.com",
+      "user_nickname": "Coin Tosser",
+      "amount_money": "80.00",
+      "amount_coins": 2,
+      "unit_price": "40.00",
+      "status": "completed",
+      "external_ref": "cs_test_a1GDD1iS6t7…",
+      "notes": null,
+      "created_at": "2026-09-17 13:17:15",
+      "settled_at": "2026-09-17 13:18:13"
+    },
+    {
+      "id": 12,
+      "user_id": 42,
+      "user_email": "old-player@example.com",
+      "user_nickname": "Early Bird",
+      "amount_money": "200.00",
+      "amount_coins": 5,
+      "unit_price": "40.00",
+      "status": "completed",
+      "external_ref": "pc-topup-12",
+      "notes": null,
+      "created_at": "2026-05-13 18:00:00",
+      "settled_at": "2026-05-13 18:00:30"
+    }
+  ],
+  "total": 2,
+  "page": 1,
+  "per_page": 50
+}
+```
+
+`user_email` / `user_nickname` are `null` when the user no longer
+exists; `user_nickname` falls back to the display name. `settled_at` is
+`null` unless the row is `completed`.
+
+Errors: `rest_forbidden` 401 (not logged in) / 403 (not admin);
+`invalid_transaction_status` 400.
+
 ### `GET /pc/v1/admin/coin-pricing`
 
 Read the operator-tunable per-coin price bounds. Bearer + admin gate.
@@ -1503,6 +1570,7 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_schedule_rule` | 400 | admin/rooms/{id}/schedule PUT |
 | `invalid_terms_version` | 400 | user/accept-terms |
 | `invalid_transaction_type` | 400 | transactions |
+| `invalid_transaction_status` | 400 | admin/topups |
 | `invalid_date` | 400 | transactions |
 | `invalid_bonus_map` | 400 | admin/machine/bonus-map PUT |
 | `weak_password` | 400 | sign-up, confirm-password-change |
