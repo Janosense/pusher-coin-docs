@@ -63,9 +63,9 @@ step yourself.
      expects) and the options — re-planning of this step's scope in the
      Cowork Project (DISCOVERY → Feature mode, Re-planning) with a
      DECISIONS entry, a step of this sprint that already owns the
-     behaviour, the next sprint, or the sprint's Definition of Done — with
-     a recommendation, and wait. Never rewrite `SPRINT-{N}.md`, the plan
-     section's tasks, or a DECISIONS entry yourself.
+     behaviour, or the next sprint — with a recommendation, and wait.
+     Never rewrite `SPRINT-{N}.md`, the plan section's tasks, or a
+     DECISIONS entry yourself.
    - **The guide is wrong, the code is right** → say so; the mini-plan has
      one task (correct the guide) and `/close-step` rewrites it on re-close.
    - **Outside the step** (see preconditions) → name the right path and stop.

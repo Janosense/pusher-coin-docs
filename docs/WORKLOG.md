@@ -1,8 +1,7 @@
 # Worklog — Pusher Coin
 
 <!-- Add-only project memory for the agent: entries are never edited or
-     removed. Written ONLY by /close-step, /close-sprint (one entry per closed
-     sprint) and /adhoc (off-cycle tasks),
+     removed. Written ONLY by /close-step and /adhoc (off-cycle tasks),
      newest entry at the TOP, directly under the entry format. A fresh Claude
      Code session reads the latest 5 entries at start (CLAUDE.md core rule 6).
      Keep entries 3–6 lines; this is a memory index, not a diary — details live

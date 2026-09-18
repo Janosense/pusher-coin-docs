@@ -1,24 +1,36 @@
 ---
-description: Execute the approved plan of the current step. Scope frozen.
+description: Execute the plan of the current step. Running this command is the approval of the written plan. Scope frozen.
 ---
 
-**Which step.** The step is the one whose plan the user approved in this
+**Running `/do-step` is the approval.** The user is not asked to say
+"approved" anywhere — `/plan-step` ends with the plan and `/do-step` runs it.
+Never ask "do you approve?" and never wait for a confirmation before starting.
+
+**Which step.** The step is the one whose plan `/plan-step` printed in this
 session — feature, N and M come from that plan. If this session holds no such
-approval: take the feature from the latest `docs/WORKLOG.md` entry, open
+plan: take the feature from the latest `docs/WORKLOG.md` entry, open
 `docs/features/{feature}/sprints/SPRINT-{N}-PLAN.md` and look for sections in
-state `awaiting approval` — exactly one: print it and ask for approval; none or
+state `awaiting approval` — exactly one: that is the step, run it; none or
 several: STOP and ask which step to run. Never pick a step yourself.
 
 **Preconditions — refuse to proceed if any fails:**
-- The plan section has status `awaiting approval` and no open Questions /
-  ambiguities — or every open question carries a recommendation and the plan
-  was printed with the "Open questions carry recommendations" line.
-- The user has explicitly approved it in this session. If approval is
-  ambiguous, ask; do not infer it. A bare approval of a plan whose open
-  questions all carry recommendations means "as recommended": before
+- The plan section has status `awaiting approval`.
+- The section has no open Questions / ambiguities — or every open question
+  carries a recommendation (the plan was printed with the
+  "Open questions carry recommendations" line). Running `/do-step` means
+  "as recommended": before
   executing, write that resolution into each question in the plan file
-  (`Resolved: approved as recommended — {answer}`); a question answered
-  differently by the user is resolved with the user's words.
+  (`Resolved: approved as recommended — {answer}`). A question the user
+  answered differently in this session is resolved with the user's words.
+  A question without a recommendation and without an answer makes the plan
+  not runnable: print the question, STOP, and wait for the answer — then it
+  belongs to `/plan-step`'s revision loop, not to this command.
+- The user's last message before `/do-step` was not a pending change request
+  to this plan. If the user wrote objections or answers that were never
+  folded into the plan file (the file still shows the old text), STOP: fold
+  them in first (as `/plan-step` step 7 does), print the plan again and end
+  with `/plan-step`'s closing line — the user re-runs `/do-step` against the
+  revised plan.
 
 **Not this command.** If the user reports that a step's manual verification
 failed and its plan section is `closed`, answer with

@@ -1,5 +1,5 @@
 ---
-description: Close the current step — report, docs self-check, verification guide, worklog, merge.
+description: Close the current step — report, docs self-check, verification guide, worklog, merge; the last step of a sprint also merges the sprint into main.
 ---
 
 **Which step.** The step is the one implemented in this session — feature, N
@@ -48,13 +48,16 @@ several: STOP and ask which step to close. Never pick a step yourself.
    verification — its section reads `implemented, awaiting close — reopened:
    …`): a NEW short entry titled `… — re-closed`, stating what failed and
    what was fixed (from the section's `### Reopen` subsection).
+   If this is the last step of the sprint (step 8), the entry ends with the
+   line `Sprint {N} complete — all steps closed, {sprint branch} merged into
+   main`.
 
 5. **Status and commit.** Tick the step's checkbox in
    `docs/features/{feature}/sprints/SPRINT-{N}.md` (`### [x] Step {M} — …`),
    mark the plan section `(status: closed)`. Then commit everything from
    steps 2–5 on the task branch: `chore(step): close sprint {N} step {M}`
-   (`re-close` on a re-close). The sprint's Definition of Done is not yours:
-   its boxes are ticked by `/close-sprint`, never here.
+   (`re-close` on a re-close). Nothing else is written to `SPRINT-{N}.md` —
+   the tick is the only thing this command changes there.
 
 6. **Merge.** Merge the task branch into its base (both named in the plan's
    `### Branch`) with `--no-ff`, message `merge: sprint {N} step {M} — {title}`,
@@ -72,22 +75,34 @@ several: STOP and ask which step to close. Never pick a step yourself.
    - Commits:  (+ merged into {base})
    - Deviations from plan:
    - Verification guide: `docs/features/{feature}/verification/sprint-{N}-step-{M}.md`
-   - Not locally verifiable: n/a | {artefact} — pending {the run named in the plan, e.g. the sprint-boundary deploy from `main`}
+   - Not locally verifiable: n/a | {artefact} — pending {the run named in the plan, e.g. the next deploy from `main`}
    - Docs updated: [list]
    - Design: n/a | unchanged | changed — `docs/DESIGN.md` (Tokens / Components "In code" / Screens) and `FEATURE.md` → UI updated in this close
    - Open questions:
    - Next: /plan-step [feature] {N} {M+1}   (feature name required when several exist)
-     — or, if this was the last step of the sprint, the line of step 8
+     — or, if this was the last step of the sprint, the lines of step 8
    ```
 
 8. **Last step of the sprint.** When every step of `SPRINT-{N}.md` is now
-   ticked, the report's Next line — and the last sentence of your reply —
-   is exactly:
+   ticked (this one included), the sprint is complete and you say so — the
+   user must not have to check the sprint file to learn it.
+   - **Merge the sprint into `main`.** Per the git model in root
+     `CLAUDE.md`: with chained sprint branches, merge the sprint branch (the
+     base of step 6) into `main` with `--no-ff`, message
+     `merge: sprint {N} — {sprint name}`; the sprint branch stays. The check
+     command exits 0 on `main` after the merge; a conflict is stopped and
+     reported, never resolved silently. With the simple model (task branch
+     → `main`) step 6 already landed on `main` — nothing more to merge.
+   - **Say it.** The report's Next line — and the last sentence of your
+     reply — starts with exactly:
 
-   > Sprint {N}: every step is closed. Next — mandatory: run `/close-sprint` (it writes SPRINT-{N}-CLOSE.md, ticks the Definition of Done, merges into `main` and names what comes after the deploy).
+     > Sprint {N}: this was the last step — every step of `SPRINT-{N}.md` is closed. Sprint merged into `main` ({merge commit} | nothing to merge — simple git model).
 
-   Do not write `SPRINT-{N}-CLOSE.md`, do not tick the Definition of Done,
-   do not merge into `main`, do not name the next sprint or a re-planning
-   chat — that is `/close-sprint`'s job. If the user asks to "start Sprint
-   {N+1}" or to "re-plan" now, answer with the same line: the sprint is not
-   closed until `/close-sprint` says so.
+     followed by what comes next, derived from the files: if
+     `docs/features/{feature}/sprints/SPRINT-{N+1}.md` exists →
+     `Next: /plan-step [feature] {N+1} 1`; if it does not but `FEATURE.md` →
+     Roadmap lists Sprint {N+1} → the file is missing: name the re-planning
+     chat in the Cowork Project (DISCOVERY → Feature mode, Re-planning) that
+     writes it; if the Roadmap ends with Sprint {N} → the feature is done:
+     the next feature comes through discovery. You never write or extend a
+     sprint file yourself.

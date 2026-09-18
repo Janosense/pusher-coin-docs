@@ -1,7 +1,7 @@
 # {{CODE_AREA_NAME}} — code-area conventions
 
-<!-- Code-area CLAUDE.md: ONE per code directory (an app, package, or
-     service; in WP — a theme or plugin), even when
+<!-- playbook: v1.21. Code-area CLAUDE.md: ONE per code directory (an
+     app, package, or service; in WP — a theme or plugin), even when
      several features live inside it. Delta only, ≤60 lines — everything
      shared (core rules, step protocol, git model) stays in the ROOT CLAUDE.md.
      Claude Code loads this file automatically when working inside this

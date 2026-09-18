@@ -40,7 +40,7 @@ may write is the plan file.
      code is touched; such tasks are explicitly marked "touches shared code —
      may affect other features"
    - `docs/features/{feature}/sprints/SPRINT-{N}.md` — the whole file first
-     (goal, fixed decisions, out of scope, dependencies), then focus Step {M}
+     (goal, fixed decisions, dependencies), then focus Step {M}
    - the `docs/DECISIONS.md` entries referenced by the sprint's Fixed
      decisions — the plan must not reopen them; if a task would contradict
      one, flag it instead of deviating
@@ -56,10 +56,9 @@ may write is the plan file.
      check every planned task against it and state in the plan that none is violated
      (or flag the conflict explicitly)
    - the latest 5 entries of `docs/WORKLOG.md` (top of file)
-   - for M = 1 and N > 1: `docs/features/{feature}/sprints/SPRINT-{N-1}-CLOSE.md`
-     (written by `/close-sprint` when Sprint {N-1} was closed) — what the
-     previous sprint left behind; its Contradictions and Deferred items are
-     Docs vs reality input for this plan
+   - for M = 1 and N > 1: the WORKLOG entry of Sprint {N-1}'s last step
+     (it ends with `Sprint {N-1} complete`) — the open questions it carries
+     are Docs vs reality input for this plan
    - `docs/LEARNINGS.md` — check for known failure modes relevant to this step
 
 3. **Inspect the actual codebase state** relevant to the step. Do not trust the
@@ -84,7 +83,7 @@ may write is the plan file.
      reality item, never a silent choice. What the artboard of the step's
      screen state draws is the step's scope: a control or field the step
      text does not list is planned, not deferred and not asked about —
-     unless the sprint's Out of scope or another step names it.
+     unless another step or `FEATURE.md` → Roadmap names it.
 
 4. **Verify preconditions** — stop and report if any fails:
    - No step is in flight: neither this feature's `SPRINT-{N}-PLAN.md` nor
@@ -97,12 +96,11 @@ may write is the plan file.
      in `SPRINT-{N}.md` are ticked (`### [x] Step … `).
    - Sprints run in order: for N > 1, every step of `SPRINT-{N-1}.md` is
      ticked. If not — say which steps of Sprint {N-1} are still open and stop.
-   - Sprint {N-1} is closed by `/close-sprint` (M = 1, N > 1):
-     `docs/features/{feature}/sprints/SPRINT-{N-1}-CLOSE.md` exists and every
-     item of `SPRINT-{N-1}.md` → Definition of Done is ticked or carries
-     `— carried to Sprint {N}: …`. If not — say which items are open and
-     stop: "run `/close-sprint` first". Never tick a Definition of Done item
-     here. Carried items go into this plan's Checks → Docs vs reality.
+   - Sprint {N-1} is on `main` (M = 1, N > 1): with chained sprint
+     branches, the branch of `SPRINT-{N-1}.md` is merged into `main`
+     (`git branch --merged main` lists it) — `/close-step` of its last step
+     does that. If not — stop: "Sprint {N-1} is not merged into `main` —
+     re-run `/close-step` for its last step". Never merge it here.
    - Step {M} itself is not already closed. If it is — say so; rework of a
      closed step goes through `/fix-step <what failed>`, not a new plan.
 
@@ -135,19 +133,20 @@ may write is the plan file.
      Not locally verifiable the one real run that verifies it. Deploying an
      environment is never a task of a step: environments track `main` (git
      model in root `CLAUDE.md`), so the first run of deploy tooling is the
-     sprint-boundary deploy; a step task that says "deploy" goes to
-     Questions / ambiguities with the recommendation to move it to the
-     sprint's Definition of Done.
+     next deploy from `main`, done by the user; a step task that says
+     "deploy" goes to Questions / ambiguities with the recommendation to
+     drop it from the step.
    The plan never adds work the step does not name (what the artboard of the
    step's screen draws is named by the step — §3). Work that turns out
    necessary but is missing from the step → "Questions / ambiguities" (the
    user decides: this step, another step, or the next sprint). Work from
-   other steps or from the sprint's Out of scope → never.
+   other steps, or work that `FEATURE.md` → Roadmap places in a later
+   sprint → never.
 
    **What is a question.** An item goes to Questions / ambiguities only when
    both hold: the plan's tasks differ depending on the answer, and no source
-   settles it — the sprint (goal, Fixed decisions, Out of scope, this and
-   the other steps), FEATURE.md, DECISIONS.md, DATA-MODEL, DESIGN.md / the
+   settles it — the sprint (goal, Fixed decisions, this and the other
+   steps), FEATURE.md, DECISIONS.md, DATA-MODEL, DESIGN.md / the
    artboard, the shipped code. Everything else is not a question:
    - a mismatch between two sources that the precedence rules settle (brief
      over artboard for strings; DECISIONS over everything; the data model
@@ -155,7 +154,7 @@ may write is the plan file.
      the same rule over a second wording of it) → resolve it and record it
      in Checks → Docs vs reality / Design with the resolution taken;
    - an observation outside this step whose recommendation is "leave it for
-     another step, the Definition of Done or `/adhoc`" → one line in
+     another step or `/adhoc`" → one line in
      Checks → Docs vs reality (nothing, if it is not a mismatch) — it changes
      no task, so it is not a question;
    - a choice with one defensible answer → make it in the task and say so
@@ -186,7 +185,7 @@ may write is the plan file.
    - Docs vs reality: match | mismatch: …
    - Design: n/a | matches `{screen}` in DESIGN.md / FEATURE.md → UI | deviation: …
    - Check command: `{command}` (docs/TECH-STACK.md → Check command) | missing — created in task 1
-   - Not locally verifiable: n/a | {artefact} — verified by {the one real run: sprint-boundary deploy from `main`, cron tick, …}
+   - Not locally verifiable: n/a | {artefact} — verified by {the one real run: the next deploy from `main`, cron tick, …}
    ### Questions / ambiguities
    none | (each question with a recommended answer where one exists; a question
    without a recommendation makes the plan NOT approvable until answered)
@@ -194,15 +193,19 @@ may write is the plan file.
 
 7. **Print the plan in the chat** (plain language if profile = user-verified), then **STOP** with exactly this closing line:
 
-   > Awaiting approval. Approval authorizes **Step {M} only**. After approval, run `/do-step`.
+   > Plan for **Step {M}** written. `/do-step` runs it as written — running it is the approval, and it authorizes Step {M} only. Anything else you write is a change request to the plan.
 
    If the plan has open questions and every one of them carries a
    recommendation, print this line directly above the closing line:
 
-   > Open questions carry recommendations — "approved" accepts them as written; name any you want changed.
+   > Open questions carry recommendations — `/do-step` accepts them as written; name any you want changed.
 
    If any question has no recommendation, the plan is not approvable: ask for
-   the answers instead of printing the closing line.
-   If the user answers the open questions, fold the answers into the plan
-   file (status stays `awaiting approval`), print it again and stop with the
-   same line — approval always refers to the written plan.
+   the answers instead of printing the closing line (`/do-step` refuses such
+   a plan).
+   Do not ask for approval and do not wait for an "approved" — the user's
+   next move is either `/do-step` or a message. Any message that is not
+   `/do-step` (answers to the questions, objections, edits — even a short
+   one) is a change request: fold it into the plan file (status stays
+   `awaiting approval`), print the plan again and stop with the same closing
+   line. Approval always refers to the written plan, never to the chat.

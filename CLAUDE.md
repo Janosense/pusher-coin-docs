@@ -1,6 +1,6 @@
 # Pusher Coin — real-time coin-pusher gambling platform
 
-<!-- playbook: v1.17 — Core rules and Step protocol are verbatim copies of
+<!-- playbook: v1.21 — Core rules and Step protocol are verbatim copies of
      templates/CLAUDE.md; never edit them here. -->
 
 Players watch a live stream of a physical coin-pusher machine, buy coins in UAH, queue for
@@ -13,7 +13,7 @@ whole API — and the only party that ever holds machine or payment credentials.
 - Verification: user-verified — the user does not read code; explain all changes in plain language and write verification guides for a non-developer
 - Deploy: **manual per repository, and a merge is a deploy.** `backend/` — GitHub Actions FTP-syncs the whole tree on every push to `main` (pushing `main` *is* a production release); `frontend/` — Vercel builds from `main` with `.env.production`; `admin/` — no deploy target and no CI at all, local-only today.
 - Test-critical zones (code without tests here = unfinished task): money — `Wallet_Service`, coin lots, transactions, withdrawal approve/reject; the Stripe webhook — signature verification and settle-once idempotency; refresh-token rotation and reuse detection; every `Permissions::*` callback; machine-event idempotency and crediting. **There is no automated test suite in any of the three repositories today** — see `docs/TECH-STACK.md` → Check command.
-- Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments track `main` (or the deployment branch named under Deploy) — never a task or sprint branch; deploys happen at the sprint boundary via `/close-sprint`, never inside a step.
+- Git model: chained sprint branches: `core/sprint-N` ← `main`, task branches `core/sprint-N-short-name` merged `--no-ff`. Branch names carry the feature name. The three apps are separate git repositories, so a step that touches more than one carries the same branch name in each and they are merged together at the sprint boundary. Environments track `main` (or the deployment branch named under Deploy) — never a task or sprint branch.
 
 ## Documentation (read before the relevant task)
 | File | When to read |
@@ -50,16 +50,19 @@ whole API — and the only party that ever holds machine or payment credentials.
   never a whole sprint. If the user asks to "do the sprint" or "start the sprint":
   do not execute it; propose `/plan-step` for the first incomplete step.
 - A step plan is produced only by `/plan-step` and executed only by
-  `/do-step`. Approval of a step plan authorizes that step only — never the
+  `/do-step`. Running `/do-step` is the approval of the written plan — the
+  user is never asked to say "approved"; any other message after the plan is
+  a change request. Approval authorizes that step only — never the
   following steps.
 - An implemented step is closed with `/close-step` before any other work begins.
 - A closed step whose manual verification fails is re-opened only by
   `/fix-step <what failed>` and re-closed by `/close-step`. A failure report
   is never an instruction to patch the step directly.
 - The next step begins only with a new `/plan-step` from the user.
-- A sprint is closed only by `/close-sprint`, after its last `/close-step`;
-  `/plan-step N+1 1` does not start before it. Definition of Done boxes are
-  ticked only by `/close-sprint`, never by hand.
+- A sprint is complete when `/close-step` ticks its last step: that run
+  merges the sprint into `main` and says so; `/plan-step N+1 1` does not
+  start before the sprint is on `main`. Nothing in `SPRINT-N.md` is
+  edited by hand.
 
 Outside the step cycle:
 - Questions (explain code, "why is X built this way", "what would it take

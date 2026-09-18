@@ -5,7 +5,7 @@ One folder per feature, resolved via the Features table in root CLAUDE.md:
     docs/features/{feature}/
     |-- FEATURE.md          # feature mini-architecture (+ UI section if the feature has screens)
     |-- design/             # design files: Claude Design exports, .dc.html artboards, HTML mockups
-    |-- sprints/            # SPRINT-N.md + SPRINT-N-PLAN.md (+ SPRINT-N-CLOSE.md, written by /close-sprint)
+    |-- sprints/            # SPRINT-N.md + SPRINT-N-PLAN.md
     `-- verification/       # sprint-N-step-M.md, written by /close-step
 
 Sprints and verification guides never live anywhere else. The verification
