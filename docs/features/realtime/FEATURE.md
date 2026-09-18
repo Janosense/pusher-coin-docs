@@ -99,8 +99,9 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
 4. **The ingest endpoint is not public.** Shared secret, rate-limited, audited; a
    bad secret is a 401 that says nothing about why.
 5. **A machine id is carried by at most one available room.** The admin API
-   refuses a second (`machine_already_in_use`), and `wp pc machine-rooms` reports
-   shared ids; both go through `Machine_Rooms`. Empty ids claim nothing. And
+   refuses a second (`machine_already_in_use`), a queue join into a room caught in
+   such a pair (old data) is refused with the same code, and `wp pc machine-rooms`
+   reports shared ids; all three go through `Machine_Rooms`. Empty ids claim nothing. And
    `Machine_Service` drives one physical machine whatever the id, so the id must
    name the machine for this rule to protect it.
 6. **Nothing here debits a wallet, and nothing here switches the machine.** It

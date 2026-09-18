@@ -556,7 +556,13 @@ count must not let you jump your own place in the queue.
 Response (`200`): the queue envelope, as above.
 
 Errors: `invalid_coin_qty` 400, `insufficient_balance` 409,
-`room_not_found` 404, `room_unavailable` 409.
+`room_not_found` 404, `room_unavailable` 409, `machine_already_in_use` 409.
+
+`machine_already_in_use` is checked before anything else: another non-trashed
+`available` room carries this room's `machine_id`, so the join would start a second
+queue on one machine. It clears when an operator makes one room unavailable or gives
+it another machine id (`wp pc machine-rooms` lists such rooms). The player SPA shows
+the `message` as sent (`realtime` Sprint 1 Step 3).
 
 ### `POST /pc/v1/rooms/{id}/queue/leave`
 
@@ -1648,7 +1654,7 @@ One canonical code per failure mode — do not invent variants.
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
 | `insufficient_balance` | 409 | wallet/withdraw |
 | `room_unavailable` | 409 | rooms/{id}/queue*, rooms/{id}/play |
-| `machine_already_in_use` | 409 | admin/rooms POST/PUT (another available room carries the machine id) |
+| `machine_already_in_use` | 409 | admin/rooms POST/PUT, rooms/{id}/queue/join (another available room carries the machine id) |
 | `withdrawal_already_pending` | 409 | wallet/withdraw |
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
