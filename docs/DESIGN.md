@@ -92,11 +92,12 @@ Breakpoints in use: 768, 1024, 1440, 1920.
 | Room form | admin | `/rooms/new`, `/rooms/:id/edit` | `RoomFormView.vue` | create, edit |
 | Room schedule | admin | `/rooms/:id/schedule` | `RoomScheduleView.vue` | rules editor, recomputed next window |
 | Withdrawals | admin | `/withdrawals` | `WithdrawalsView.vue` | filter tabs, approve dialog, reject-with-reason |
+| Top-ups | admin | `/topups` | `TopupsView.vue` | filter tabs, empty, paged |
 | Machine | admin | `/machine` | `MachineView.vue` | online, offline, unauthorized, sensor grid |
 | Tickets | admin | `/support/tickets` | `TicketsView.vue` | filtered, expanded, status transitions |
 | Subjects | admin | `/support/subjects` | `SubjectsView.vue` | list editor, captcha panel (configured / **unconfigured in red**) |
 | Chat moderation | admin | `/chat` | `ChatView.vue` | filters, hide, restore, mute |
-| Settings | admin | `/settings` | `SettingsView.vue` | pricing, Stripe hint (constants + webhook URL), 4×3 bonus grid, relay coin count |
+| Settings | admin | `/settings` | `SettingsView.vue` | pricing, Stripe hint (constants + webhook URL), Stripe status (configured · test / live; **not configured in red**), 4×3 bonus grid, relay coin count |
 
 ## Flows
 
@@ -111,4 +112,4 @@ Breakpoints in use: 768, 1024, 1440, 1920.
 - No design files exist and none are planned retroactively — `docs/features/core/design/` stays empty until a feature brings a designed screen.
 - No shared component library between the two SPAs; the duplication is deliberate.
 - No responsive or accessibility pass has been done. No i18n: `LanguageSwitcher` is a control with no library behind it.
-- The admin SPA has no operations dashboard; its six sections are separate screens.
+- The admin SPA has no operations dashboard; its seven sections are separate screens.

@@ -22,7 +22,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (both endpoints, current); `docs/PROJECT-TREE.md`; `docs/features/stripe/FEATURE.md` → Interfaces if a shape changed.
 - **Depends on:** —
 
-### [ ] Step 2 — The Top-ups screen and the Stripe badge in Settings
+### [x] Step 2 — The Top-ups screen and the Stripe badge in Settings
 - **Tasks:**
   - `admin/src/services/adminTopupService.js` (`listTopups({ status, page, perPage })`, `getStripeStatus()`); `admin/src/views/TopupsView.vue` built from `WithdrawalsView.vue`'s filter tabs and table, minus the action column and dialogs — columns: player (nickname + email), amount (UAH, decimal string as-is), coins × unit price, status, reference (`external_ref`), created, settled; empty and loading states as Withdrawals has them.
   - Route `/topups` (name `topups`) in `admin/src/router/index.js` next to `/withdrawals`; a nav entry in `components/AdminLayout.vue`. *Touches shared code:* the router and the layout.
