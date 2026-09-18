@@ -256,7 +256,7 @@ none
 
 ---
 
-## Plan — Sprint 1, Step 2: Spike — how machine events leave Home Assistant   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 2: Spike — how machine events leave Home Assistant   (status: closed)
 
 ### Branch
 `realtime/sprint-1-spike-transport` ← `realtime/sprint-1` (`b596b2d`), **root documentation
