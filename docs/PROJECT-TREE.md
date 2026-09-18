@@ -274,6 +274,7 @@ pusher-coin/
         │   ├── adminMachineService.js         # Phase 5: /admin/machine state + power + bonus-map read/write
         │   ├── adminRoomsService.js           # Wraps /admin/rooms CRUD + schedule replace
         │   ├── adminSupportService.js         # Phase 7: /admin/support tickets + subjects
+        │   ├── adminTopupService.js           # Feature `stripe`: GET /admin/topups (read-only)
         │   ├── adminWithdrawalsService.js     # Phase 4: /admin/withdrawals queue + approve/reject
         │   └── api.js                         # Bearer + 401-refresh axios instance (admin-keyed localStorage)
         ├── stores/
@@ -290,5 +291,6 @@ pusher-coin/
             ├── SignInView.vue                 # Email/password + 6-digit code form
             ├── SubjectsView.vue               # Phase 7: subject list editor + guest-captcha config panel
             ├── TicketsView.vue                # Phase 7: ticket queue with status filter, search, mailto reply
+            ├── TopupsView.vue                 # Feature `stripe`: read-only top-ups list — filter tabs, pager, no actions
             └── WithdrawalsView.vue            # Phase 4: queue with filter tabs + approve/reject dialog
 ```

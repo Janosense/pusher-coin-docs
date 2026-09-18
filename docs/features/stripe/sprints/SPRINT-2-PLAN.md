@@ -253,3 +253,240 @@ none
   `docs/PROJECT-TREE.md` comment that task 1 added, so the line names both routes the
   file now holds (core rule 5). No other deviation.
 - `docs/features/stripe/FEATURE.md` → Interfaces unchanged: both shapes are as it lists them.
+
+## Plan — Sprint 2, Step 2: The Top-ups screen and the Stripe badge in Settings   (status: approved, in progress)
+
+### Branch
+`stripe/sprint-2-topups-screen` ← `stripe/sprint-2`, in **`admin/` and the root
+documentation repository**.
+- `admin/` has no `stripe/sprint-2` yet (Step 1 did not touch it). `/do-step` creates it
+  from `admin`'s `main` (`c40773a`, the Sprint 1 merge) first.
+- `backend/` is not touched: both endpoints shipped in Step 1.
+- `frontend/` is untouched all sprint.
+
+**Touches shared code — may affect other features.** Three `core`-owned admin files
+change:
+- `router/index.js` and `components/AdminLayout.vue`: every admin screen renders inside
+  the layout and passes the router's guard.
+- `views/SettingsView.vue`: it also holds the coin-pricing and bonus-map sections.
+
+`realtime` claims none of them. Its admin touchpoint is a future
+`admin/src/services/realtime.js`. The rest is the feature's own:
+`views/TopupsView.vue` and `services/adminTopupService.js`, the two admin files
+`DECISIONS.md` 2026-09-17 names.
+
+### Tasks (ordered)
+Docs are committed with the code they describe (core rule 5). Each task leaves
+`npm run lint && npm run build` green in `admin/` on its own. The route and the nav link
+land in the same task as the screen, so no link ever points at a missing page.
+
+- [x] **1. The Top-ups screen, its route and its nav link.**
+  - **`src/services/adminTopupService.js` (new).** It follows `adminWithdrawalsService`
+    and exports `adminTopupService` plus a default export.
+    - `listTopups({ status = 'all', page = 1, perPage = 50 } = {})` calls
+      `GET /admin/topups` with `{ status, page, per_page }`. It returns
+      `{ items, total, page, perPage }`.
+    - A `mapTopup` maps each row to camelCase: `id`, `userId`, `userEmail`,
+      `userNickname`, `amountMoney`, `amountCoins`, `unitPrice`, `status`,
+      `externalRef`, `notes`, `createdAt`, `settledAt`.
+    - **`amountMoney` and `unitPrice` stay the API's decimal strings. Never `Number()`**
+      (root `CLAUDE.md` invariant 7). Only `amountCoins`, a count, becomes a number.
+  - **`src/views/TopupsView.vue` (new).** It is built from `WithdrawalsView.vue`'s header,
+    filter tabs, table, status badge, error box and empty message. The action column,
+    the dialog and the Pinia store are all dropped.
+    - **State:** local `ref`s in the view: `items`, `total`, `page`, `statusFilter`,
+      `isLoading`, `error`. This is `ChatView`'s pattern. `DECISIONS.md` 2026-09-17
+      names only the view and the service, so no store file is added.
+    - **Tabs:** `All / Pending / Completed / Failed`, in that order, rendered by
+      `TopupsView`, default `All`.
+      - The active tab carries Withdrawals' `.active` style.
+      - Clicking a tab sets the filter, resets to page 1 and refetches.
+    - **Table columns, rendered by `TopupsView`:**
+      - **Player:** nickname, with the email under it in the monospace style.
+      - **Amount (UAH):** `₴80.00`, the decimal string as the API sends it.
+      - **Coins × price:** `2 × ₴40.00`.
+      - **Status:** the pill badge. Withdrawals' `.badge--failed` rule already covers
+        `failed`.
+      - **Reference:** `external_ref` in monospace and allowed to wrap (a `cs_…` id is
+        66 characters), or `—` when there is none.
+      - **Created** and **Settled:** Withdrawals' `formatDate`. WordPress runs on UTC
+        locally (`gmt_offset` 0), so its `Z` suffix is right.
+      - **Notes:** the note, or `—`. See Docs vs reality.
+      - **No action column, no dialog, no button in any row.**
+    - **Loading, empty and error, as Withdrawals has them:**
+      - While a request runs, the rows already shown stay and the empty message is
+        suppressed. There is no spinner.
+      - `No top-ups match this filter.` shows when a finished request returned nothing.
+      - A failed request shows its message in the red error box.
+    - **Pager:** `ChatView`'s control, the only paged admin list. `Prev` /
+      `Page {n} of {m}` / `Next`, rendered by `TopupsView`.
+      - It is rendered only when there is more than one page.
+      - `Prev` is disabled on page 1 and `Next` on the last page.
+      - A page holds 50 rows, the endpoint's default.
+    - Heading `Top-ups`. The styles are copied and scoped, in the SPA's
+      duplicate-don't-abstract habit: `topups__…` for Withdrawals' `withdrawals__…`
+      classes, plus ChatView's pagination block.
+  - **`src/router/index.js`:** `{ path: '/topups', name: 'topups', component: TopupsView,
+    meta: { requiresAuth: true } }`, placed directly after `/withdrawals`.
+    *Touches shared code (the router, `core`).*
+  - **`src/components/AdminLayout.vue`:** `<RouterLink :to="{ name: 'topups' }">Top-ups</RouterLink>`,
+    directly after Withdrawals. *Touches shared code (the layout, `core`).*
+  - Docs in the same change:
+    - `docs/DESIGN.md` → Screens: a row `Top-ups | admin | /topups | TopupsView.vue |
+      filter tabs, empty, paged` after Withdrawals. Out of scope: "six sections" becomes
+      "seven".
+    - `docs/ARCHITECTURE.md` → Admin SPA:
+      - a `/topups` | `TopupsView` row in the routes table;
+      - the nav sentence becomes seven sections, including Top-ups;
+      - `adminTopupService` joins the services list;
+      - "aggregating the six sections" becomes seven.
+    - `docs/PROJECT-TREE.md`: `adminTopupService.js` and `TopupsView.vue` lines.
+    - `docs/features/stripe/FEATURE.md` → UI: **Top-ups** is marked done.
+  → admin commit `feat(stripe): the Top-ups screen — a read-only list at /topups`;
+    docs commit `docs(stripe): the Top-ups screen in DESIGN, ARCHITECTURE, PROJECT-TREE, FEATURE`
+
+- [ ] **2. The live Stripe badge in Settings.**
+  - **`src/services/adminTopupService.js`:** `getStripeStatus()` calls
+    `GET /admin/stripe/status` and returns `{ configured: !!configured, mode: mode || null }`.
+    Nothing else exists to map. The endpoint sends only these two fields.
+  - **`src/views/SettingsView.vue`:** the existing Stripe section gains a status line
+    **directly under its `<h3>Stripe</h3>`**, above the two explanatory paragraphs,
+    rendered by `SettingsView`. `hydrateStripeStatus()` runs in `onMounted` next to the
+    other two loaders. *Touches shared code (`SettingsView`, `core`).*
+    - `configured: true` → **green** `Configured · test` or `Configured · live`.
+      - A `configured: true, mode: null` answer (a key with an unrecognised prefix,
+        which CONTRACTS allows) shows `Configured` alone. That comes from the same
+        expression, not a separate state.
+    - `configured: false` → **red** `Not configured`.
+    - **The shape** is the captcha panel's status line: a tinted box with 10px 12px
+      padding and a 6px radius, as `SubjectsView`'s `.captcha__state` has it.
+    - **The colours** are the SPA's own `--success` / `--danger` tints, the same values
+      SettingsView's success and error boxes already use. See Docs vs reality: the
+      captcha panel's "off" state is amber, not red.
+    - **A failed request** shows its message in the section's existing `.settings__error`
+      box, the way the pricing and bonus sections report a failed load. It never shows
+      `Not configured`, which would be untrue.
+    - **While loading**, no status line is shown. The other sections show no loading
+      text either.
+    - The two paragraphs and the webhook URL below the status line stay as Sprint 1
+      wrote them.
+  - Docs in the same change:
+    - `docs/DESIGN.md` → Screens, Settings row: add `Stripe status (configured · test /
+      live; **not configured in red**)`.
+    - `docs/ARCHITECTURE.md` → the `/settings` row names the live Stripe status.
+    - `docs/PROJECT-TREE.md` → the `SettingsView.vue` line names the Stripe status badge.
+    - `docs/features/stripe/FEATURE.md` → UI: the Settings badge is marked done.
+  → admin commit `feat(stripe): Settings shows whether Stripe is configured, and on which keys`;
+    docs commit `docs(stripe): the Stripe status badge in DESIGN, ARCHITECTURE, PROJECT-TREE, FEATURE`
+
+### Files to create/change
+- `admin/src/services/adminTopupService.js` — **new** (tasks 1, 2)
+- `admin/src/views/TopupsView.vue` — **new** (task 1)
+- `admin/src/router/index.js` — one route (task 1, shared)
+- `admin/src/components/AdminLayout.vue` — one nav link (task 1, shared)
+- `admin/src/views/SettingsView.vue` — status line, loader and two style rules (task 2, shared)
+- `docs/DESIGN.md`, `docs/ARCHITECTURE.md`, `docs/PROJECT-TREE.md`,
+  `docs/features/stripe/FEATURE.md` (tasks 1, 2)
+- `docs/features/stripe/sprints/SPRINT-2-PLAN.md` — status and checkboxes only
+
+### Tests to write
+**No automated test.** The step says so: "`npm run lint && npm run build` in `admin/`
+pass; no automated UI tests exist in this project".
+- The plan rule asking for a test of a post-interaction state cannot be met here without
+  adding a test runner (Vitest and Vue Test Utils). That is a new dependency, core rule 1,
+  and it is not in the step. The step settles it, so it is not a question.
+- The post-interaction states are therefore checked by hand, as below, and in the
+  verification guide `/close-step` writes.
+
+What `/do-step` checks by hand, against the local DDEV. Step 1's fixture `pc-topup-268`
+is still there:
+1. `npm run lint && npm run build` exit 0 in `admin/` before each commit and once more at
+   the end.
+2. **In a browser, if the Claude-in-Chrome extension is connected.**
+   - Setup: `npm run dev` on :5174, with a session for admin user 1 placed in
+     `localStorage` from a token minted by `\PC\AuthController::issue_access_token`.
+     Signing in by hand needs the emailed 6-digit code.
+   - **Top-ups:**
+     - The nav shows `Top-ups` after `Withdrawals`, and `/topups` lists 4 rows.
+     - `pc-topup-268`, two `cs_test_…` references and one `—` all render.
+     - Clicking **Failed** makes that tab the active one and leaves exactly rows 268
+       and 197.
+     - No row has a button.
+     - With 4 rows, the pager is **not** rendered.
+   - **Settings:** the Stripe section reads a green `Configured · test`.
+
+   If the extension is not connected, `/do-step` says so, and the screen checks rest on
+   the guide.
+3. The red `Not configured` needs the local `wp-config.php` edit that holds the real
+   test keys. It is left to the user's guide, as in Step 1.
+
+### Docs to update
+- `docs/DESIGN.md` → Screens: the Top-ups row and the Settings row's Stripe status (the
+  step's list). Out of scope: six sections becomes seven (core rule 5).
+- `docs/ARCHITECTURE.md` → Admin SPA: the routes table (the step's list), plus the nav
+  count, the services list and the dashboard sentence in the same section (core rule 5).
+- `docs/PROJECT-TREE.md` — the two new files and the SettingsView line (the step's list).
+- `docs/features/stripe/FEATURE.md` → UI — Top-ups and the Settings badge are done (the
+  step's list).
+- Not touched: `CONTRACTS.md` (no endpoint changes), `DATA-MODEL.md`, `DECISIONS.md`,
+  `DOMAIN.md`, `TECH-STACK.md` (no dependency).
+
+### Checks
+- ANTI-PATTERNS: **none violated.**
+  - No float: money is shown as the API's decimal strings, and only the coin count is
+    numeric.
+  - No secret in the SPA: the badge reads a boolean and a mode.
+  - No product UI in `/wp-admin/`: the screen is an admin-SPA view against
+    `pc/v1/admin/*`.
+  - No shared component package: the table styles are copied and scoped, not extracted.
+  - No new dependency, no hardcoded operator-tunable value. The 50-row page is a UI
+    paging size, like ChatView's 20.
+  - No action on a row: `DECISIONS.md` 2026-09-17 and 2026-09-16.
+- Docs vs reality: **mismatch — resolved:**
+  - **"The same red treatment the captcha panel uses" does not exist.**
+    `SubjectsView.vue`'s unconfigured captcha state is **amber** (`#ffd970` on a yellow
+    tint), and only the configured state is tinted (green). `DESIGN.md`'s Subjects row
+    says "unconfigured in red", so it is inaccurate too.
+    - Resolution: `DECISIONS.md` 2026-09-17 says "red when unconfigured", and DECISIONS
+      comes first. The badge takes the captcha line's **shape** and the SPA's
+      **`--danger` red**.
+    - The Subjects row and the captcha code are left as they are (`core`, an `/adhoc`
+      candidate).
+  - **The Notes column.** The step's column list omits notes. But the same sentence
+    says the table is Withdrawals' "minus the action column", and Withdrawals has a
+    Notes column. `DECISIONS.md` 2026-09-17 also lists `notes` among what the list
+    carries.
+    - Resolution: DECISIONS comes first, so **Notes is kept** as the last column. It is
+      also how a failed row explains itself, for example "Stripe: stripe_call_failed".
+  - **Withdrawals has no pager.** It fetches one page of 100. The sprint goal and the
+    step's DESIGN row still name the screen **paged**. Resolution: ChatView's pager, the
+    one already shipped in the admin SPA.
+  - **Withdrawals keeps its state in a Pinia store**, and DECISIONS names no store file.
+    Resolution: local state in the view, as ChatView does.
+  - **"Loading states as Withdrawals has them"** means no loading indicator: the empty
+    message is only held back while a request runs. That is copied exactly. No spinner
+    is invented.
+  - `SPRINT-1-CLOSE.md` Contradiction 5 (DESIGN.md has no Top-ups row while FEATURE.md
+    lists the screen) is closed by task 1.
+- Design: **n/a — no design files by decision** (`DECISIONS.md` 2026-09-17 "`stripe`
+  has no UI design"; `docs/features/stripe/design/` is empty). **Top-ups** follows the
+  Withdrawals row of DESIGN.md → Screens, and **Settings** keeps its row with a new
+  state. `FEATURE.md` → UI: Reuses "the Withdrawals view's filter tabs and table,
+  existing tokens"; Introduces "—", and that stays true (no new token, no shared
+  component).
+- Check command: `admin/` has none. Its gate is `npm run lint && npm run build`
+  (`docs/TECH-STACK.md` → Check command). It ran green on `admin` `main` during
+  planning: lint clean, `vite build` 118 modules, exit 0. `backend/bin/check` does not
+  apply, since no backend file changes.
+- Not locally verifiable:
+  - **The pager's Prev / Next.** The local database holds 4 top-ups, below one 50-row
+    page, so the pager correctly never renders locally. It is exercised when the local
+    build is pointed at production's API at the sprint boundary (`SPRINT-2.md` →
+    Definition of Done). Production holds the LiqPay-era history, and whether that
+    exceeds 50 rows per filter is unknown until then.
+  - **The screens against production.** The admin SPA has no deploy target. The
+    boundary check runs the local build against production, after `backend` `main` is
+    pushed, which is when the two endpoints go live.
+
+### Questions / ambiguities
+none

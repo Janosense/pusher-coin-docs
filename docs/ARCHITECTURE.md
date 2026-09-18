@@ -100,8 +100,8 @@ port 5174 in dev so both SPAs can run side by side.
 identity from anything but `GET /pc/v1/admin/me`.
 
 `App.vue` is a bare `<RouterView />`; every authenticated view wraps itself in
-`components/AdminLayout.vue` (header + nav + slot). The nav has six sections —
-Rooms, Withdrawals, Machine, Support, Chat, Settings:
+`components/AdminLayout.vue` (header + nav + slot). The nav has seven sections —
+Rooms, Withdrawals, Top-ups, Machine, Support, Chat, Settings:
 
 | Route | View | What it does |
 | --- | --- | --- |
@@ -110,6 +110,7 @@ Rooms, Withdrawals, Machine, Support, Chat, Settings:
 | `/rooms/new`, `/rooms/:id/edit` | `RoomFormView` | Shared create / edit form; discriminates on `route.name`. |
 | `/rooms/:id/schedule` | `RoomScheduleView` | Weekly rules editor; save is an atomic replace via `PUT /admin/rooms/{id}/schedule`, response carries the recomputed `next_window`. |
 | `/withdrawals` | `WithdrawalsView` | Pending-withdrawal queue with filter tabs and an approve / reject dialog (reject asks for a reason). |
+| `/topups` | `TopupsView` | Read-only list of every top-up (feature `stripe`): All / Pending / Completed / Failed tabs, paged 50 at a time, LiqPay-era and Stripe references side by side. No action on any row. |
 | `/machine` | `MachineView` | Connection probe, power On/Off, sensor grid (coin counter, last bonus, relay, light bitfield). Polls `GET /admin/machine/state` every 3s. |
 | `/support/tickets` | `TicketsView` | Ticket queue: status filter, search, expandable message with IP / UA, status transitions, mailto reply. |
 | `/support/subjects` | `SubjectsView` | Subject list editor (reorder, hide, replace-all save) plus the guest-captcha provider / site-key panel. |
@@ -120,13 +121,13 @@ Stores: `auth.js` (two-step sign-in + `/admin/me` gate), `rooms.js`,
 `withdrawals.js`. Services mirror the backend admin controllers one to one:
 `adminAuthService`, `adminRoomsService`, `adminWithdrawalsService`,
 `adminCoinPricingService`, `adminMachineService`, `adminSupportService`,
-`adminChatService`. Token storage: `pc_admin_auth_token`, `pc_admin_user_data`;
+`adminChatService`, `adminTopupService`. Token storage: `pc_admin_auth_token`, `pc_admin_user_data`;
 `services/api.js` is a copy of the player interceptor with the same refresh-on-401
 behaviour (events prefixed `admin-auth:`).
 
 Not built: no `vercel.json` and no CI workflow; no shared component package with
 `frontend/` (some duplication is accepted); no inactivity timer; no operations
-dashboard aggregating the six sections.
+dashboard aggregating the seven sections.
 
 ### `pc` theme — REST layer
 

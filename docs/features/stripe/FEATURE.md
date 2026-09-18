@@ -109,7 +109,7 @@ only because that is the code that deletes it. Sprint 2 Step 1 added
   page); Account (player, unchanged — the `success` / `cancel` banner it already
   has); Settings (admin, **done** — the LiqPay section is now a static Stripe
   section naming the two constants and the webhook URL; the live badge is Sprint 2);
-  **Top-ups** (admin, new — `/topups`, built from Withdrawals). No design files:
+  **Top-ups** (admin, **done** — `/topups`, built from Withdrawals, read-only). No design files:
   `design/` stays empty (`DECISIONS.md` 2026-09-17).
 - **Reuses:** the Withdrawals view's filter tabs and table, existing tokens.
 - **Introduces:** —
