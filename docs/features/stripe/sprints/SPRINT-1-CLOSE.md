@@ -27,32 +27,43 @@ merges, the root docs repository five, `frontend/` and `admin/` two each.
   `backend` exactly seven deliberate lines — the option-deleting migration in
   `install-schema.php` (5), the "LiqPay-era rows still render" note in
   `WalletController.php` (1), one decision citation in `StripeWebhookController.php` (1).
-- [ ] **Sprint boundary: merged into `main`, `backend` and `frontend` `main` pushed;
+- [x] **Sprint boundary: merged into `main`, `backend` and `frontend` `main` pushed;
   `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` in production `wp-config.php`
   and the production webhook URL registered in the Stripe Dashboard before the merge**
-  — `open — sprint boundary`. **The merge into `main` is done** and every gate exits 0
-  there: docs `6da0126`, backend `75450469`, frontend `7210c59`, admin `c40773a`, all
-  `--no-ff`, zero conflicts, sprint branches kept. **Neither push has happened** —
-  confirmed against freshly fetched remotes on 2026-09-17: `main` is ahead of
-  `origin/main` by 17 commits in `backend`, 8 in `frontend`, 5 in `admin` and 29 in the
-  docs repository. The production wp-config and the Dashboard endpoint are server-side
-  facts no command here can observe.
-- [ ] **Tymofii paid with a test card on the deployed stack and saw the coins without
-  reloading by hand** — `open — sprint boundary`. The equivalent was observed locally in
-  Step 4 (0 → 2 coins, row `completed`); the deployed stack has never run this code.
-- [ ] **The same event resent from the Stripe Dashboard credited nothing a second time,
-  observed in that player's balance** — `open — sprint boundary`. The local equivalent
-  is evidenced: Step 4 resent the identical event with `stripe events resend`, the
-  balance stayed at 2 and the audit row read `stripe_webhook_already_settled`. What is
-  missing is the Dashboard repeat against the deployed stack.
+  — **the merge is repository-evidenced**: docs `6da0126`, backend `75450469`, frontend
+  `7210c59`, admin `c40773a`, all `--no-ff`, zero conflicts, every gate exit 0 on `main`
+  afterwards. **The pushes and the server-side configuration are confirmed by the user
+  on 2026-09-18, not by this repository** — see the note below.
+- [x] **Tymofii paid with a test card on the deployed stack and saw the coins without
+  reloading by hand** — confirmed by user 2026-09-18. The local equivalent was observed
+  in Step 4 (0 → 2 coins, row `completed`).
+- [x] **The same event resent from the Stripe Dashboard credited nothing a second time,
+  observed in that player's balance** — confirmed by user 2026-09-18. The local
+  equivalent is evidenced: Step 4 resent the identical event with `stripe events
+  resend`, the balance stayed at 2 and the audit row read
+  `stripe_webhook_already_settled`.
+
+> **What this repository observed at close time (2026-09-18), for whoever reads this
+> next.** Against freshly fetched remotes, `main` was **ahead of `origin/main` by 17
+> commits in `backend`, 8 in `frontend`, 5 in `admin` and 30 here**, and behind by none;
+> `backend`'s `origin/main` was still `b23e5f2a "Add the queue and the play action"`
+> (2026-07-28). `https://pusher-coin.envstage.link` answered **HTTP 500 "Error
+> establishing a database connection"** on every URL, `/wp-json/` included. The three
+> items above were ticked on the user's own confirmation; the repository could not
+> corroborate them. **Do not read them as proof that this code is running in
+> production.** Anything downstream that assumes a completed release — `SPRINT-2.md`'s
+> risk note "if Sprint 1's release runs on test keys, the badge will read `test` in
+> production", and its Definition of Done item that the two new admin endpoints go live
+> — should re-check the deploy state first.
+
 - [x] **Step 2 closed with a `DECISIONS.md` entry naming the account country, the `uah`
   answer and the pinned API version** — `DECISIONS.md` 2026-09-17 "Spike: Stripe accepts
   `uah`, on a provisional US sandbox; pin `2026-06-24.dahlia` and turn Adaptive Pricing
   off": account `acct_1TtSrOElMyJqvLDl` (US), HTTP 200 with `currency: uah` and
   `amount_total: 12000`, API version `2026-06-24.dahlia`.
 
-**4 of 7 ticked.** The three open items are all the same fact: this code has never run
-anywhere but a laptop.
+**7 of 7 ticked** — four on repository evidence, three on the user's confirmation of
+2026-09-18 (the note above records what the repository could and could not see).
 
 ---
 
