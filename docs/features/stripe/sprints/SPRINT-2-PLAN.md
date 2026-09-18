@@ -254,7 +254,7 @@ none
   file now holds (core rule 5). No other deviation.
 - `docs/features/stripe/FEATURE.md` → Interfaces unchanged: both shapes are as it lists them.
 
-## Plan — Sprint 2, Step 2: The Top-ups screen and the Stripe badge in Settings   (status: approved, in progress)
+## Plan — Sprint 2, Step 2: The Top-ups screen and the Stripe badge in Settings   (status: implemented, awaiting close)
 
 ### Branch
 `stripe/sprint-2-topups-screen` ← `stripe/sprint-2`, in **`admin/` and the root
@@ -490,3 +490,39 @@ is still there:
 
 ### Questions / ambiguities
 none
+
+### Execution notes (for `/close-step`)
+- **Commits.** Admin `76b66d6` (task 1) and `b3d63f6` (task 2). Docs `6292a81`
+  (task 1) and `d16f689` (task 2).
+  - Branch `stripe/sprint-2-topups-screen` ← `stripe/sprint-2`, in `admin/` and the root
+    docs repository.
+  - `admin`'s `stripe/sprint-2` was created from its `main` (`c40773a`) first.
+  - `backend/` was untouched and stays on `stripe/sprint-2` with Step 1's endpoints.
+- **Gate.** `npm run lint && npm run build` in `admin/` exited 0 before each commit and
+  once more at the end: lint clean, 121 modules built.
+- **Browser check: partly done, by choice.**
+  - The Claude-in-Chrome extension was connected, and the user's own admin dev server
+    was already running on :5174 from `admin/`, serving the working tree. It was used
+    as it was, never restarted.
+  - Observed signed out: `/topups` redirected to `/sign-in?redirect=/topups`. The
+    route is registered and behind the auth guard.
+  - **Not done:** getting past sign-in would have meant writing an access token into
+    the browser's storage to authenticate. The agent does not place credentials or
+    tokens in a browser, so the minted token was deleted unused.
+  - So the signed-in screen states were **not** observed by the agent: 4 rows, the
+    Failed tab leaving 268 and 197, no buttons in rows, the green and red badge. They
+    rest on the verification guide.
+- **As planned, no deviation in code:**
+  - Notes kept as the last column.
+  - ChatView's pager, shown only when there is more than one page.
+  - Local state in the view, with no store.
+  - The badge sits directly under the Stripe heading, in the `--success` / `--danger`
+    tints.
+  - A failed status request shows the error box, never "Not configured".
+- **One CSS detail the plan did not spell out.** The badge and its error line sit
+  inside `.settings__section-header`, whose `p` rule sets a muted 12px style. So the
+  two new rules are scoped as `.settings__section-header .settings__stripe-…` to win on
+  specificity. The error line gets its own `color: var(--danger)` rule for the same
+  reason.
+- Step 1's fixture top-up **#268 `pc-topup-268`** is still in the local database. The
+  guide uses it as the LiqPay-era row.
