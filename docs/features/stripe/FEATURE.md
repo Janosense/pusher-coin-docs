@@ -76,7 +76,9 @@ Step 5 reconnected the player's button (`ReplenishmentBalance.vue` navigates to
 `checkout_url`) and **removed LiqPay from all three repositories**: the callback route,
 `liqpay-client.php`, `liqpayCheckout.js` and the Settings hint are gone, and
 `POST /payments/liqpay/callback` answers 404. `Install_Schema` keeps the option name
-only because that is the code that deletes it.
+only because that is the code that deletes it. Sprint 2 Step 1 added
+`AdminTopupController.php` (both admin routes, read-only, `require_admin`; `mode` is
+`null` unless configured) — the admin screens that read them are Step 2.
 
 ## Invariants
 1. **The player pays UAH and the wallet stays UAH.** Every amount sent to Stripe

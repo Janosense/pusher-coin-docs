@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 2, Step 1: `GET /admin/topups` and `GET /admin/stripe/status`   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 1: `GET /admin/topups` and `GET /admin/stripe/status`   (status: closed)
 
 ### Branch
 `stripe/sprint-2-admin-endpoints` ← `stripe/sprint-2` ← `main`, in **`backend/` and the

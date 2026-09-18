@@ -19,6 +19,14 @@ Entry format:
 
 ---
 
+## 2026-09-18 — [stripe] A sprint's manual verification named local data that nothing creates
+- **Incident:** `SPRINT-2.md` Step 1's verification says `GET /admin/topups` "lists the local top-ups including the seeded LiqPay-era rows (`pc-topup-N` refs)". The local database had no such row and the project has no seeder for one (`wp pc` offers only `seed-rooms` and `machine-ingest`); the only top-ups were three Sprint 1 Stripe rows. Taken literally, the step's central check — old and new rows side by side — could not be performed locally.
+- **Root cause:** The sprint was written from what production holds (real LiqPay-era rows) and assumed the local database mirrors it. A verification that depends on particular data does not have to say where that data comes from, so the gap surfaces only when someone inspects the database — here at `/plan-step`, because the playbook asks the plan to inspect reality. Caught before any code, resolved cheaply.
+- **Fix applied here:** The plan recorded it under Docs vs reality and created one `failed` fixture row (`pc-topup-268`) through `Wallet_Service`, so no ledger write bypassed the service and no money was claimed; the Step 1 guide says where the row came from. The sprint text is unchanged.
+- **Transferred to playbook:** pending — a manual verification that relies on specific data should name its source (an existing environment, a seeder, or a fixture the step creates).
+
+---
+
 ## 2026-09-17 — [stripe] A repo-root `grep` skips all three app repositories, so "it is gone" was almost verified against nothing
 - **Incident:** Sprint 1 Step 5 removes LiqPay from every repository, and `SPRINT-1.md` makes `grep -ri liqpay` across the three repositories its evidence. Run from the project root, that grep returned only `docs/*` files — reading exactly like a clean pass. The application code was never searched: a scoped `grep` in `backend/` immediately found seven lines the root grep had not reported. Had the root result been trusted, the step would have reported "LiqPay is gone from the code" on evidence that never looked at the code.
 - **Root cause:** Two things compound. The root repository's `.gitignore` lists `/backend/`, `/frontend/` and `/admin/` on purpose — they are separate git repositories (`ARCHITECTURE.md` → Overview). The session's `grep` is a wrapper that honours ignore files, so every recursive search started at the root silently excludes all three applications. Nothing errors and nothing warns; the command exits 0 with a short, plausible answer. `SPRINT-1.md`'s verification says "across the three repositories" without saying that the root is not a vantage point from which they are visible.
