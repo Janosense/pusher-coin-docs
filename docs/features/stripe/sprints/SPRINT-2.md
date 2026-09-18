@@ -34,12 +34,12 @@
 - **Depends on:** Step 1
 
 ## Definition of Done
-- [ ] Every step closed via /close-step (report + verification guide + worklog)
-- [ ] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch in `backend/`; `admin/` passes `npm run lint && npm run build`
-- [ ] Docs match reality (CONTRACTS, DESIGN, ARCHITECTURE, DECISIONS current)
-- [ ] Sprint boundary: the sprint's work merged into `main` per the git model and `backend` `main` pushed (the production FTP release — the two new admin endpoints go live); the admin SPA has no deploy target (`CLAUDE.md` → Deploy), so its screen is verified from the local build against production's API
-- [ ] Tymofii saw LiqPay-era and Stripe rows together on **Top-ups**, filtered by status, with no action available on any row
-- [ ] Tymofii saw the Stripe badge on **Settings** read `test` against the keys in use
+- [x] Every step closed via /close-step (report + verification guide + worklog)
+- [x] The check command (`docs/TECH-STACK.md` → Check command) exits 0 on the sprint branch in `backend/`; `admin/` passes `npm run lint && npm run build`
+- [x] Docs match reality (CONTRACTS, DESIGN, ARCHITECTURE, DECISIONS current)
+- [x] Sprint boundary: the sprint's work merged into `main` per the git model and `backend` `main` pushed (the production FTP release — the two new admin endpoints go live); the admin SPA has no deploy target (`CLAUDE.md` → Deploy), so its screen is verified from the local build against production's API
+- [x] Tymofii saw LiqPay-era and Stripe rows together on **Top-ups**, filtered by status, with no action available on any row
+- [x] Tymofii saw the Stripe badge on **Settings** read `test` against the keys in use
 
 ## Out of scope
 - Any action on a top-up row (refund, block the player, mark disputed) — out of v1; a later feature with its own `DECISIONS.md` entry.
