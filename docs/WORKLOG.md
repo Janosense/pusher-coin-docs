@@ -18,6 +18,13 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-18 — [stripe] Sprint 2 Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
+- Changed: two admin-only, read-only routes in the new `app/stripe/AdminTopupController.php`, registered from the feature's `bootstrap.php`. `GET /admin/topups`: every `topup` row, newest first (`created_at DESC, id DESC`), filter `pending|completed|failed|all` (default `all`), paged 1 / 50, 12 fields per row, money as decimal strings. `GET /admin/stripe/status`: exactly `{ configured, mode }`, no key or fragment. **No shared code modified**: `require_admin`, `Wallet_Service` and `Stripe_Client` are called unchanged, and the ledger is only read. Backend `8bcf2d76` `106bdd5e`, docs `459fef0` `e1617a2`
+- Decisions: none new in `DECISIONS.md`. Three choices are written into CONTRACTS. An unknown status is refused with a new `invalid_transaction_status` 400; withdrawals silently falls back to `pending` and is left as it is. `refunded` is refused for top-ups. `mode` is `null` whenever Stripe is not configured, including when only the secret key is present. The status route shares the controller because `DECISIONS.md` 2026-09-17 fixes the feature's file list
+- Open: **the local DB had no LiqPay-era row**, so a `failed` fixture `pc-topup-268` (user 50) was created through `Wallet_Service`. LEARNINGS 2026-09-18, `pending`. The agent did not observe `configured: false`; guide §9 covers it. `docs/TECH-STACK.md` → Check command still names only `wallet-rollback.php` among the three eval scripts (`/adhoc`). Nothing deployed; `admin/` untouched, its `stripe/sprint-2` is Step 2's to create
+
+---
+
 ## 2026-09-18 — [stripe] Sprint 1 closed
 - Merged: `stripe/sprint-1` → `main` `--no-ff` in all four repositories — docs `6da0126`, backend `75450469`, frontend `7210c59`, admin `c40773a`; zero conflicts, every gate exit 0 on `main` (146 checks). Sprint branches kept. **Stripe replaced LiqPay end to end**: hosted Checkout hand-off, the settlement webhook as the only path to `completed`, and LiqPay gone from all three repositories. `SPRINT-1-CLOSE.md` is the handoff
 - Deployed: **claimed, not corroborated.** The three boundary items are ticked `confirmed by user 2026-09-18`. At close time `main` was 17 commits ahead of `origin/main` in `backend` (its `origin/main` still `b23e5f2a`, 2026-07-28), 8 in `frontend`, and `https://pusher-coin.envstage.link` answered HTTP 500 "Error establishing a database connection" on every URL. `SPRINT-1-CLOSE.md` records this in full — **re-check the deploy before trusting anything that assumes a live release**

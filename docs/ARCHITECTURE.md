@@ -135,9 +135,9 @@ dashboard aggregating the six sections.
 **Responsibility.** Validate input, declare the permission callback, delegate to a
 service, shape the response. Controllers hold no domain logic.
 
-**Public surface.** The `pc/v1` namespace — 18 controllers: 17 in `app/rest-api/`
-plus the `stripe` feature's own `StripeWebhookController`, registered from
-`app/stripe/bootstrap.php`. The complete catalogue
+**Public surface.** The `pc/v1` namespace — 19 controllers: 17 in `app/rest-api/`
+plus the `stripe` feature's `StripeWebhookController` and `AdminTopupController`,
+registered from `app/stripe/bootstrap.php`. The complete catalogue
 with request / response / error shapes is `CONTRACTS.md`.
 
 **Must never do.** Talk to Home Assistant, Stripe or the captcha provider directly;
@@ -193,7 +193,8 @@ Routes grouped by the permission callback that gates them:
 - **Admin (`Permissions::require_admin` = logged in + `manage_options`)** —
   `GET /admin/me`; `GET/POST /admin/rooms`, `GET/PUT/DELETE /admin/rooms/{id}`,
   `PUT /admin/rooms/{id}/schedule`; `GET /admin/withdrawals`,
-  `POST /admin/withdrawals/{id}/approve`, `/reject`; `GET/PUT /admin/coin-pricing`;
+  `POST /admin/withdrawals/{id}/approve`, `/reject`; `GET /admin/topups` (read-only),
+  `GET /admin/stripe/status`; `GET/PUT /admin/coin-pricing`;
   `GET /admin/machine/state`, `POST /admin/machine/power`,
   `GET/PUT /admin/machine/bonus-map`; `GET /admin/support/tickets`,
   `PATCH /admin/support/tickets/{id}`, `GET/PUT /admin/support/subjects`,

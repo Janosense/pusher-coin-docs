@@ -12,7 +12,7 @@
 
 ## Steps
 
-### [ ] Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
+### [x] Step 1 — `GET /admin/topups` and `GET /admin/stripe/status`
 - **Tasks:**
   - `app/stripe/AdminTopupController.php`, registered by the existing `app/stripe/bootstrap.php`. `GET /pc/v1/admin/topups` behind `Permissions::require_admin`: `?status=pending|completed|failed|all` (default `all` — unlike withdrawals, there is no queue to work), `?page&per_page` (defaults 1 / 50), rows of `type = topup` newest first, read the way `AdminWithdrawalController::list_withdrawals` reads them; items carry `id`, `user_id`, `user_email`, `user_nickname`, `amount_money`, `amount_coins`, `unit_price`, `status`, `external_ref`, `notes`, `created_at`, `settled_at`; `total`, `page`, `per_page` as in withdrawals. Invalid status → `invalid_transaction_status` 400 (reuse the existing code if withdrawals has one).
   - `GET /pc/v1/admin/stripe/status` behind `require_admin`: `{ "configured": bool, "mode": "test" | "live" | null }` from `Stripe_Client::is_configured()` and `mode()`. Nothing else in the body.

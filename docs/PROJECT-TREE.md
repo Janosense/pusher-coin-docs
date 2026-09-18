@@ -82,6 +82,7 @@ pusher-coin/
 │   │       │   │   │   ├── UserController.php
 │   │       │   │   │   └── WalletController.php     # Phase 4: GET /wallet + POST /wallet/topup + /withdraw
 │   │       │   │   ├── stripe/            # Feature `stripe`: reached only through bootstrap.php
+│   │       │   │   │   ├── AdminTopupController.php # GET /admin/topups (read-only list) + GET /admin/stripe/status (configured, mode)
 │   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
 │   │       │   │   │   ├── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
 │   │       │   │   │   └── StripeWebhookController.php # POST /payments/stripe/webhook — the only place a top-up reaches `completed`
