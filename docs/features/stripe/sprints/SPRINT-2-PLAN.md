@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 2, Step 1: `GET /admin/topups` and `GET /admin/stripe/status`   (status: approved, in progress)
+## Plan — Sprint 2, Step 1: `GET /admin/topups` and `GET /admin/stripe/status`   (status: implemented, awaiting close)
 
 ### Branch
 `stripe/sprint-2-admin-endpoints` ← `stripe/sprint-2` ← `main`, in **`backend/` and the
@@ -224,3 +224,32 @@ real test keys. That file is git-ignored, so the edit can never reach a commit.
 
 ### Questions / ambiguities
 none
+
+### Execution notes (for `/close-step`)
+- **Commits.** Backend `8bcf2d76` (task 1), `106bdd5e` (task 2). Docs `459fef0`
+  (task 1), `e1617a2` (task 2). Branch `stripe/sprint-2-admin-endpoints` ← `stripe/sprint-2`
+  ← `main`, created in `backend/` and the root docs repository only.
+- **Check command.** `backend/bin/check` exit 0 before each commit and once more at the
+  end: `php -l: 49 files OK`, DDEV stage **run**, `39 / 54 / 53` checks passed (146).
+- **Local fixture written.** Transaction **#268**: user 50 (`stripe-step3-check`),
+  `topup`, `80.00` / 2 coins @ `40.00`, `failed`, `external_ref = pc-topup-268`,
+  `notes = local verification fixture`. It was created through `Wallet_Service::record_transaction`
+  + `set_external_ref`, moves no coins, and stays for the user's verification.
+- **Observed by hand** (admin = user 1, player = user 50, bearers from
+  `\PC\AuthController::issue_access_token`):
+  - `GET /admin/topups` → 200, `total` 4, order `268, 197, 95, 59`, every item exactly
+    the 12 keys, `amount_money` / `unit_price` JSON strings. `pc-topup-268`, `null`
+    (#197) and two `cs_test_…` refs.
+  - `?status=failed` → 2 (`268`, `197`), `pending` → 1 (`59`), `completed` → 1 (`95`),
+    `all` and empty → 4. `?per_page=1&page=2` → `197`, `page=5` → empty items, total 4.
+  - `?status=refunded` and `?status=bogus` → 400 `invalid_transaction_status`.
+  - No bearer → 401 `rest_forbidden`; player bearer → 403 `rest_forbidden`, on both routes.
+  - `GET /admin/stripe/status` → `{"configured":true,"mode":"test"}` byte for byte, no
+    `sk_` / `whsec_` in the body.
+- **Not observed by the agent:** the unconfigured body (`configured: false, mode: null`).
+  It needs a local `wp-config.php` edit, which holds the real test keys, and is left to
+  the user's verification as planned.
+- **One addition beyond the plan's wording, same file:** task 2 also reworded the
+  `docs/PROJECT-TREE.md` comment that task 1 added, so the line names both routes the
+  file now holds (core rule 5). No other deviation.
+- `docs/features/stripe/FEATURE.md` → Interfaces unchanged: both shapes are as it lists them.
