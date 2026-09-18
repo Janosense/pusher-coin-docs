@@ -19,6 +19,14 @@ Entry format:
 
 ---
 
+## 2026-09-18 — [realtime] A sprint step's own manual check would have broken the behaviour it promised
+- **Incident:** `SPRINT-1.md` Step 3's verification creates a second room carrying a live room's machine id, leaves it unavailable, and promises "the existing room keeps working throughout". Attribution (`Queue_Service::room_id_for_machine()`) took the newest room with the id, available or not. So that very scenario would have sent the live room's payouts to the empty room. The step also frames its rule per machine id, while `Machine_Service` drives one physical machine whatever the id, so two open rooms with *different* ids still share it.
+- **Root cause:** The sprint was written from `DOMAIN.md` and `BACKEND-REVIEW.md` §12, not from the code that decides where a payout lands. A manual-verification scenario is data the code then acts on, and nobody traced it through.
+- **Fix applied here:** `/plan-step` read the lookup and raised Question 1, and the user chose to fix it in the step (task 5). The per-id limit is stated in `BACKEND-REVIEW.md` §12, `FEATURE.md` invariant 5 and the `ROOM_MACHINE_ID` row of `DATA-MODEL.md`. Caught before any code, like the 2026-09-18 `stripe` entries.
+- **Transferred to playbook:** pending. Discovery should trace each step's manual-verification scenario through the code paths it touches, and check that a rule keyed on an identifier matches what the code actually keys on.
+
+---
+
 ## 2026-09-18 — [realtime] A spike plan asked for a 24-hour unattended session when stored history already held the evidence
 - **Incident:** `/plan-step realtime 1 2` planned the venue day as a 24-hour live recording. The Claude Code session had to stay open that whole time, with the laptop left plugged in and online. The user could not wait ("I can't wait that long"). Home Assistant's stored history turned out to answer the coin, relay and bonus questions in minutes, including ~200 past toss presses to time against. The spike's own Session A (fact 6) had already found that ten days of history existed.
 - **Root cause:** The plan followed the step text ("one venue day of passive logging") literally. It did not weigh an evidence source it already knew of against the cost to a user who verifies by hand, and it did not ask whether a day-long session was feasible. `/do-step` runs a step as one session, so any wait inside a step ties up that session.

@@ -539,7 +539,7 @@ none
 
 ---
 
-## Plan — Sprint 1, Step 3: One machine, one active room   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 3: One machine, one active room   (status: closed)
 
 ### Branch
 `realtime/sprint-1-one-machine` ← `realtime/sprint-1`, in **two** repositories:

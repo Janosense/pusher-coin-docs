@@ -45,7 +45,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the transport entry); `docs/PUSHER-COIN-COMMANDS.txt` where the machine contradicts it (the relay entity at least); `docs/ROADMAP.md` Phase 5 §6 — the walk-through it wanted is replaced by this observation.
 - **Depends on:** —
 
-### [ ] Step 3 — One machine, one active room
+### [x] Step 3 — One machine, one active room
 - **Tasks:**
   - `AdminRoomController` refuses to set a room `available` when another non-trashed room carries the same `pc_room_machine_id` and is itself available. New error code `machine_already_in_use`.
   - `Queue_Service` refuses a join for a room whose machine is claimed by another available room, so existing bad data cannot start a second queue before the operator fixes it.
