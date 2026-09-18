@@ -33,7 +33,7 @@
 - **Docs to update:** `docs/features/realtime/FEATURE.md` → Fit into the host.
 - **Depends on:** —
 
-### [ ] Step 2 — Spike: how machine events leave Home Assistant
+### [x] Step 2 — Spike: how machine events leave Home Assistant
 - **Tasks:**
   - Spike code is throwaway and is not merged into `main`. Timebox: one working session at the desk plus one venue day of passive logging.
   - **Desk, first:** sample `GET /api/states/` for `sensor.coin`, `sensor.lc01_12`, `sensor.relay_on` and `sensor.sw_b_t_relay` twice, 60 s apart, while nothing happens, and compare `last_reported` with `last_changed`. If `last_reported` moves while `state` does not, the integration re-reports unchanged values and a repeated bonus number is observable through `last_reported` or `context.id`; if it does not move, a repeat is invisible to every transport and Step 4 must not price payouts from the bonus number alone.

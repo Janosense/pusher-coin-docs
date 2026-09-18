@@ -18,6 +18,14 @@ sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
 
 ---
 
+## 2026-09-18 — [realtime] Sprint 1 Step 2 — Spike: how machine events leave Home Assistant
+- Changed: documents only; no code anywhere. `DECISIONS.md` gains the spike entry: **WordPress polls Home Assistant's history** through `Machine_Service`, `event_key` = `ha:{entity_id}:{last_updated}`, **65 s** from coins landing to the credit on a 60-s schedule. Dated observation notes went into `PUSHER-COIN-COMMANDS.txt` and into `DOMAIN.md` (the Relay and Bonus rows). ROADMAP Phase 5 §6 → `[partial]`, with matrix row 6 and the Dima question. **Shared code: none touched.** Docs `e6ebd27` `72c3b3c`. The scratchpad logger, scripts and logs were never committed
+- Decisions: the transport, chosen by the user (recommended option). The observed model: `sensor.coin` counts coins paid out since the last toss, and a toss resets it (13 of 14 resets 0.09–1.98 s after a press); `sensor.relay_on` follows the relay buttons, normal `1` = closed, no payout signal; `sensor.sw_b_t_relay` never moved; nothing is re-reported, so a repeat is invisible; no bonus in ten days (recorded unknown)
+- Deviation: the user cut the 24-h venue day ("I can't wait that long") in favour of ten days of HA history, a 2-h live recording and 1 announced press. LEARNINGS 2026-09-18 ×2: the 24-h plan, and a mid-run question answered by carrying on
+- Open: **every toss is refused (423) while the machine is on**, because `get_relay_closed()` reads the normal `1` as closed (`core`, `/adhoc`). Step 4 must credit only from `sensor.coin` (not from bonus or relay). Sprint 2 Step 3's relay lock has no signal to follow. A second press at 13:17:04Z came from the same HA user, not from the spike. The user holds `~/.pusher-coin-ha-token`. Whether production has a real cron is Step 5's to find out
+
+---
+
 ## 2026-09-18 — [realtime] Sprint 1 Step 1 — Delta-audit
 - Changed: `docs/features/realtime/FEATURE.md` → Fit into the host only, no code anywhere. It lists 13 backend and 7 player-SPA `core` files with file:line, why each matters and the step that changes it, plus the conflicts with `core`'s and `stripe`'s invariants. It confirms the one-line `app/realtime/bootstrap.php` entry (the `Features` block of `functions.php`, routes on `rest_api_init` as `stripe` does), records check coverage and its gaps, and confirms no step of Sprints 1–3 edits `admin/`. Review §12 → S1.3, §15 → S2.5. **Shared code: read, not modified.** `realtime/sprint-1` exists in the root docs repository only; docs `46fa55f` `99b6120`. The user deleted the five abandoned `realtime/*` branches first
 - Decisions: none new. LEARNINGS 2026-09-18: the plan took its base commit from the session-start snapshot (`cfc3d75`; `main` was `1cfa370`)

@@ -23,6 +23,27 @@ NOTE 2026-09-16: the power switch was renamed in Home Assistant. The old
 still carry the old device id). Verified against the live instance during the
 realtime Sprint 1 Step 2 spike.
 
+NOTE 2026-09-18: what the machine actually reports, observed in the realtime
+Sprint 1 Step 2 spike (DECISIONS.md 2026-09-18 "Spike: machine events reach
+WordPress by polling Home Assistant's history"). The lines further down, and the
+defaults table, are left as they were; the table still shows the code's defaults,
+which later realtime steps change.
+  - sensor.coin counts the coins paid out since the last toss. A press of
+    input_button.toss_a_coin resets it to 0 within about 2 s. It rises in steps
+    on a ~2 s Modbus cycle, sometimes several at once, and is 0 after every
+    power-on. It is not a running total.
+  - sensor.relay_on reflects the relay the buttons below switch: about 1.1 s
+    after input_button.relay_off it reads 0, and after input_button.relay_on it
+    reads 1. Its normal state is 1 ("closed", by the button names). It does
+    not change during payouts.
+  - sensor.sw_b_t_relay (not listed below) exists and stayed 0 for ten days,
+    including while the relay was switched.
+  - sensor.lc01_12 was 0 in every reading over ten days: no bonus was seen.
+  - Unchanged values are never re-reported (last_reported always equals
+    last_updated), so the same value written twice leaves no trace.
+  - With the power off, the sensors read "unavailable" after about 3.5 min; after
+    power-on they come back as one batch 9-45 s later.
+
     pc_machine_endpoint               https://developer-it.com/api
     pc_machine_power_switch_entity    switch.s60tpf
     pc_machine_toss_button_entity     input_button.toss_a_coin

@@ -19,6 +19,22 @@ Entry format:
 
 ---
 
+## 2026-09-18 — [realtime] A spike plan asked for a 24-hour unattended session when stored history already held the evidence
+- **Incident:** `/plan-step realtime 1 2` planned the venue day as a 24-hour live recording. The Claude Code session had to stay open that whole time, with the laptop left plugged in and online. The user could not wait ("I can't wait that long"). Home Assistant's stored history turned out to answer the coin, relay and bonus questions in minutes, including ~200 past toss presses to time against. The spike's own Session A (fact 6) had already found that ten days of history existed.
+- **Root cause:** The plan followed the step text ("one venue day of passive logging") literally. It did not weigh an evidence source it already knew of against the cost to a user who verifies by hand, and it did not ask whether a day-long session was feasible. `/do-step` runs a step as one session, so any wait inside a step ties up that session.
+- **Fix applied here:** Mid-step, the user chose stored history plus announced presses (plan task 4 records the change). For this project, a plan that needs a session open for hours states that wall-clock cost up front and names any cheaper recorded source first.
+- **Transferred to playbook:** pending — `/plan-step` could require a step's wall-clock cost to be stated whenever it exceeds one working session.
+
+---
+
+## 2026-09-18 — [realtime] A one-line question during `/do-step` was answered by carrying on with the step
+- **Incident:** During `/do-step` the user wrote "check the token". The agent ran the token check, which passed, and then went on in the same turn to write and trial-run the logger without first answering. The user interrupted: "What are you doing??? … I need a simple answer from you."
+- **Root cause:** `/do-step` had authorised the tasks, so the agent treated the mid-turn message as a sub-task of the run, not as a question expecting a plain answer and a pause. With a user-verified profile the user cannot follow tool output, so progress without an answer reads as being ignored.
+- **Fix applied here:** Answered in one sentence, stopped, and waited. For this project, a user message that arrives mid-run gets a plain answer first; the run continues only after that, or when the message itself says to continue.
+- **Transferred to playbook:** pending
+
+---
+
 ## 2026-09-18 — [realtime] A plan named its base commit from the session-start snapshot, and the execution notes then guessed why it differed
 - **Incident:** `/plan-step realtime 1 1` wrote "`main` (`cfc3d75` at plan time)". That id came from the git status the session is handed at start, not from a live `git rev-parse main`, and `main` had already moved to `1cfa370` at 12:39:44, 21 minutes before the plan file was written. `/do-step` saw the difference and correctly checked that Step 1's text was unchanged. But it then wrote in the plan's execution notes that the sprint text "sat uncommitted on disk during planning". That was an inference stated as fact, and the reflog does not support it. It was corrected at `/close-step`.
 - **Root cause:** The session-start git status is a snapshot, and nothing in `/plan-step` asks for a named commit id to be read live. When reality later differed, the agent explained the gap instead of looking it up. `git reflog --date=iso main` answers it in one line.
