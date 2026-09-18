@@ -1119,6 +1119,34 @@ exists; `user_nickname` falls back to the display name. `settled_at` is
 Errors: `rest_forbidden` 401 (not logged in) / 403 (not admin);
 `invalid_transaction_status` 400.
 
+### `GET /pc/v1/admin/stripe/status`
+
+Whether Stripe is configured on this server, and on which keys. Bearer +
+admin gate. Feature `stripe` (`AdminTopupController`). Read by the admin
+SPA's Settings.
+
+Response (`200`) — exactly two fields, one of:
+```json
+{ "configured": true, "mode": "test" }
+{ "configured": true, "mode": "live" }
+{ "configured": false, "mode": null }
+```
+
+`configured` reports only whether **both** wp-config constants,
+`PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET`, are present.
+`mode` is derived from the secret key's prefix (`sk_test_` → `test`,
+`sk_live_` → `live`). It is `null` whenever `configured` is false (a
+half-configured server takes no payment — `POST /wallet/topup` answers
+`stripe_not_configured` — so a mode would describe nothing), and also
+for a key with any other prefix.
+
+**Nothing else leaves the server** — no key, no fragment of one, no
+prefix, no webhook URL (`DECISIONS.md` 2026-09-17 "Stripe
+configuration: two wp-config constants, a derived status in Settings").
+Configuration is a wp-config edit on the server; there is no `PUT`.
+
+Errors: `rest_forbidden` 401 (not logged in) / 403 (not admin).
+
 ### `GET /pc/v1/admin/coin-pricing`
 
 Read the operator-tunable per-coin price bounds. Bearer + admin gate.

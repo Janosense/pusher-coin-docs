@@ -83,7 +83,7 @@ documentation task. Each task leaves `backend/bin/check` green on its own.
   → backend commit `feat(stripe): GET /admin/topups — the read-only list of top-ups`;
     docs commit `docs(stripe): GET /admin/topups in CONTRACTS, ARCHITECTURE, PROJECT-TREE`
 
-- [ ] **2. `GET /pc/v1/admin/stripe/status`.** A second route in the same controller,
+- [x] **2. `GET /pc/v1/admin/stripe/status`.** A second route in the same controller,
   registered by its own `register_routes()` at the explicit path `/admin/stripe/status`.
   - Why the same file: `DECISIONS.md` 2026-09-17 ("`stripe` code lives in
     `app/stripe/`…") lists the feature's backend files. `AdminTopupController.php` is

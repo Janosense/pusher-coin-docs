@@ -193,8 +193,8 @@ Routes grouped by the permission callback that gates them:
 - **Admin (`Permissions::require_admin` = logged in + `manage_options`)** —
   `GET /admin/me`; `GET/POST /admin/rooms`, `GET/PUT/DELETE /admin/rooms/{id}`,
   `PUT /admin/rooms/{id}/schedule`; `GET /admin/withdrawals`,
-  `POST /admin/withdrawals/{id}/approve`, `/reject`; `GET /admin/topups` (read-only);
-  `GET/PUT /admin/coin-pricing`;
+  `POST /admin/withdrawals/{id}/approve`, `/reject`; `GET /admin/topups` (read-only),
+  `GET /admin/stripe/status`; `GET/PUT /admin/coin-pricing`;
   `GET /admin/machine/state`, `POST /admin/machine/power`,
   `GET/PUT /admin/machine/bonus-map`; `GET /admin/support/tickets`,
   `PATCH /admin/support/tickets/{id}`, `GET/PUT /admin/support/subjects`,
