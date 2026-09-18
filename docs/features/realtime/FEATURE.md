@@ -25,7 +25,31 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
 ## Fit into the host
 - **Code location:** `backend/wp-content/themes/pc/app/realtime/`, `frontend/src/services/realtime.js`, `admin/src/services/realtime.js`
 - **Host area:** the repository root — the project's single code area, governed by the root `CLAUDE.md`
-- **Entry point:** one `require_once TEMPLATE_DIR . '/app/realtime/bootstrap.php'` line in `functions.php`, the same pattern `app/stripe/bootstrap.php` uses; in each SPA, one import from the store that consumes the channel
+- **Entry point:** one `require_once TEMPLATE_DIR . '/app/realtime/bootstrap.php'` line in `functions.php`, the same pattern `app/stripe/bootstrap.php` uses; in each SPA, one import from the store that consumes the channel.
+  Confirmed 2026-09-18: the line goes in the `Features` block next to `stripe`'s
+  (`functions.php:14-17`) — after `app/utils.php` (`:12`), so `core`'s services and the
+  two hooks (`queue-service.php:496-497`) exist, and before `app/rest-api.php` (`:23`).
+  Routes register on `rest_api_init` inside the bootstrap (`app/stripe/bootstrap.php:23-26`),
+  never through `app/rest-api.php`. SPA side: `frontend/` only, from Sprint 2.
+- **Check coverage** (audited 2026-09-18): `backend/bin/check` lints every PHP file under the
+  theme, so `app/realtime/` from its first file, and runs any new `tests/*.php` unedited;
+  `frontend/bin/check` lints and builds all of `src/`. Both exit 0 on `main`. Gaps: the money
+  checks run only with DDEV up (else a boxed `SKIPPED`, exit 0) and CI never runs them; a
+  S1.5 artefact outside the theme — a worker, a cron line, an HA automation kept as
+  documentation — is covered by no check, so S1.5's plan names its own.
+- **`admin/`:** no step of Sprints 1–3 edits it, so its missing check script does not bite.
+  S1.3's check runs on the **Room form** (`RoomFormView.vue`, not Room list), which already
+  shows the server's `message` (`admin/src/stores/rooms.js`). Still stale or unbuilt, with no
+  step: `MachineView.vue:156,160,168` names `sensor.coin` / "Relay closed (`sensor.relay_on`)"
+  and promises push from "Phase 5 Step 4" — wrong if S1.2 moves the relay entity (`/adhoc`);
+  `admin/src/services/realtime.js`, a code path above, is the Roadmap's "left for later".
+- **`BACKEND-REVIEW.md` items:** §12 (two rooms, one machine) → S1.3, named; its citation
+  `machine-service.php:38` is now `power_on()` — the attribution site is `queue-service.php:435`.
+  §15 (duplicate sessions) → S2.5, named. §10, bullet by bullet: a database error reported as a
+  duplicate (`machine-events.php:85`) → S1.4 depends on it, does not name it; a failed refund
+  loses the coin (`RoomQueueController.php:187`) → **unassigned**; the 2-s timeout makes a slow
+  toss free (`machine-service.php:30`) → **unassigned**. Purpose & scope puts all of §10 here, so
+  the two unassigned bullets need re-planning (an appended step) or `/adhoc`.
 - **Shared code it depends on** — all owned by `core`; editing any of it is a plan task
   marked **"touches shared code"**. Delta-audit 2026-09-18 (Sprint 1 Step 1), file:line
   on `main` (backend `5ebe9610`, frontend `7210c59`); "S1.4" = Sprint 1 Step 4.
