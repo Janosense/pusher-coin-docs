@@ -127,7 +127,7 @@ stays under `CONTRACTS.md`'s control.
 | `ROOM_STATUS` | `pc_room_status` | `available` \| `maintenance` \| `unavailable` | Values exposed as `ROOM_STATUS_*` constants. |
 | `ROOM_THEME_SONG_URL` | `pc_room_theme_song_url` | string (URL) | Optional. |
 | `ROOM_STREAM_URL` | `pc_room_stream_url` | string (URL) | HLS / LL-HLS / embed / direct-video endpoint. |
-| `ROOM_MACHINE_ID` | `pc_room_machine_id` | string | Maps the room to a Home Assistant machine. The link that makes a machine event attributable. |
+| `ROOM_MACHINE_ID` | `pc_room_machine_id` | string | Maps the room to a Home Assistant machine. The link that makes a machine event attributable. At most one non-trashed `available` room may carry a given non-empty id. `POST`/`PUT /admin/rooms` refuse a second with `machine_already_in_use`, a queue join into a room caught in such a pair is refused with the same code, and `wp pc machine-rooms` reports what already exists (`Machine_Rooms`, `realtime` Sprint 1 Step 3). An empty id claims nothing. |
 
 ### CPT `pc_support_subject`
 

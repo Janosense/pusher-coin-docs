@@ -102,9 +102,17 @@ works only because someone uploaded `vendor/` by hand.
 11. **LiqPay `sandbox` payments count as real money** (`rest-api/PaymentController.php:78`).
     A chargeback that arrives after coins were credited is ignored without being logged
     (`rest-api/PaymentController.php:74`).
-12. **Every room drives the same physical machine** (`utils/machine-service.php:38`). If two
+12. **[settled 2026-09-18 for rooms that name the same machine id — `realtime` Sprint 1
+    Step 3]** **Every room drives the same physical machine** (`utils/machine-service.php:38`). If two
     rooms are set "available", two separate queues control one machine, and wins can go to
     the wrong player.
+    *Settled:* a non-empty `pc_room_machine_id` can back only one available room.
+    `POST`/`PUT /admin/rooms` refuse a second with `machine_already_in_use`, a queue join
+    into a pair already in the data is refused, and `wp pc machine-rooms` lists shared ids
+    (`app/realtime/machine-rooms.php`).
+    *Still true:* `Machine_Service` drives one physical machine whatever the id, so two
+    available rooms with **different** or **empty** ids still share it. The guard protects
+    the machine only when the id names it.
 13. **Public room endpoints expose unfinished rooms.** They show draft and even trashed rooms
     (`rest-api/RoomController.php:59, 108`).
 14. **Money is sometimes handled as a float,** which the TECH-STACK.md rules forbid:

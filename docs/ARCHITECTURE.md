@@ -220,11 +220,16 @@ themes/pc/
 ├── GOOGLE_AUTH_SETUP.md     # Operator notes for Google OAuth (parked)
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
 ├── tests/
+│   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
     ├── rest-api/            # The 18 controllers listed above
+    ├── realtime/            # Feature `realtime` — machine events into WordPress, and the rooms that claim a machine
+    │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
+    │   ├── machine-rooms.php         # Machine_Rooms: which rooms claim a machine
+    │   └── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
     ├── stripe/              # Feature `stripe` — the ONLY code that talks to Stripe
     │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
     │   └── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
@@ -254,8 +259,8 @@ themes/pc/
             └── machine-ingest.php          # `wp pc machine-ingest` — replay / test a machine event
 ```
 
-**Feature directories.** A feature added after the playbook (`app/stripe/`, and
-`app/realtime/` when it lands) owns a directory beside `utils/` and is reached through
+**Feature directories.** A feature added after the playbook (`app/stripe/`,
+`app/realtime/`) owns a directory beside `utils/` and is reached through
 exactly one `require_once` of its `bootstrap.php` in `functions.php`. Nothing else in
 the theme requires a file from a feature directory directly.
 
@@ -348,8 +353,9 @@ exact lot price. A successful toss increments `coins_played` on the session.
 writes `wp_pc_machine_events` (idempotent on `event_key`); `Machine_Ingest_Service`
 turns a bonus / relay-closed / coins-dropped event into a wallet credit, resolving
 the player through the `pc_machine_event_player` filter and announcing the credit
-through `pc_machine_event_credited`. `Queue_Service` hooks both (machine id → room
-via `pc_room_machine_id` → open session → player; then bumps `coins_won` /
+through `pc_machine_event_credited`. `Queue_Service` hooks both (machine id → the
+available room carrying that `pc_room_machine_id`, which `realtime`'s one-machine rule
+keeps unique, else the room that carries it → open session → player; then bumps `coins_won` /
 `money_won` on the session, which `UserControls` shows as per-turn winnings).
 Machine payouts credit coin lots directly at the player's FIFO-head lot price and
 are audited in `wp_pc_machine_events`, never in the ledger — the player's history
