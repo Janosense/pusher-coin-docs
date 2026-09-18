@@ -536,3 +536,249 @@ none
 - **Gate.** `backend/bin/check` exit 0 (stage 2 executed: `stripe-client.php`,
   `stripe-webhook.php`, `wallet-rollback.php`) and `frontend/bin/check` exit 0, before
   each commit.
+
+---
+
+## Plan — Sprint 1, Step 3: One machine, one active room   (status: implemented, awaiting close)
+
+### Branch
+`realtime/sprint-1-one-machine` ← `realtime/sprint-1`, in **two** repositories:
+- **root docs:** from `realtime/sprint-1` (`0ec8ad0`);
+- **`backend/`:** its first `realtime` step, so `realtime/sprint-1` is cut there first,
+  from `main` (`5ebe9610`), then the task branch from it.
+
+`frontend/` and `admin/` are not touched (the player SPA and the admin Room form already
+show the server's error message — see Checks). Nothing is pushed.
+
+### Tasks (ordered)
+Every backend commit is gated by `backend/bin/check` with DDEV running, so the new test
+script executes. Each backend commit is followed by the docs commit that describes it.
+The two repositories cannot share a commit, which is how `stripe` did it.
+
+- [x] **1. Branches** — as above. *No commit.*
+
+- [x] **2. `app/realtime/` lands, with the report** — *touches shared code (`functions.php`,
+  owned by `core`; the `stripe` bootstrap line sits in the same block)*.
+  - `app/realtime/bootstrap.php` — the feature's single entry point. It requires the two
+    files below; routes come in Step 4. `functions.php` gains
+    `require_once TEMPLATE_DIR . '/app/realtime/bootstrap.php';` after `stripe`'s line
+    (`functions.php:17`), as Step 1 recorded.
+  - `app/realtime/machine-rooms.php` — `PC\Machine_Rooms`, the one place the rule is
+    computed:
+    - `claimants( string $machine_id, int $except_room_id = 0 ): array` — the
+      non-trashed `pc_room` posts (`post_status => 'any'`, which excludes trash) whose
+      `Post_Meta_Keys::ROOM_MACHINE_ID` equals the id and whose `ROOM_STATUS` is
+      `available`, minus `$except_room_id`. An empty id has no claimants.
+    - `shared(): array` — every non-empty machine id carried by more than one
+      non-trashed room: its rooms (id, title, post status, room status) and
+      `conflict = true` when two or more of them are `available`.
+  - `app/realtime/machine-rooms-command.php` — `wp pc machine-rooms [--format=table|json|csv]`
+    prints `shared()`. It says "No machine id is held by more than one room." when there
+    is nothing to print, warns once per conflicting id, and always exits 0 (it is a
+    report). Registered behind `defined( 'WP_CLI' )`, as `cli/machine-ingest.php:110-112`
+    does.
+  - `tests/machine-rooms.php` — a new eval script: the WP-CLI + DDEV guard, with
+    throwaway rooms and users removed in `finally` (the `stripe-webhook.php` pattern).
+    This task writes the report checks.
+  → backend `feat(realtime): wp pc machine-rooms — report machine ids held by more than one room`
+  → docs `docs(realtime): app/realtime lands — project tree and architecture`
+    (`PROJECT-TREE.md`: the `realtime/` block, the `functions.php` line and
+    `tests/machine-rooms.php`. `ARCHITECTURE.md`: the theme tree and "`app/realtime/`
+    when it lands", which becomes present tense.)
+
+- [x] **3. The admin refuses a second available room** — *touches shared code
+  (`AdminRoomController.php`, owned by `core`; consumer: the admin SPA's **Room form**)*.
+  - In `create_room` and `update_room`, after validation and **before any write**
+    (`create_room:111` inserts the post before the meta is written, and `update_room:147`
+    renames first). Work out the room's resulting status (the new value, else the
+    stored one, else `unavailable`) and resulting machine id (the new value, else the
+    stored one).
+  - If the room would be `available` with a non-empty machine id that
+    `Machine_Rooms::claimants()` finds on another room, answer
+    `machine_already_in_use`, 409, naming the conflict:
+    *Machine "{id}" is already used by the available room "{title}" (#{ID}). Make that
+    room unavailable first, or give this room another machine id.*
+  - The end state is what counts, so moving an already-available room onto a claimed
+    id is refused as well as switching a room to `available`.
+  → backend `feat(realtime): a machine id can back only one available room`
+  → docs `docs(realtime): machine_already_in_use for admin rooms`
+    - `CONTRACTS.md`: `POST /admin/rooms` and `PUT /admin/rooms/{id}` errors, plus a
+      registry row.
+    - `DATA-MODEL.md`: one sentence on the `ROOM_MACHINE_ID` row stating the rule and
+      where it is enforced.
+    - `FEATURE.md` → Invariants #5.
+
+- [x] **4. A join is refused while another available room claims the machine** —
+  *touches shared code (`queue-service.php`, owned by `core`; consumers: the player
+  SPA's `PlaceBet`, and `realtime`'s attribution)*.
+  - First thing in `Queue_Service::join()` (`queue-service.php:143`), before the balance
+    check, so a player with no coins still gets the true reason: if the room's machine
+    id is non-empty and has another claimant, return `machine_already_in_use`, 409:
+    *This room is closed for now: its machine is also assigned to another open room.
+    Please try again later.*
+  - Both rooms of a bad pair refuse joins. A re-declare counts as a join. Players already
+    queued are not removed; the step names joins only.
+  - `PlaceBet.vue:39-40` falls back to the server's `message` for codes it does not
+    know, so the player reads that sentence; no SPA change.
+  → backend `feat(realtime): refuse a queue join while another available room claims the machine`
+  → docs `docs(realtime): machine_already_in_use on queue join; BACKEND-REVIEW §12 settled`
+    - `CONTRACTS.md`: the join errors and the registry row's endpoints.
+    - `BACKEND-REVIEW.md` §12 marked settled, with the limit stated (see Checks).
+
+- [x] **5. Attribution follows the available room** — *only if Question 1 is answered as
+  recommended*. *Touches shared code (`queue-service.php`; consumer: every machine
+  payout, through the `pc_machine_event_player` filter).*
+  `room_id_for_machine()` (`queue-service.php:435-447`) resolves:
+  - exactly one available room with the id → that room;
+  - none → today's lookup (so a room switched off mid-turn keeps its open session);
+  - two or more → `null`, so bad data leaves a payout unattributed rather than paying
+    the wrong player. `wp pc machine-rooms` shows why.
+  → backend `fix(realtime): attribute a machine event to the available room that carries its id`
+  → docs `docs(realtime): attribution resolves the available room`
+    (`ARCHITECTURE.md:351-352`; `FEATURE.md` → Invariants #5.)
+
+### Files to create/change
+- **`backend/wp-content/themes/pc/` — new:** `app/realtime/bootstrap.php`,
+  `app/realtime/machine-rooms.php`, `app/realtime/machine-rooms-command.php`,
+  `tests/machine-rooms.php`.
+- **`backend/wp-content/themes/pc/` — changed (all `core`):** `functions.php` (one
+  line), `app/rest-api/AdminRoomController.php`, `app/utils/queue-service.php`.
+- **Docs:** `CONTRACTS.md`, `DATA-MODEL.md`, `BACKEND-REVIEW.md`, `ARCHITECTURE.md`,
+  `PROJECT-TREE.md`, `docs/features/realtime/FEATURE.md`, this plan file.
+- **Nothing in `frontend/` or `admin/`.**
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/machine-rooms.php`. It runs on every `backend/bin/check`
+with DDEV up. Fixtures are rooms with a per-run random machine id, one throwaway admin
+and one throwaway player, all removed in `finally`. Checks by task:
+- **Task 2 — the report:**
+  - A pair of available rooms on one id is listed with `conflict = true`.
+  - An available room plus an unavailable room on one id is listed with
+    `conflict = false`.
+  - An id held by one room is not listed.
+  - A trashed room does not count.
+  - Rooms with an empty id are never listed.
+  - `WP_CLI::runcommand( 'pc machine-rooms --format=json' )` returns the conflicting id.
+- **Task 3 — through `rest_do_request` as the admin, so the route's permission
+  callback runs too:**
+  - Creating a second room `available` on a claimed id → 409 `machine_already_in_use`,
+    the message names the other room, and **no post was created**.
+  - Creating it `unavailable` → 201. Switching it to `available` → 409, and neither its
+    status nor its name changed.
+  - Moving another available room onto the claimed id → 409.
+  - The claiming room saving itself → 200.
+  - `maintenance` / `unavailable` / trashed rooms do not claim.
+  - Two available rooms with **empty** ids → both 201 (the step: "a room with an empty
+    machine id is unaffected").
+- **Task 4 — joins:**
+  - A bad pair (written straight to meta, as old data would be) refuses a join into
+    either room with `machine_already_in_use` 409, for a player with no coins.
+  - A room with a unique id and a room with an empty id do **not** answer
+    `machine_already_in_use`: the no-coin player gets `insufficient_balance`, which
+    proves the guard let the join through. No money row is written.
+- **Task 5 — attribution:**
+  - An available room plus a **newer** unavailable room on one id → the available one.
+  - Only an unavailable room → that room.
+  - A bad pair → `null`.
+No existing test changes: no other script touches rooms or joins, and no permission
+callback changes.
+
+### Docs to update
+The three the step names: `docs/CONTRACTS.md` (the error code, its three endpoints, the
+registry), `docs/features/realtime/FEATURE.md` → Invariants #5, and `docs/BACKEND-REVIEW.md`
+(§12). Also, per root `CLAUDE.md` and core rule 5, the ones the change makes stale:
+- `docs/PROJECT-TREE.md` and `docs/ARCHITECTURE.md` (a new directory and files);
+- `docs/DATA-MODEL.md` (the `ROOM_MACHINE_ID` row now has a rule);
+- `ARCHITECTURE.md`'s attribution line (task 5).
+
+### Checks
+- **ANTI-PATTERNS:** none violated.
+  - No `ENUM`, no money path, no new route, so no new `permission_callback`.
+  - Meta keys only through `Post_Meta_Keys` constants.
+  - Product code deletes nothing; only the test removes its own fixtures.
+  - No cron, no plugin, no Home Assistant call, no operator-tunable value hardcoded.
+- **Docs vs reality:** mismatches, each resolved without adding work:
+  1. **The guard compares machine ids; the machine is one.** `Machine_Service` drives a
+     single physical machine whatever the id (one endpoint, one set of entities,
+     `machine-service.php:14-24`). So two available rooms with **different** or
+     **empty** ids still share it: the local seed's Sunset (`demo_sunset`) and Midnight
+     (`demo_midnight`) are both available right now. The step fixes the rule per id and
+     says empty ids are unaffected, so the tasks follow it. `BACKEND-REVIEW.md` §12 is
+     marked settled **for rooms that name the same machine id**, and the limit is
+     stated there and in `FEATURE.md`: the id must name the physical machine for the
+     guard to protect it.
+  2. **Room list vs Room form.** Step 3's verification names the admin **Room list**,
+     but status and machine id are set on the **Room form**. It already renders the
+     server's `message` (`RoomFormView.vue:114`), and it sends `status` and `machine_id`
+     together (`adminRoomsService.js:31`). Step 1 recorded this; no admin change.
+  3. **Other writers of room status.** `wp pc seed-rooms` writes room meta directly
+     (`seed-rooms.php:122-125`), outside the guard; its seeds carry distinct ids.
+     `pc_room` has `show_ui => false`, so wp-admin cannot edit it. Whatever bad data
+     already exists is what the report and the join refusal are for.
+  4. **The check-command list is stale.** `docs/TECH-STACK.md` → Check command still
+     lists only `wallet-rollback.php` among the eval scripts (WORKLOG `stripe` Sprint 2
+     Step 1: an `/adhoc`). The new script is picked up without editing it, and the list
+     is left to that `/adhoc`.
+  5. **Every toss is refused while the machine is on** (the 423 found in Step 2). It is
+     unrelated to this step, which checks rooms and joins, not tosses; it remains an
+     `/adhoc`.
+- **Design:** n/a — no screen changes. The **Room form** (admin) and `PlaceBet` (player)
+  show the new message through code they already have.
+- **Check command:** `backend/bin/check` (php -l, then every `tests/*.php` including the
+  new one, with DDEV up) and `frontend/bin/check` (untouched, run as the gate).
+  `docs/TECH-STACK.md` → Check command. Both exit 0 on `main` today.
+- **Not locally verifiable:** whether **production** already holds a bad pair.
+  `wp pc machine-rooms` on the production host answers it, after the sprint reaches
+  `main` and the user deploys it, if that host offers WP-CLI. Everything else runs
+  locally. The agent checks the admin behaviour through the endpoint (the test script),
+  not in a signed-in browser (`docs/LEARNINGS.md` 2026-09-18); the signed-in **Room form**
+  check is the user's guide.
+
+### Questions / ambiguities
+1. **Should attribution follow the available room in this step?** The step makes one
+   *available* room per machine id, but `Queue_Service::room_id_for_machine()` still
+   takes the newest `publish`/`draft` room with that id, available or not
+   (`queue-service.php:435-447`). The step's own verification leaves exactly that
+   behind: a new, unavailable room carrying a live room's id. From then on, that live
+   room's payouts would be attributed to the empty room, so they would pay nobody. That
+   breaks the verification's "the existing room keeps working throughout" and the sprint
+   goal ("'who held the turn' has a single answer").
+   - **(a) In this step:** task 5 above, one more backend commit plus its tests.
+   - **(b) In Step 4:** the ingest endpoint's plan picks it up; task 5 drops out of this
+     plan.
+   - **(c) Through `/adhoc`:** task 5 drops out too.
+   **Recommendation: (a).** It is the same function the step already changes, and
+   without it this step's own check breaks attribution for the room it promises keeps
+   working.
+   **Resolved: approved as recommended — (a), task 5 runs in this step.**
+
+### Execution notes (for `/close-step`)
+- **Commits.** Branch `realtime/sprint-1-one-machine` in `backend/` and in the root docs
+  repository.
+  - backend: `5de41539` (report + `app/realtime/`), `bb64a9bc` (admin refusal),
+    `323b7b10` (join refusal), `ecbccd42` (attribution);
+  - docs: `7ee2ccd`, `017dd97`, `f40f60e`, `7ae564e`, plus this plan file.
+  `backend` `realtime/sprint-1` was cut from `main` `5ebe9610`. Nothing pushed, nothing
+  merged; `frontend/` and `admin/` untouched.
+- **Question 1** resolved as recommended (a): task 5 ran in this step.
+- **Tests:** `tests/machine-rooms.php`, 37 checks, all passing, run by every
+  `backend/bin/check` with DDEV up. Each new behaviour was also run against the code
+  before it, and the matching checks failed there:
+  - the admin refusal: 9 of 28 failed on the old `AdminRoomController`;
+  - the join refusal: 2 of 34 failed on the old `Queue_Service`;
+  - attribution: 2 of 37 failed on the old `room_id_for_machine()`.
+  Every run removed its fixtures: afterwards the local database holds only rooms 11, 12
+  and 13, and no `machine-rooms-*` user.
+- **Wording kept honest per commit.** The command's docblock and warning first said
+  only what task 2 shipped. Task 4 added "joins into them are refused" when that became
+  true.
+- **Not checked by the agent:** the signed-in admin **Room form** in a browser
+  (`docs/LEARNINGS.md` 2026-09-18). The same route is exercised through
+  `rest_do_request` as an administrator, permission callback included. The browser
+  check is the user's guide.
+- **Local data now:** `wp pc machine-rooms` → "No machine id is held by more than one
+  room." Sunset (`demo_sunset`) and Midnight (`demo_midnight`) are both available on
+  different ids, so they still share the one physical machine. That is the stated limit
+  of this rule (Checks → Docs vs reality 1; `BACKEND-REVIEW.md` §12).
+- **Gate.** `backend/bin/check` exit 0 (53 php files; stage 2 executed,
+  `machine-rooms.php` included) and `frontend/bin/check` exit 0, before each commit.
