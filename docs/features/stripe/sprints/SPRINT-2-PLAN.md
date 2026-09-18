@@ -254,7 +254,7 @@ none
   file now holds (core rule 5). No other deviation.
 - `docs/features/stripe/FEATURE.md` → Interfaces unchanged: both shapes are as it lists them.
 
-## Plan — Sprint 2, Step 2: The Top-ups screen and the Stripe badge in Settings   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 2: The Top-ups screen and the Stripe badge in Settings   (status: closed)
 
 ### Branch
 `stripe/sprint-2-topups-screen` ← `stripe/sprint-2`, in **`admin/` and the root
