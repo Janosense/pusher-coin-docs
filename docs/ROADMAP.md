@@ -301,14 +301,25 @@ thin backend service so the rest of the app never talks to it directly.
    translates that error *after* a rejected toss — the button is never
    pre-emptively disabled, because knowing the relay state without hammering
    the machine needs Step 7's push channel.
-6. **Documentation walk-through with Dima** `[todo]` — **now the
-   critical path**: it gates Step 7's transport choice, which gates the
-   rest of the phase. Needs: can HA push (automation → webhook) or must
-   we poll — `PUSHER-COIN-COMMANDS.txt` documents reads and service
-   calls only, no outbound webhook; sensor semantics and edge cases
-   (machine offline, sensor debounce, coins-from-bonus vs
-   coins-from-relay overlap); and the source of truth / rotation policy
-   for the machine bearer token.
+6. **Documentation walk-through with Dima** `[partial]` — *replaced
+   2026-09-18 by observation: the `realtime` Sprint 1 Step 2 spike
+   (`DECISIONS.md` 2026-09-18 "Spike: machine events reach WordPress by
+   polling Home Assistant's history").*
+   - Push or poll → answered: this Home Assistant has no outbound-HTTP
+     service, so WordPress polls HA's history.
+   - Sensor semantics → answered:
+     - the coin counter counts coins paid out since the last toss, a toss
+       resets it, and it updates on a ~2 s Modbus cycle;
+     - the relay follows the relay buttons, its normal state is 1, and it
+       carries no payout signal (so no coins-from-relay overlap exists);
+     - unchanged values are never re-reported;
+     - an offline machine shows its sensors `unavailable` about 3.5 min
+       after power-off.
+   - Token source and rotation → already documented in
+     `PUSHER-COIN-COMMANDS.txt` (a wp-config constant; rotate on HA's
+     profile page).
+   - **Still open:** what a bonus looks like, and whether its coins also
+     pass through `sensor.coin`. No bonus was seen in ten days.
 7. **Machine-event channel** `[todo]` — websocket / SSE feed from the backend
    so the SPA reflects coin drops, bonus events, and relay state without
    polling. Likely Pusher / Ably / a self-hosted Soketi.
@@ -477,7 +488,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
 | 5 | Player main screen | 6 |
-| 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6/7 open |
+| 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); 7 open |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |
@@ -510,5 +521,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
   Backend returns `apple_not_configured` until `APPLE_CLIENT_ID` etc.
   are populated.
 - Source of truth for the machine bearer token and rotation policy.
-- Walk through `PUSHER-COIN-COMMANDS.txt` with Dima to confirm sensor
-  semantics and edge cases (relay/bonus ordering, debounce, offline machine).
+- ~~Walk through `PUSHER-COIN-COMMANDS.txt` with Dima to confirm sensor
+  semantics and edge cases (relay/bonus ordering, debounce, offline machine).~~
+  Resolved 2026-09-18 by observation in the `realtime` Sprint 1 Step 2 spike
+  (`DECISIONS.md` 2026-09-18), except for the bonus: none was seen.
