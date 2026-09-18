@@ -929,7 +929,13 @@ Response (`201`): the admin-room shape.
 
 Errors: `invalid_room_name` 400, `invalid_room_status` 400,
 `invalid_room_url` 400, `invalid_room_machine_id` 400,
-`room_create_failed` 500.
+`machine_already_in_use` 409, `room_create_failed` 500.
+
+`machine_already_in_use` — the room would be `available` on a non-empty
+`machine_id` that another non-trashed `available` room already carries. The
+`message` names that room (`… used by the available room "Sunset Pusher" (#11) …`).
+Checked before anything is written, so a refused create leaves no room behind. An
+empty `machine_id` claims nothing (`realtime` Sprint 1 Step 3).
 
 ### `GET /pc/v1/admin/rooms/{id}`
 
@@ -945,7 +951,11 @@ Request: any subset of the create payload.
 
 Response (`200`): the updated admin-room shape.
 
-Errors: `room_not_found` 404, plus the create-time validation errors.
+Errors: `room_not_found` 404, plus the create-time validation errors, and
+`machine_already_in_use` 409. It is judged on the room's resulting state (a sent
+value, else the stored one), so switching a room to `available` and moving an
+available room onto a claimed `machine_id` are both refused, and a refused update
+changes nothing.
 
 ### `DELETE /pc/v1/admin/rooms/{id}`
 
@@ -1638,6 +1648,7 @@ One canonical code per failure mode — do not invent variants.
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
 | `insufficient_balance` | 409 | wallet/withdraw |
 | `room_unavailable` | 409 | rooms/{id}/queue*, rooms/{id}/play |
+| `machine_already_in_use` | 409 | admin/rooms POST/PUT (another available room carries the machine id) |
 | `withdrawal_already_pending` | 409 | wallet/withdraw |
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
