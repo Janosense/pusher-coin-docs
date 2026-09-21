@@ -86,9 +86,15 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
 - WP options `pc_realtime_*` — channel name, alert thresholds and windows, any
   transport setting the spike's choice needs. Defaults seeded by `Install_Schema`.
   Shipped so far: `pc_realtime_ingest_rate_max` (120) and
-  `pc_realtime_ingest_rate_window_seconds` (60), the ingest endpoint's ceiling.
-- Transients `pc_realtime_cursor_*` — last-seen sensor state, only if the spike
-  picks polling. Rebuildable; never a source of truth for money.
+  `pc_realtime_ingest_rate_window_seconds` (60), the ingest endpoint's ceiling
+  (S1.4); `pc_realtime_poll_interval_seconds` (60),
+  `pc_realtime_poll_machine_id` (`''`, **required** — the poller holds its cursor
+  until it is set) and `pc_realtime_poll_backfill_seconds` (3600), the transport
+  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded.
+- Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
+  polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
+  row delivered. Rebuildable; never a source of truth for money — `event_key` is.
+  `pc_realtime_poll_lock` keeps two passes from overlapping.
 - wp-config constants `PC_ABLY_KEY` and `PC_MACHINE_INGEST_SECRET` (the ingest
   shared secret, shipped S1.4). Never options, never logged.
 
