@@ -54,14 +54,14 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
   marked **"touches shared code"**. Delta-audit 2026-09-18 (Sprint 1 Step 1), file:line
   on `main` (backend `5ebe9610`, frontend `7210c59`); "S1.4" = Sprint 1 Step 4.
   - Backend, `backend/wp-content/themes/pc/`:
-    - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
-    - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart.
+    - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. **S3.2, additive:** `log_event()` passes `correlation_id` through from its context, as `settle()` already does — the column `DATA-MODEL.md` reserves for `wp_pc_bet_sessions.id`, and the toss watch is its first caller. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
+    - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart. **S3.2, additive:** `TYPE_TOSS_NO_MOVEMENT` and `since()`, an oldest-first read over a `created_at` range for a watch walking forward from a cursor; both readers now shape a row through one mapper.
     - `app/utils/queue-service.php` — attribution. `room_id_for_machine:435` takes the first `publish`/`draft` room with the machine id, ignoring `available` (S1.3). `resolve_player_for_machine:386` runs `sync_turn` before answering, and a last declared coin closes the turn on the spot (`consume_coin:237-240`), so a payout landing after it goes to the **next** head, or to nobody. `sync_turn` was the §15 race; **settled S2.5** — `open_room_id` under `UNIQUE KEY open_room` makes the database refuse a second open session and a lost race adopt the winner's. Hooks `:496-497`.
     - `app/utils/machine-service.php` — sensor reads. `get_coin_count:61` documented cumulative; `get_relay_closed:76` reads `sensor.relay_on` via `normalise_truthy:248`, which takes the idle `1` as "closed"; `HTTP_TIMEOUT:30`; `is_online:115`. S1.2 settles the model; S1.4, S2.3, S3.1.
     - `app/utils/cli/machine-ingest.php` — today's only producer; calls all three ingest methods (`:50-58`), so S1.4's change to `ingest_coins_dropped` reaches it.
-    - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:155`. S2.3, S3.2.
+    - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:223`. S2.3. **S3.2 does not touch it:** the toss row it already writes carries the player, the room and the session, which is everything the watch needs, so nothing was added to the path a player waits on.
     - `app/rest-api/AdminRoomController.php` — `create_room:105` and `update_room:135` both write status and machine id in `write_room_meta:352`: where S1.3's refusal goes.
-    - `app/utils/install-schema.php` — `DB_VERSION:15` (`1.9.0`), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/install-schema.php` — `DB_VERSION` is `1.15.0` since S3.2 (`1.9.0` at the audit), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
     - `app/utils/rate-limiter.php` — `check:21`; `client_ip:42` trusts `X-Forwarded-For` (review item 5, open), so S1.4 must not key the ingest limit on the caller's IP alone.
     - `app/utils/audit-log.php` — `record:21` into `wp_pc_auth_audit_log`, insert unchecked. S1.4 audits every call; Sprint 3 reads it.
     - `app/utils/room-schedule-calculator.php` — `compute:43`, site timezone: how S3.1 tells the daily power-off from an outage.
@@ -82,7 +82,8 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
 ## Data
 Owns no table. It writes `wp_pc_machine_events` **only through
 `Machine_Ingest_Service`** — the row shape and its `event_key` unique index belong
-to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes them:
+to `core` (`docs/DATA-MODEL.md`). Since S3.2 it writes one type of its own there,
+`toss_no_movement`, through the same door and with no coins on it. Owns these keys, and no other feature writes them:
 - WP options `pc_realtime_*` — channel name, alert thresholds and windows, any
   transport setting the spike's choice needs. Defaults seeded by `Install_Schema`.
   Shipped so far: `pc_realtime_ingest_rate_max` (120) and
@@ -97,7 +98,10 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (3600), the push channel (S2.1); and `pc_realtime_alert_email` (`''`, falling back
   to `pc_support_email` then `admin_email`) with `pc_realtime_outage_grace_seconds`
   (300), operator alerts (S3.1), plus `pc_realtime_outage_state`, written at runtime
-  only while the machine is unreachable and deleted on recovery.
+  only while the machine is unreachable and deleted on recovery; and
+  `pc_realtime_toss_window_seconds` (30) with `pc_realtime_toss_max_age_seconds`
+  (604800), the toss watch (S3.2), plus `pc_realtime_toss_cursor`, written at runtime and
+  holding the `created_at` of the last toss judged.
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
@@ -190,6 +194,23 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   lives in `pc_realtime_outage_state`; the audit trail is `machine_outage_started`,
   `machine_outage_notified` and `machine_outage_recovered`, the last carrying the
   duration that gives an incident an end.
+- **`Realtime_Toss_Watch`** (S3.2) — the third watch on the same poll pass, and the one
+  that answers "did the machine act on the toss it answered 200 to?". Home Assistant
+  answers 200 to the *button press*, so `POST /rooms/{id}/play` cannot tell a real toss
+  from a swallowed one; this settles it afterwards, out of the player's request. It takes
+  each `toss` row whose `pc_realtime_toss_window_seconds` has elapsed, oldest first from
+  `pc_realtime_toss_cursor`, and reads `sensor.coin`'s history around it through
+  `Machine_Service`. **The evidence is the counter's reset, not the coins** — a pusher
+  pays nothing on most tosses, while the machine zeroes the counter within ~2 s of every
+  toss it accepts (`DECISIONS.md` 2026-09-18). A counter that stood above zero and never
+  moved is the finding: one `toss_no_movement` row naming the player, the turn
+  (`correlation_id`), the toss and the reading on both sides. A counter already at zero
+  cannot be judged at all — the reset re-writes a zero and Home Assistant records only
+  changes — so it is counted `unconfirmed`, never recorded, and a row always means one
+  thing. A failed read holds the cursor (invariant 7's rule); a toss past
+  `pc_realtime_toss_max_age_seconds` is retired `machine_toss_expired`. **It records and
+  does not notify:** the step asks for a record, and `Realtime_Alerts` is one call away
+  when a step asks for more.
 - **`Realtime_Alerts`** (S3.1) — the one door an operator notification leaves through,
   for every alarm this feature raises. Plain-text email to `pc_realtime_alert_email`,
   falling back to `pc_support_email` then `admin_email` (`DECISIONS.md` 2026-09-21):

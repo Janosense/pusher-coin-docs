@@ -90,6 +90,7 @@ pusher-coin/
 │   │       │   │   │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place; `--close` cleans up
 │   │       │   │   │   ├── relay-watch.php # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
 │   │       │   │   │   ├── outage-watch.php # Realtime_Outage_Watch: is the machine answering? An outage inside a broadcast window is an incident; outside one it is the nightly power-off
+│   │       │   │   │   ├── toss-watch.php  # Realtime_Toss_Watch: judges each toss against the coin counter's own reset; a toss the machine did not act on is recorded
 │   │       │   │   │   ├── alerts.php     # Realtime_Alerts: the one door an operator notification leaves through (email)
 │   │       │   │   │   ├── channels.php   # Realtime_Channels: the one place push-channel names are built
 │   │       │   │   │   ├── publisher.php  # Realtime_Publisher: pushes credits to Ably, fire-and-forget
