@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 2, Step 1: Publish to Ably, and hand the SPA a token   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 1: Publish to Ably, and hand the SPA a token   (status: closed)
 
 ### Branch
 `realtime/sprint-2-channel` ← `realtime/sprint-2` ← `main`

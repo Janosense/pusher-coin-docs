@@ -90,13 +90,17 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (S1.4); `pc_realtime_poll_interval_seconds` (60),
   `pc_realtime_poll_machine_id` (`''`, **required** — the poller holds its cursor
   until it is set) and `pc_realtime_poll_backfill_seconds` (3600), the transport
-  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded.
+  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded;
+  and `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
+  (3600), the push channel (S2.1).
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
   `pc_realtime_poll_lock` keeps two passes from overlapping.
-- wp-config constants `PC_ABLY_KEY` and `PC_MACHINE_INGEST_SECRET` (the ingest
-  shared secret, shipped S1.4). Never options, never logged.
+- wp-config constants `PC_MACHINE_INGEST_SECRET` (the ingest shared secret, S1.4)
+  and `PC_ABLY_KEY` (the push-channel app key in Ably's `name:secret` form, S2.1).
+  Never options, never logged, and never sent to a SPA — the token endpoint signs
+  *with* the Ably key and does not contain it.
 
 ## Invariants
 1. **Every accepted inbound event carries an `event_key`.** A transport that

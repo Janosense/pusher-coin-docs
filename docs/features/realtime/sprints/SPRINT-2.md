@@ -21,7 +21,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Publish to Ably, and hand the SPA a token
+### [x] Step 1 — Publish to Ably, and hand the SPA a token
 - **Tasks:**
   - `app/realtime/` gains a publisher: on `pc_machine_event_credited` and on a relay-state transition, publish a compact event to the room's channel. Wrapped so any failure is logged and swallowed.
   - `GET /pc/v1/realtime/token` — a scoped Ably token request for a signed-in caller, limited to the channels that caller may read. Admins additionally get the machine channel.
