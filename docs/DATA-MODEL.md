@@ -57,6 +57,7 @@ same commit as this file. History:
 | 1.9.0 | LiqPay options retired (`remove_retired_options()`) |
 | 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 | 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
+| 1.12.0 | `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` (the push channel) — no table change, same reason |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -425,7 +426,7 @@ so an old ticket still resolves its label.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.11.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
+| `pc_db_version` | string | `'1.12.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -501,6 +502,22 @@ at `pc_db_version` `1.11.0`. WordPress polls Home Assistant's history for what
 | `pc_realtime_poll_machine_id` | string | `''` | Which machine the polled events carry, matched against rooms' `pc_room_machine_id` to find the player holding the turn. **Required:** while it is empty the poller records `machine_poll_unconfigured`, holds its cursor and credits nothing, rather than logging every real payout as belonging to nobody. |
 | `pc_realtime_poll_backfill_seconds` | int | `3600` | How far back a poller with no cursor looks — the first run ever, or after an evicted object cache. Bounded on purpose: a cursorless read of the whole ten-day retention would spend the ingest rate limit re-delivering events credited long ago (they would all answer `already_recorded`, but the window would be gone). Floors at 60. |
 | `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts and stop reason — how "is the schedule actually ticking?" gets answered on a host where nobody has a shell. |
+
+**Realtime — the push channel out to the browsers.** Owned by `realtime`; seeded by
+`Install_Schema` at `pc_db_version` `1.12.0`. WordPress publishes machine events to
+Ably and the SPAs subscribe (`DECISIONS.md` 2026-09-15).
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_channel_prefix` | string | `'pc'` | Namespaces this install's channels inside the Ably app, so a staging and a production install can share one app without hearing each other. Channels are `{prefix}:room:{id}` and `{prefix}:machine` — one per room and one for the machine, **never one per viewer**: the free tier caps channels at 200. Both SPAs learn the resolved names from `GET /realtime/token` rather than hardcoding them, which is what makes this safe to change. Falls back to `pc` when empty. |
+| `pc_realtime_token_ttl_seconds` | int | `3600` | How long a scoped channel pass stays valid. Floors at 60 and caps at 24 h — Ably's own maximum. |
+
+The Ably key itself is **not in the database** — `PC_ABLY_KEY` in wp-config, in Ably's
+`name:secret` form. The SPAs never receive it: `GET /pc/v1/realtime/token` answers a
+token request *signed* with the secret half, which does not contain it. Rotation is a
+wp-config edit; while it is unset, publishing is a silent no-op (payouts credit exactly
+as before, they are simply not pushed) and the token endpoint answers
+`realtime_not_configured`.
 
 **The cursor is a transient,** `pc_realtime_cursor_sensor_coin`: the `last_updated` of
 the last history row the poller delivered successfully. Rebuildable and never a source
