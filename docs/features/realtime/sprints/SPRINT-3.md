@@ -29,7 +29,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the delivery channel); `docs/DATA-MODEL.md` (new audit event types, new options); `docs/ARCHITECTURE.md` (the alerting flow).
 - **Depends on:** —
 
-### [ ] Step 2 — A toss that moved nothing
+### [x] Step 2 — A toss that moved nothing
 - **Tasks:**
   - After a successful toss, the coin sensor is expected to move within a bounded window, as Sprint 1 Step 2 measured. If it does not, record it — the machine answered 200 but nothing physical happened, which is the case a player will dispute.
   - The window and the threshold are configuration, not constants.

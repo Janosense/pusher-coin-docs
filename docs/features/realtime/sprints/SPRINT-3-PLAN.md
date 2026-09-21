@@ -130,7 +130,7 @@ for "in window" and a different weekday for "outside", which sidesteps the calcu
 
 ---
 
-## Plan — Sprint 3, Step 2: A toss that moved nothing   (status: implemented, awaiting close)
+## Plan — Sprint 3, Step 2: A toss that moved nothing   (status: closed)
 
 ### Branch
 `realtime/sprint-3-toss` ← `realtime/sprint-3` ← `main`
