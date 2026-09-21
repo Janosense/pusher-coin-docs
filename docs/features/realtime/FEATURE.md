@@ -93,8 +93,11 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded,
   and `pc_realtime_relay_state` (S2.3), also written at runtime and only when the
   relay actually moves — the last known lock state the room screen paints with;
-  and `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
-  (3600), the push channel (S2.1).
+  `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
+  (3600), the push channel (S2.1); and `pc_realtime_alert_email` (`''`, falling back
+  to `pc_support_email` then `admin_email`) with `pc_realtime_outage_grace_seconds`
+  (300), operator alerts (S3.1), plus `pc_realtime_outage_state`, written at runtime
+  only while the machine is unreachable and deleted on recovery.
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
@@ -139,6 +142,16 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
    backfill and an audit row, never silence. The poller reads Home Assistant only
    through `Machine_Service` and delivers only through `POST /machine/events` — it
    is a client of that door, not a way around it.
+8. **An alert is never raised for a machine that is merely switched off.** Power is a
+   hand at the venue and the machine is off most of the day, so unreachable on its own
+   is not a fault. An outage becomes an **incident** only after it outlives
+   `pc_realtime_outage_grace_seconds`, and an incident is **notified** only while the
+   room carrying that machine is inside a `wp_pc_room_schedules` window; a machine no
+   room claims is recorded and never notified, because without a schedule an evening
+   and a fault are the same reading. And an alert never blocks, delays or fails what
+   raised it — the rule publishing already follows (#2): `Realtime_Alerts::send()`
+   returns a bool on every path including the ones that caught a `Throwable`, and an
+   install with no address is a silent no-op.
 
 ## Interfaces
 - `POST /pc/v1/machine/events` — the ingest endpoint, whatever transport calls it.
@@ -165,6 +178,27 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   what the read already gives away.** `GET /rooms/{id}/messages` is public, so a chat
   body gives nothing away; `GET /rooms/{id}/queue` is play-ready gated, so a queue
   entry may not travel at all.
+- **`Realtime_Outage_Watch`** (S3.1) — the second watch on the same poll pass, and the
+  one that answers "is Home Assistant answering at all?" through
+  `Machine_Service::is_online()`, the 2-second probe `ROADMAP.md` Phase 5 §1 reserved
+  for this. It runs after the relay watch and outside the transport's guards, because
+  an operator most needs to hear about an outage on exactly the passes where the
+  transport cannot run. The typed `machine_offline` a sensor read may have produced is
+  recorded as corroboration, never as the decision — `machine_unavailable_state` means
+  Home Assistant answered and one entity is unhappy. "The absence of expected events"
+  is deliberately unused: a quiet machine is what an idle machine looks like. State
+  lives in `pc_realtime_outage_state`; the audit trail is `machine_outage_started`,
+  `machine_outage_notified` and `machine_outage_recovered`, the last carrying the
+  duration that gives an incident an end.
+- **`Realtime_Alerts`** (S3.1) — the one door an operator notification leaves through,
+  for every alarm this feature raises. Plain-text email to `pc_realtime_alert_email`,
+  falling back to `pc_support_email` then `admin_email` (`DECISIONS.md` 2026-09-21):
+  the sprint text is right that an operator who does not read the support inbox gains
+  nothing from alerts landing in it, so the address is its own setting. One function
+  with one call site per alarm, which is what makes a second channel — Telegram, when
+  an account exists — a task rather than a rewrite. Whether `wp_mail` actually
+  delivers from the FTP shared host is **unproven**, for alerts and for the
+  support-ticket notifications that already depend on it.
 - **`Realtime_Relay_Watch`** (S2.3) — one read of `sensor.relay_on` per pass of the
   poll schedule, through `Machine_Service` like every other Home Assistant call. The
   relay carries no payout signal (`DECISIONS.md` 2026-09-18): it idles **closed** and

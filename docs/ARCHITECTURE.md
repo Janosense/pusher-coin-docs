@@ -231,6 +231,7 @@ themes/pc/
 │   ├── realtime-queue.php   # `ddev wp eval-file` check: the queue rides the channel; the heartbeat holds a place and answers a version (DDEV only)
 │   ├── realtime-chat.php    # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
 │   ├── queue-sessions.php   # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
+│   ├── realtime-outage.php  # `ddev wp eval-file` check: the outage incident, its grace period and its window gate (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
@@ -242,6 +243,8 @@ themes/pc/
     │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
     │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
+    │   ├── outage-watch.php          # Realtime_Outage_Watch: is the machine answering? Unreachable inside a broadcast window is an incident
+    │   ├── alerts.php                # Realtime_Alerts: the one door an operator notification leaves through
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
     │   ├── channels.php              # Realtime_Channels: the one place channel names are built
@@ -443,6 +446,24 @@ or an unreadable history stops that pass and the relay is still watched, and a r
 that cannot be read stops nothing and leaves the cached state alone, because an
 unreadable relay is not a locked one. One extra state read a minute, no second
 schedule, nothing new to deploy.
+
+**The operator hears about a fault before a player does — FIXED, `realtime` Sprint 3
+Step 1.** The same poll pass asks Home Assistant whether it is answering at all
+(`Machine_Service::is_online()`, a 2-second probe of the HA root) and
+`Realtime_Outage_Watch` (`app/realtime/outage-watch.php`) decides what that means. The
+machine is switched off by hand at the venue every day, so unreachable is the normal
+state most of the time: the room's broadcast schedule (`wp_pc_room_schedules` through
+`Room_Schedule_Calculator`) is the gate. Unreachable past
+`pc_realtime_outage_grace_seconds` is an **incident**, recorded once as
+`machine_outage_started`; it is **notified** only while the room is inside a window, so
+the nightly power-off is written down and never sent, and an outage that runs into a
+window alerts when the window opens. Recovery writes `machine_outage_recovered` with the
+duration, which is what gives an incident an end. Delivery is one function,
+`Realtime_Alerts::send()` (`app/realtime/alerts.php`) — plain-text email to
+`pc_realtime_alert_email`, falling back to `pc_support_email` then `admin_email`
+(`DECISIONS.md` 2026-09-21). It runs next to the crediting path, so like publishing it
+is fire-and-forget: every failure is audited and swallowed, and an install with no
+address is a silent no-op. No second cron, no new dependency, no new secret.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`
