@@ -127,7 +127,7 @@ only the file under test so the failure is the behaviour and not a missing class
 
 ---
 
-## Plan — Sprint 2, Step 2: The queue subscribes instead of polling   (status: approved, in progress)
+## Plan — Sprint 2, Step 2: The queue subscribes instead of polling   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-2-queue` ← `realtime/sprint-2`
@@ -241,3 +241,17 @@ not papered over with an invented assertion.
    - **(b) No dependency: native `EventSource` against Ably's SSE endpoint.** We hand-write the token exchange, the reconnect backoff and the catch-up. It keeps `frontend/` at six runtime dependencies, but it puts the reconnect and catch-up logic — the part this step is actually about, and the part with no automated test — in our own untested code.
    - Recommendation **(a)**: the reason the backend has no SDK does not exist here, and (b) would hand-write exactly the logic that the step's own tests cannot cover.
    - **Resolved: approved as recommended — (a).** The official `ably` package is added to `frontend/`; core rule 1 is satisfied by this approval, and `TECH-STACK.md` records it with the locked version.
+
+### Execution notes (Step 2)
+- **Branch:** `realtime/sprint-2-queue` in all three repositories; `frontend/` needed `realtime/sprint-2` cut from `main` first. Backend `31981dee` `bed83006`; frontend `a01cedd` `0af0f90`; docs `5c9d80c` `50ecffc`.
+- **Question 1 resolved as recommended (a):** `ably` 2.28.0 added to `frontend/`, recorded in `TECH-STACK.md` with the locked version and the measured cost.
+- **Tasks 4 and 5 became one commit.** Both change the same file and the same subscription wiring, and splitting them would have left task 4's branch with a subscription that ignored `credit` messages. Both checkboxes are ticked against `0af0f90`.
+- **A real bug the checks caught.** The heartbeat pruned *before* touching, copying `state()`'s order — so a caller who had missed a couple of beats would be evicted by their own heartbeat. A backgrounded tab throttled by the browser is exactly that case. Now it touches first; `state()` is unchanged, and the comment says why the two differ.
+- **A judgement call made while measuring.** Statically imported, `ably` took the main bundle from 92 kB to 151 kB gzipped. It is now a dynamic import — its own 58 kB chunk that only a room fetches, main bundle back to 92 kB. Same pattern and same reason as `hls.js`, which this codebase already lazy-loads.
+- **Before/after proofs**, each reverting only the behaviour under test:
+  - putting the queue in the channel message — the shortcut that saves the client a refetch — fails exactly the two checks guarding the permission line;
+  - pruning before touching fails the two checks about holding a place;
+  - answering the full state from the heartbeat fails the check that it carries no queue.
+- **Out of scope, found and reported, not fixed:** `tests/machine-poll.php` (S1.5) and `tests/realtime-channel.php` (S2.1) delete their throwaway rooms but not the `wp_pc_room_queues` / `wp_pc_bet_sessions` rows those rooms accumulated — 25 orphaned queue rows and 57 orphaned session rows in the local install, purged by hand here. **This is the third instance of the cleanup class of bug** (`LEARNINGS.md` 2026-09-21). Both files belong to closed steps and neither is in this plan's file list, so they were left alone: the fix belongs in `/adhoc`. This step's own script cleans both tables and leaves nothing.
+- **Not done, deliberately:** nothing was pointed at real Ably (still no account), and no SPA was opened signed in. Everything the browser does in this step — subscribing, reconnecting, the fallback, the winnings — is therefore unverified until the manual guide is run, exactly as the plan's Not-locally-verifiable section said.
+- **Gate:** `backend/bin/check` exit 0 before every backend commit (63 php files; stage 2 executed, `realtime-queue.php` among them) and `frontend/bin/check` exit 0 before every frontend commit and at the end — `lint: OK`, `build: OK`.
