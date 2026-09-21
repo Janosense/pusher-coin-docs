@@ -124,6 +124,15 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
    name the machine for this rule to protect it.
 6. **Nothing here debits a wallet, and nothing here switches the machine.** It
    credits only, only through `Machine_Ingest_Service`; power is a hand at the venue.
+7. **The transport's cursor never advances past an event the endpoint did not
+   accept, and every gap is written down.** Re-reading a window is free —
+   `event_key` makes a repeat cost nothing — and skipping one is a payout a player
+   never got, so a refused delivery, an unreachable machine, a missing secret or
+   machine id all hold `pc_realtime_cursor_sensor_coin` where it was and record a
+   `machine_poll_*` row in `wp_pc_auth_audit_log`. A lost cursor costs a bounded
+   backfill and an audit row, never silence. The poller reads Home Assistant only
+   through `Machine_Service` and delivers only through `POST /machine/events` — it
+   is a client of that door, not a way around it.
 
 ## Interfaces
 - `POST /pc/v1/machine/events` — the ingest endpoint, whatever transport calls it.
@@ -133,6 +142,12 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   everything a retry cannot fix. Full shape in `docs/CONTRACTS.md`. What a transport
   may *send* is narrower than what the endpoint accepts — only `sensor.coin`
   increments have a payout behind them (`DECISIONS.md` 2026-09-18).
+- **`Machine_Poller`** (S1.5) — the inbound transport, and the only caller of that
+  endpoint in production. Reads `sensor.coin`'s history through
+  `Machine_Service::get_state_history()` and delivers each change with
+  `rest_do_request()`. Driven by the WP-Cron event `pc_realtime_poll` and by
+  `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
+  nothing, which is how it is pointed at a live machine safely.
 - `GET /pc/v1/realtime/token` — scoped channel token for a signed-in SPA.
 - The channel naming convention — one per room, one for the machine — which the
   admin SPA reads too; changing it is "touches shared surface".
