@@ -1072,6 +1072,7 @@ and widening either message is a permission decision, not a convenience.
 | `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
 | `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
 | `chat` | the whole message — `{id, room_id, user_id, nickname, body, created_at}`, byte for byte what `GET /rooms/{id}/messages` returns | after a message is accepted by `POST /rooms/{id}/messages`. A refused body, a muted author and a rate-limited caller publish nothing |
+| `moderation` | `{room_id, message_id, status}` — an id and a state, **never a body** | after `PATCH /admin/chat/messages/{id}` hides or restores a message. A hidden message leaves the public read at the same moment |
 
 **`chat` is the one message that carries its own content, and the reason
 is the rule, not an exception to it: what may travel is what the read
