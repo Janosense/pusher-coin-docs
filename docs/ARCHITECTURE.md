@@ -244,6 +244,7 @@ themes/pc/
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
     │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
     │   ├── outage-watch.php          # Realtime_Outage_Watch: is the machine answering? Unreachable inside a broadcast window is an incident
+    │   ├── toss-watch.php            # Realtime_Toss_Watch: did the machine act on the toss it answered 200 to? The counter's reset is the evidence
     │   ├── alerts.php                # Realtime_Alerts: the one door an operator notification leaves through
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
@@ -464,6 +465,24 @@ duration, which is what gives an incident an end. Delivery is one function,
 (`DECISIONS.md` 2026-09-21). It runs next to the crediting path, so like publishing it
 is fire-and-forget: every failure is audited and swallowed, and an install with no
 address is a silent no-op. No second cron, no new dependency, no new secret.
+
+**And a toss the machine did not act on is written down — `realtime` Sprint 3 Step 2.**
+Home Assistant answers 200 to the toss *button*, not to the machine acting on it, so
+`POST /rooms/{id}/play` cannot tell a real toss from a swallowed one. The same poll pass
+settles it afterwards: `Realtime_Toss_Watch` (`app/realtime/toss-watch.php`) takes each
+`toss` row of `wp_pc_machine_events` whose `pc_realtime_toss_window_seconds` has elapsed
+and asks Home Assistant's history what `sensor.coin` did around it. The evidence is the
+**counter's reset** — the machine zeroes it within ~2 s of accepting a toss — not the
+coins, because a pusher pays nothing on most tosses. A counter that stood above zero and
+never moved is the machine answering and doing nothing: one `toss_no_movement` row naming
+the player, the session (`correlation_id`), the toss row and the reading on both sides,
+which is what a dispute is settled with. A counter already at zero cannot be judged at
+all — the reset would re-write a zero and Home Assistant records only changes — so it is
+counted, not recorded, and the row keeps meaning one thing. Nothing runs inside the
+player's request; a failed history read holds `pc_realtime_toss_cursor` and the next pass
+re-reads, and a toss older than `pc_realtime_toss_max_age_seconds` is retired
+`machine_toss_expired`. It records and does not notify: the sender above is one call away
+when a step asks for it.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`
