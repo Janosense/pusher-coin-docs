@@ -887,7 +887,7 @@ the two repositories cannot share a commit.
     - root `CLAUDE.md` invariant 2's list of secret constants (as `stripe` did for its
       two).
 
-- [ ] **5. The endpoint** — `POST /pc/v1/machine/events`. *Touches shared code only
+- [x] **5. The endpoint** — `POST /pc/v1/machine/events`. *Touches shared code only
   through `app/realtime/bootstrap.php`'s own registration; the controller is new and
   lives in `app/realtime/`.*
   - `app/realtime/MachineIngestController.php` — `PC\Machine_Ingest_Controller`,
