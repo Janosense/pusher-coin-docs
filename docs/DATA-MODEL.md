@@ -294,6 +294,13 @@ created_at     DATETIME(6)        -- microsecond precision for ordering
   permitted (MySQL allows repeated NULLs in a unique index) so keyless events still
   log — but a transport that omits the key gets at-least-once delivery, which for a
   payout means double credits. **Transports must supply one.**
+- **A collision and a failed write are different answers.** `Machine_Event_Log::record_result()`
+  reports `inserted`, `duplicate` or `failed`: a key already on file is permanent and must
+  never be credited again, while a row that could not be written decides nothing and the
+  caller is expected to try again. The crediting path turns `failed` into
+  `machine_event_write_failed` (500); the audit-only path (`log_event()`) reports it as a
+  flag, because its caller has already tossed a real coin by then. `record()` still returns
+  0 for both and stays for callers that do not care which.
 - **Machine credits do not write `wp_pc_transactions`.** They insert a coin lot and
   move `balance_coins`; this table is their audit trail. The ledger stays the money
   trail, which is what the player's history view shows. Payouts are priced at the

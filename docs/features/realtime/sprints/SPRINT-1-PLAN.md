@@ -824,7 +824,7 @@ the two repositories cannot share a commit.
   → backend `docs(realtime): sensor.coin counts a payout, not a running total`
   → docs `docs(realtime): the coin counter is not cumulative`
 
-- [ ] **3. A failed write is not a duplicate** — *only if Question 1 is answered as
+- [x] **3. A failed write is not a duplicate** — *only if Question 1 is answered as
   recommended*. *Touches shared code (`machine-events.php`,
   `machine-ingest-service.php`, both `core`; consumer: `wp pc machine-ingest`).*
   - `Machine_Event_Log::record()` returns `0` both for a colliding `event_key` **and**
@@ -835,11 +835,23 @@ the two repositories cannot share a commit.
     `[ 'id' => int, 'outcome' => 'inserted' | 'duplicate' | 'failed' ]`. `record()` stays
     exactly as it is, a wrapper returning the id, so no existing caller changes meaning.
   - `Machine_Ingest_Service::settle()` (`:126`) and `log_event()` (`:100`) use
-    `record_result()`. On `failed` they return
-    `WP_Error( 'machine_event_write_failed', …, [ 'status' => 500 ] )` instead of
-    `duplicate: true`. The CLI already branches on `$result instanceof WP_Error`
-    (`cli/machine-ingest.php:76-79`), so it reports the fault instead of claiming a
-    duplicate; no CLI change.
+    `record_result()`.
+    - **`settle()`** — the crediting path — answers `failed` with
+      `WP_Error( 'machine_event_write_failed', …, [ 'status' => 500 ] )` instead of
+      `duplicate: true`. Its only callers are `wp pc machine-ingest`, which already
+      branches on `$result instanceof WP_Error` (`cli/machine-ingest.php:76-79`), and
+      the endpoint of task 5; no CLI change.
+    - **`log_event()`** — the audit-only path — keeps returning an array and gains a
+      `write_failed` flag beside the existing `duplicate` one.
+      **Deviation from the plan as written, agreed mid-step (answer: (a)).** The plan
+      said it would return the `WP_Error` too, and named only the CLI as its consumer.
+      It has a second one: the **toss** endpoint reads `$event['event_id']` straight
+      out of the result (`RoomQueueController.php:155,167`). An error object there is a
+      fatal, raised *after* the coin was debited and the machine tossed it — the player
+      would lose a real coin to a 500. A toss whose audit row failed is still a toss, so
+      the flag is informational and the toss endpoint ignores it; `RoomQueueController.php`
+      is not touched, and the step's promise (a failed write in the **crediting** path
+      is never answered as "already recorded") is unaffected.
   - `tests/machine-ingest.php` is created here with this task's checks.
   → backend `fix(realtime): a machine event that cannot be written is not a duplicate`
   → docs `docs(realtime): a failed machine-event write is reported as a failure`
