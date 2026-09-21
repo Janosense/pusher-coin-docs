@@ -124,3 +124,134 @@ only the file under test so the failure is the behaviour and not a missing class
 - **`pc_db_version` 1.11.0 → 1.12.0** ran on the local install; `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` are seeded there.
 - **Not done, deliberately:** no Ably account exists, so nothing was published to a real channel and no dashboard was seen. Every check answers Ably through `pre_http_request`; the token half makes no HTTP call at all. No SPA was opened signed in.
 - **Gate:** `backend/bin/check` exit 0 before every commit (62 php files; stage 2 executed, `realtime-channel.php` among them) and `frontend/bin/check` exit 0 at the end — `lint: OK`, `build: OK`.
+
+---
+
+## Plan — Sprint 2, Step 2: The queue subscribes instead of polling   (status: closed)
+
+### Branch
+`realtime/sprint-2-queue` ← `realtime/sprint-2`
+(git model in root `CLAUDE.md`. **The first step of this sprint to touch `frontend/`**, so
+the task branch is created there too, with the same name; `backend/` and the docs
+repository carry it as well. `admin/` is not touched.)
+
+### What is settled before this step starts
+- **Ably, free tier; the SPA gets a scoped pass and never the key** — `DECISIONS.md` 2026-09-15 and 2026-09-21. `GET /pc/v1/realtime/token` and `{prefix}:room:{id}` shipped in S2.1.
+- **Publishing is fire-and-forget** — a failed publish is logged and swallowed and may never fail, delay or roll back what triggered it (`FEATURE.md` → Invariants #2).
+- **The queue is persisted and pruned on read** — `DECISIONS.md` 2026-07-30. Removing the poll does not remove the heartbeat; this step changes what the heartbeat *is*, and says so in a new entry rather than editing the old one.
+- **`stores/queue.js` and `RoomQueueController.php` belong to `core`** — every task touching them is marked accordingly.
+
+### Two things the step text assumes that the code does not yet do
+Both are derived from the step's own **Verification**, which §5 makes part of the step —
+neither is borrowed from another step:
+
+1. **Nothing publishes a queue change.** S2.1 publishes only `credit`, on
+   `pc_machine_event_credited`. The manual check for this step is "one joins the queue —
+   the other sees it without a three-second wait", which is impossible until the server
+   announces joins, leaves and turn changes. Task 1 adds that.
+2. **A turn can end without anyone acting.** `prune_stale()` drops an idle player and
+   `sync_turn()` promotes the next one, and today both run *because* somebody polled.
+   With the poll gone, a player promoted by someone else's idleness would never hear
+   about it. The heartbeat in task 2 is what keeps that working.
+
+### The permission line this step does not cross
+`GET /rooms/{id}/queue` is gated `require_play_ready` (terms + nickname + confirmed
+email). The room channel's pass, by contrast, is granted to **any signed-in caller**
+(S2.1). So **a queue message may not carry queue state**: doing so would let a
+signed-in but not-yet-play-ready account read, off the channel, what the API refuses
+them.
+
+Therefore the queue message is a **change ping** — `{room_id, version}` and nothing
+else — and every client answers it by re-reading `GET /rooms/{id}/queue`, which is
+still gated exactly as it is today. Push decides *when* to read; the existing
+permission still decides *what* may be read. This also keeps the payload tiny on a
+free tier metered by message, and means a missed message costs one stale second rather
+than a wrong queue.
+
+### Tasks (ordered)
+- [x] **1. The server announces that the queue changed.** `Realtime_Publisher::announce_queue( int $room_id )` publishes `{room_id, version}` to that room's channel, `version` being a short fingerprint of the room's current queue state (`md5` of the serialised entries + turn holder, truncated) — enough to tell "changed" from "unchanged", and carrying nothing. `RoomQueueController` calls it after a successful `join`, `leave` and `play`. → `feat(realtime): announce queue changes on the room channel` — **touches shared code (`core`) — may affect other features** (`app/rest-api/RoomQueueController.php`; three added calls, no existing behaviour altered, and the publish is fire-and-forget so a dead Ably cannot fail a join)
+- [x] **2. The heartbeat becomes a cheap write.** `POST /pc/v1/rooms/{id}/queue/heartbeat`, registered alongside the other queue routes and gated the same (`require_play_ready`): it runs `prune_stale()`, `touch()` and `sync_turn()` — the three things the poll did for free — and answers `{version}` only. No queue read, no serialisation, no entries in the body. When the version differs from the one the client holds, the client does one full `GET /rooms/{id}/queue`; when it matches, nothing happens. That is what makes a promotion caused by *another* player's idleness still reach the promoted player. `CONTRACTS.md` in the same commit. → `feat(realtime): a heartbeat that writes instead of reading` — **touches shared code (`core`) — may affect other features** (`app/rest-api/RoomQueueController.php`, `app/utils/queue-service.php` gains one small public `version()` helper; existing methods unchanged)
+- [x] **3. The browser's channel client.** `frontend/src/services/realtime.js` — fetch the pass from `GET /realtime/token`, connect, subscribe to the room channel, and expose `subscribe(roomId, handlers)` / `unsubscribe()` plus a `connected` flag to the stores. Reconnect with backoff, and **on every (re)connect run the catch-up** rather than assume nothing was missed. It degrades quietly: if the token endpoint answers `realtime_not_configured`, or the connection never comes up, the service reports itself unavailable and the caller keeps working without it. → `feat(realtime): the browser's channel client` — new file, `realtime` owns it
+- [x] **4. The queue store subscribes, and keeps its place.** `stores/queue.js`: `startPolling()` becomes `subscribe()` (the name `RoomView` calls is kept working), the 3-second full read is gone, and in its place — a subscription that re-reads on a `queue` ping, a heartbeat timer at `pc_queue_idle_timeout_seconds / 3` (20s by default, so a place survives two lost beats), and one full `refresh()` on every connect and reconnect. **If the channel cannot be reached at all, the store falls back to the old interval** so a player without Ably is not left with a frozen room. → `feat(realtime): the queue subscribes instead of polling` — **touches shared code (`core`) — may affect other features** (`frontend/src/stores/queue.js`; `RoomView.vue` keeps calling the same entry point, `RoomQueue.vue` and `PlaceBet.vue` read the same derived state and are not edited)
+- [x] **5. Winnings arrive with the credit.** On a `credit` message naming the signed-in player, the store adds the coins to the turn's winnings immediately, so `UserControls` shows them without waiting; the next `refresh()` — on the following ping, heartbeat mismatch or reconnect — is what makes it authoritative, so a missed or duplicated message self-corrects rather than drifting. `UserControls.vue` itself is **not edited**: it already renders `myWinningsCoins`. → `feat(realtime): winnings update from the pushed credit` — **touches shared code (`core`)** (`frontend/src/stores/queue.js` again)
+- [x] **6. The documentation of the change.** `ARCHITECTURE.md` (the queue flow stops saying "polled every 3s"), `FEATURE.md` → Interfaces, `TECH-STACK.md` → ANTI-PATTERNS (the cron rule's *justification* changes — the heartbeat is now an explicit cheap write, not the 3s poll — while the rule itself stands), and a **new** `DECISIONS.md` entry superseding 2026-07-30 on what the heartbeat is now. → `docs(realtime): the queue rides the channel, and what the heartbeat became`
+
+### Files to create/change
+**`backend/`**
+- `wp-content/themes/pc/app/rest-api/RoomQueueController.php` — **shared (`core`)**: three publish calls, one new route.
+- `wp-content/themes/pc/app/utils/queue-service.php` — **shared (`core`)**: one new public `version()` helper. Nothing existing changes.
+- `wp-content/themes/pc/app/realtime/publisher.php` — `announce_queue()`.
+- `wp-content/themes/pc/tests/realtime-queue.php` — **new**.
+
+**`frontend/`**
+- `src/services/realtime.js` — **new**, `realtime` owns it.
+- `src/stores/queue.js` — **shared (`core`)**: the poll becomes a subscription plus a heartbeat.
+- `package.json` / `package-lock.json` — the channel client dependency, **subject to Question 1**.
+
+**Docs repository** — `docs/ARCHITECTURE.md`, `docs/CONTRACTS.md`, `docs/TECH-STACK.md`, `docs/features/realtime/FEATURE.md`.
+
+**Not touched:** `admin/`, `RoomView.vue`, `RoomQueue.vue`, `PlaceBet.vue`, `UserControls.vue`, `stores/chat.js` (Step 4), `stores/wallet.js`, the poller, the ingest endpoint, the token endpoint.
+
+### Tests to write
+**Backend** — `backend/wp-content/themes/pc/tests/realtime-queue.php`, the WP-CLI
+`eval-file` shape, with the guard, a per-run prefix, and a `finally` that cleans up **by
+prefix** (`LEARNINGS.md` 2026-09-21).
+
+1. **A join, a leave and a play each announce the room** — one message per action, on that room's channel, carrying `room_id` and `version` **and no queue entries, no nicknames, no coin counts** (asserted by field name: this is the permission line above, so a later widening must be deliberate).
+2. **The version changes when the queue changes and not otherwise** — two reads with nothing happening in between give the same version; a join, a leave and a turn change each give a different one.
+3. **A dead Ably cannot fail a queue action.** With the stub erroring, `join`, `leave` and `play` all still succeed, return their normal envelopes, and move the same rows; the failure is in the audit log.
+4. **The heartbeat writes and does not read.** It updates `last_seen_at`, prunes a stale entry, promotes the next player when the head has gone, answers `{version}` and **no entries**; and an entry that heartbeats is still there after the idle timeout while one that does not is pruned.
+5. **The heartbeat is gated exactly as the queue read is** — `require_play_ready`: an anonymous caller and a signed-in caller who has not confirmed their email are both refused, with the same codes the existing queue routes answer.
+
+**Frontend** — there is no test runner in `frontend/` and this step does not add one
+(that would be a dependency and a decision of its own). The gate stays
+`frontend/bin/check` (lint + build), and the store's behaviour is covered by the manual
+verification below, which is written to exercise exactly the paths the backend checks
+cannot reach: a real reconnect, a real promotion, and the fallback when the channel is
+unavailable. **This is a known gap and is named in Checks → Not locally verifiable**,
+not papered over with an invented assertion.
+
+### Docs to update
+- `docs/CONTRACTS.md` — `POST /pc/v1/rooms/{id}/queue/heartbeat` in the current section: the body it answers, its gate, and that it deliberately returns no state. Plus a line on the `queue` channel message being a ping, with the reason.
+- `docs/ARCHITECTURE.md` — the queue data flow stops saying "polled every 3s"; the overview line about polling narrows to what is still polled (chat, until Step 4).
+- `docs/TECH-STACK.md` → ANTI-PATTERNS — the cron rule's justification is rewritten: pruning still happens on a request, but that request is now an explicit heartbeat rather than a 3-second full read. The rule itself does not change.
+- `docs/features/realtime/FEATURE.md` — Interfaces (the `queue` message and the heartbeat), and the `frontend/src/` shared-code notes that describe the 3-s poll.
+- At close, by `/close-step`: `docs/DECISIONS.md` (a **new** entry superseding 2026-07-30 — what the heartbeat is now, and why the queue message carries no state), `docs/WORKLOG.md`, `docs/features/realtime/verification/sprint-2-step-2.md`.
+
+### Checks
+- **ANTI-PATTERNS: none violated.** The ones worth naming:
+  - *"Do not add a cron job for queue housekeeping."* Nothing here adds a cron. Pruning still happens on a request; the request is now a heartbeat. The rule's wording is updated in task 6 because its *reason* moves, not its verdict.
+  - *"Do not register a REST route without an explicit `permission_callback`."* The heartbeat reuses `Permissions::require_play_ready` — the same gate as the queue read it replaces. No new gate is invented.
+  - *"Do not paginate chat with `LIMIT/OFFSET`."* Untouched — chat is Step 4.
+  - **Core rule 1** is engaged by the browser channel client: Question 1.
+- **Docs vs reality:**
+  - **Guests were never polling the queue.** At S2.1's close I flagged that rooms are public while the token endpoint is not, and that Steps 2 and 4 would have to keep a path for guests. For *this* step that turns out to be wrong: `GET /rooms/{id}/queue` is already `require_play_ready`, and `RoomView.vue:46` starts the queue only for an authenticated, email-verified viewer. A guest has no queue poll to remove. **The concern stands for Step 4**, where chat reads are genuinely public.
+  - **S2.1's `credit` payload carries `user_id` and `coins`** on a channel any signed-in caller may join, which is slightly more than the play-ready-gated API reveals to that same caller. It shipped and is out of this step's scope; the tightening — narrowing the room capability to play-ready callers, or dropping `user_id` — belongs in a later step or `/adhoc`. Recorded, no task here.
+  - **The balance still lags.** `stores/wallet.js` is read on room entry and after a toss, never on a poll, so a machine credit shows as winnings at once and in the balance only after a reload or the next toss. This step does not change that and no step of this sprint names it.
+  - `ARCHITECTURE.md`'s overview and queue sections say "polled every 3s" in several places; task 6 narrows them rather than deleting them, because chat still polls until Step 4.
+- **Design:** unchanged. `docs/DESIGN.md` → Components lists **Room queue** (`empty, waiting, you-are-next, your-turn`) and **User controls** (`balance, per-turn winnings, theme-song toggle`); this step changes how those states *arrive*, not what they are, and edits neither component's DOM. `PlaceBet`'s new disabled state is Step 3's.
+- **Check command:** `backend/bin/check` and `frontend/bin/check` before every commit; the backend one with DDEV up, so a boxed `SKIPPED` is not a green run.
+- **Not locally verifiable:**
+  - **Everything the browser does** — the subscription, the reconnect, the fallback and the winnings update. `frontend/` has no test runner and this step does not add one; the manual guide is the only thing that exercises them, and the agent does not sign in to the SPA. This is the step's real risk and it is stated rather than hidden.
+  - **A real Ably connection** — still no account (carried from S2.1). Section 7 of S2.1's guide and the whole of this step's two-browser check wait on one.
+
+### Questions / ambiguities
+1. **How does the browser talk to Ably? This is a new dependency either way, so it needs your approval (core rule 1).**
+   - **(a) The official `ably` npm package — recommended.** It does the token exchange against our `authUrl`, the reconnect with backoff, and the catch-up-on-reconnect that this step explicitly asks for. Roughly one runtime dependency in `frontend/`, and unlike the backend there is no obstacle to it reaching production — Vercel builds from `package.json`, which is exactly why `vendor/` ruled an SDK out on the server and does not here.
+   - **(b) No dependency: native `EventSource` against Ably's SSE endpoint.** We hand-write the token exchange, the reconnect backoff and the catch-up. It keeps `frontend/` at six runtime dependencies, but it puts the reconnect and catch-up logic — the part this step is actually about, and the part with no automated test — in our own untested code.
+   - Recommendation **(a)**: the reason the backend has no SDK does not exist here, and (b) would hand-write exactly the logic that the step's own tests cannot cover.
+   - **Resolved: approved as recommended — (a).** The official `ably` package is added to `frontend/`; core rule 1 is satisfied by this approval, and `TECH-STACK.md` records it with the locked version.
+
+### Execution notes (Step 2)
+- **Branch:** `realtime/sprint-2-queue` in all three repositories; `frontend/` needed `realtime/sprint-2` cut from `main` first. Backend `31981dee` `bed83006`; frontend `a01cedd` `0af0f90`; docs `5c9d80c` `50ecffc`.
+- **Question 1 resolved as recommended (a):** `ably` 2.28.0 added to `frontend/`, recorded in `TECH-STACK.md` with the locked version and the measured cost.
+- **Tasks 4 and 5 became one commit.** Both change the same file and the same subscription wiring, and splitting them would have left task 4's branch with a subscription that ignored `credit` messages. Both checkboxes are ticked against `0af0f90`.
+- **A real bug the checks caught.** The heartbeat pruned *before* touching, copying `state()`'s order — so a caller who had missed a couple of beats would be evicted by their own heartbeat. A backgrounded tab throttled by the browser is exactly that case. Now it touches first; `state()` is unchanged, and the comment says why the two differ.
+- **A judgement call made while measuring.** Statically imported, `ably` took the main bundle from 92 kB to 151 kB gzipped. It is now a dynamic import — its own 58 kB chunk that only a room fetches, main bundle back to 92 kB. Same pattern and same reason as `hls.js`, which this codebase already lazy-loads.
+- **Before/after proofs**, each reverting only the behaviour under test:
+  - putting the queue in the channel message — the shortcut that saves the client a refetch — fails exactly the two checks guarding the permission line;
+  - pruning before touching fails the two checks about holding a place;
+  - answering the full state from the heartbeat fails the check that it carries no queue.
+- **Out of scope, found and reported, not fixed:** `tests/machine-poll.php` (S1.5) and `tests/realtime-channel.php` (S2.1) delete their throwaway rooms but not the `wp_pc_room_queues` / `wp_pc_bet_sessions` rows those rooms accumulated — 25 orphaned queue rows and 57 orphaned session rows in the local install, purged by hand here. **This is the third instance of the cleanup class of bug** (`LEARNINGS.md` 2026-09-21). Both files belong to closed steps and neither is in this plan's file list, so they were left alone: the fix belongs in `/adhoc`. This step's own script cleans both tables and leaves nothing.
+- **Not done, deliberately:** nothing was pointed at real Ably (still no account), and no SPA was opened signed in. Everything the browser does in this step — subscribing, reconnecting, the fallback, the winnings — is therefore unverified until the manual guide is run, exactly as the plan's Not-locally-verifiable section said.
+- **Gate:** `backend/bin/check` exit 0 before every backend commit (63 php files; stage 2 executed, `realtime-queue.php` among them) and `frontend/bin/check` exit 0 before every frontend commit and at the end — `lint: OK`, `build: OK`.

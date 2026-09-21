@@ -19,7 +19,8 @@
 | Player SPA | Vue 3 (`<script setup>`, Composition API) | 3.5.21 | — |
 | Player SPA build | Vite | 5.4.20 | — |
 | Player SPA state / routing / HTTP | Pinia 3.0.3, Vue Router 4.5.1, Axios 1.12.0 | — | — |
-| Player SPA extras | `hls.js` 1.6.16 (dynamic import), `imask` 7.6.1 | — | Mux LL-HLS playback; phone / code / coin-quantity masking |
+| Player SPA extras | `hls.js` 1.6.16 (dynamic import), `imask` 7.6.1, `ably` 2.28.0 (dynamic import) | — | Mux LL-HLS playback; phone / code / coin-quantity masking; the live room channel |
+| Player SPA — Ably client | `ably` | 2.28.0 (locked `realtime` S2.2) | Approved under core rule 1. It does the token exchange against our `authUrl`, the reconnect backoff and the renewal on expiry — the parts this feature is actually about and the parts `frontend/` has no test runner to cover. The reason the backend has **no** SDK (`vendor/` never reaches production, `DECISIONS.md` 2026-09-17) does not apply here: Vercel builds from `package.json`. Dynamically imported, like `hls.js` and for the same reason: it is its own 212 kB / 58 kB-gzipped chunk that only a room ever fetches, leaving the main bundle at 261 kB / 92 kB — where it was before |
 | Admin SPA | Vue 3.5.34, Vite 5.4.21, Pinia 3.0.4, Vue Router 4.6.4, Axios 1.16.0 | — | Same stack as the player SPA, without `hls.js` and `imask` |
 | Lint / format | ESLint 8.57.1 + Prettier (3.6.2 frontend, 3.8.3 admin); `php -l` for the theme | — | No PHPCS, PHPStan or Psalm anywhere |
 | Testing | **none** | — | No PHPUnit, no Vitest, no Playwright, in any of the three repositories |
@@ -147,8 +148,12 @@ machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP
   `status`; a retired support subject is trashed; a drained coin lot stays at
   `qty = 0`; a revoked refresh token keeps its row. A `DELETE` in a moderation or
   money path is almost certainly wrong.
-- **Do not add a cron job for queue housekeeping.** Queue pruning happens on read;
-  the SPA's 3s poll is the heartbeat. The design deliberately heals on traffic alone.
+- **Do not add a cron job for queue housekeeping.** Queue pruning still happens on a
+  request, and the design still heals on traffic alone — but the request is no longer
+  the SPA's 3-second full read. Since `realtime` Sprint 2 Step 2 it is an explicit
+  `POST /rooms/{id}/queue/heartbeat`: a cheap write that touches the caller, prunes the
+  absent, promotes the next player and answers a version rather than the queue. The
+  rule is unchanged; only its reason moved.
 - **Do not paginate chat with `LIMIT/OFFSET`.** Reads are cursor-based on `id`
   (`?after=<last id>`); an offset would re-send or skip messages between two polls.
 - **Do not build product UI in `/wp-admin/`,** and do not introduce ACF. Every

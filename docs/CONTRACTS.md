@@ -511,11 +511,13 @@ Errors: `room_not_found` 404.
 
 Bearer + play-ready. The room's queue, and the turn it confers.
 
-**Doubles as the heartbeat.** The backend drops entries whose player
-stopped calling this for `pc_queue_idle_timeout_seconds` (default 60),
-so a client that wants to hold its place must keep polling — the SPA
-does, every 3s. Phase 5 Step 7's push channel will replace the poll;
-the endpoint stays as the state-of-truth read.
+**No longer the heartbeat, and no longer polled.** The SPA subscribes to
+the room's push channel and calls this only when it hears a version it
+has not seen (`realtime` Sprint 2 Step 2). Holding a place is now
+`POST queue/heartbeat`'s job. This endpoint remains the state-of-truth
+read and the only place the queue itself is served — which is why the
+channel message carries no queue: this route is play-ready gated, and a
+room-channel pass is not.
 
 Response (`200`):
 ```json
@@ -563,6 +565,35 @@ Errors: `invalid_coin_qty` 400, `insufficient_balance` 409,
 queue on one machine. It clears when an operator makes one room unavailable or gives
 it another machine id (`wp pc machine-rooms` lists such rooms). The player SPA shows
 the `message` as sent (`realtime` Sprint 1 Step 3).
+
+### `POST /pc/v1/rooms/{id}/queue/heartbeat`
+
+Bearer + play-ready — **the same gate as the queue read**, deliberately:
+it must not become a way to learn anything the read would refuse.
+Empty request body.
+
+What the 3-second poll used to do as a side-effect, on purpose and
+without the read: it touches the caller's row so their place survives
+`pc_queue_idle_timeout_seconds`, prunes players who have gone silent,
+and promotes the next one when the head has gone. **The caller is
+touched before the prune runs**, unlike `GET queue` — a client that has
+reached the server is not idle, and a backgrounded tab throttled by the
+browser would otherwise be evicted by its own heartbeat.
+
+Response (`200`):
+
+```json
+{ "version": "7f3a91c04be2" }
+```
+
+**It answers no state at all** — no entries, no session, no turn holder.
+A client compares `version` with the one it holds and re-reads
+`GET queue` only when they differ. That is also how a player promoted by
+*another* player's silence finds out: nothing was published, but the
+version moved.
+
+The SPA calls it every `pc_queue_idle_timeout_seconds / 3` (20s by
+default), so a place survives two lost beats.
 
 ### `POST /pc/v1/rooms/{id}/queue/leave`
 
@@ -1012,6 +1043,29 @@ Errors:
   same shape as `stripe_not_configured`: a server condition, not the
   caller's fault. Publishing is a silent no-op in the same state, so
   payouts still credit normally; they are simply not pushed.
+
+### Room channel messages
+
+Not HTTP: what WordPress publishes to `{prefix}:room:{id}` for subscribed
+browsers (`realtime` Sprint 2). A pass for a room channel is granted to
+**any signed-in caller**, while `GET /rooms/{id}/queue` is play-ready
+gated — so what may travel here is narrower than what the API serves,
+and widening either message is a permission decision, not a convenience.
+
+| Message | Data | Sent when |
+|---|---|---|
+| `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
+| `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
+
+A `queue` message is a change ping: the client answers a version it has
+not seen by re-reading `GET /rooms/{id}/queue` through the existing gate.
+Push decides *when* to read; the permission still decides *what* may be
+read. A dropped message therefore costs one stale second, not a wrong
+queue.
+
+Publishing is fire-and-forget throughout: a failed publish is recorded
+as `realtime_publish_failed` and swallowed, and can never fail the join,
+leave, toss or payout that triggered it.
 
 ### `GET /pc/v1/admin/me`
 
