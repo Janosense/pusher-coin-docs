@@ -223,6 +223,7 @@ themes/pc/
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
 ├── tests/
 │   ├── machine-ingest.php   # `ddev wp eval-file` check: the ingest endpoint, idempotency and crediting (DDEV only)
+│   ├── machine-poll.php     # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
@@ -353,7 +354,7 @@ spent. In order: refuse if the caller is not at the head; refuse with 423
 `Machine_Service::toss_coin()`; if the machine does not answer 200, re-credit the
 exact lot price. A successful toss increments `coins_played` on the session.
 
-**Machine-event ingest — the door is open; the transport is not built yet.**
+**Machine-event ingest.**
 `POST /pc/v1/machine/events` (`app/realtime/MachineIngestController.php`) is where
 machine events come in. It is a public route whose credential is a shared secret in
 `X-PC-Machine-Secret` (`PC_MACHINE_INGEST_SECRET` in wp-config), rate-limited on one
@@ -371,10 +372,31 @@ keeps unique, else the room that carries it → open session → player; then bu
 `money_won` on the session, which `UserControls` shows as per-turn winnings).
 Machine payouts credit coin lots directly at the player's FIFO-head lot price and
 are audited in `wp_pc_machine_events`, never in the ledger — the player's history
-view shows money movements only. **Nothing calls the endpoint yet:** the transport —
-WordPress polling Home Assistant's history on a schedule (`DECISIONS.md`
-2026-09-18) — is `realtime` Sprint 1 Step 5, and until it ships the only producer is
-the `wp pc machine-ingest` replay command.
+view shows money movements only.
+
+**The transport that knocks on that door** is `Machine_Poller`
+(`app/realtime/machine-poller.php`). Home Assistant has no outbound-HTTP service, so
+it cannot call us, and reading `sensor.coin`'s live value on a schedule straddles
+whole payouts — the counter rises and the next toss resets it in between. So
+WordPress asks Home Assistant's *history* what the counter did since its own cursor
+(`DECISIONS.md` 2026-09-18), through `Machine_Service::get_state_history()`, and
+turns each change into coins: a rise pays the difference, a fall pays what is there
+now because a toss reset the counter underneath it. Each payout is delivered to the
+endpoint above with `rest_do_request()` — an in-process dispatch of the real route,
+secret header included, so the transport is a client of the door like every other
+caller rather than a back channel around it. `event_key` is
+`ha:{entity}:{last_updated}` taken verbatim from the history row.
+
+Its whole shape follows from one asymmetry: **re-reading a window is free and
+skipping one is not.** The cursor (`pc_realtime_cursor_sensor_coin`) advances only
+past rows the endpoint has answered, so a 401, a 429, a 500, an unreachable machine
+or a missing configuration all hold it where it was and write the reason to
+`wp_pc_auth_audit_log` (`machine_poll_*`); the next pass reads the same window again
+and `event_key` makes the repeat free. A lost cursor costs a bounded backfill and an
+audit row, never a silent gap. Two things drive it — the WP-Cron event the feature
+bootstrap schedules and `wp pc machine-poll` — and a transient lock makes overlapping
+passes impossible, so one real machine event is one ingest call on either. `wp pc
+machine-ingest` remains the manual replay for an event the transport dropped.
 
 **Chat.** Reads are public and cursor-based — `GET /rooms/{id}/messages?after=<last
 id>`, polled every 3s by the same store that owns the chat panel's open/closed
