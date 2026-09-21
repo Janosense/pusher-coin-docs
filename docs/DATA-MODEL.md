@@ -452,7 +452,7 @@ so changing a default in that class changes every environment that never set the
 | `pc_machine_endpoint` | string (URL) | `https://developer-it.com/api` | Home Assistant base URL. |
 | `pc_machine_power_switch_entity` | string | `switch.s60tpf` | Wall switch. Renamed in HA; the old `switch.sonoff_10024fb618` 404s (verified 2026-09-16). |
 | `pc_machine_toss_button_entity` | string | `input_button.toss_a_coin` | Fires a coin toss. |
-| `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Cumulative coin counter. |
+| `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Coin counter. **Not cumulative:** it counts the coins paid out since the last toss, and a toss resets it to 0 (observed 2026-09-18, `DECISIONS.md`). |
 | `pc_machine_bonus_sensor_entity` | string | `sensor.lc01_12` | Bonus wheel value 1–12. |
 | `pc_machine_light_sensor_entity` | string | `sensor.light_b_t` | Status-light bitfield. |
 | `pc_machine_relay_sensor_entity` | string | `sensor.relay_on` | Relay-contact state read. |

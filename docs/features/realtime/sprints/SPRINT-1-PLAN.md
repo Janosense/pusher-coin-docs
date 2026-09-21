@@ -782,3 +782,311 @@ registry), `docs/features/realtime/FEATURE.md` → Invariants #5, and `docs/BACK
   of this rule (Checks → Docs vs reality 1; `BACKEND-REVIEW.md` §12).
 - **Gate.** `backend/bin/check` exit 0 (53 php files; stage 2 executed,
   `machine-rooms.php` included) and `frontend/bin/check` exit 0, before each commit.
+
+---
+
+## Plan — Sprint 1, Step 4: The ingest endpoint   (status: approved, in progress)
+
+### Branch
+`realtime/sprint-1-ingest-endpoint` ← `realtime/sprint-1`, in **two** repositories:
+- **root docs:** from `realtime/sprint-1` (`727df6c`);
+- **`backend/`:** from `realtime/sprint-1` (`5443cfda`).
+
+`frontend/` and `admin/` are not touched: the endpoint has no SPA caller, and the
+player's balance and winnings already come from code Step 1 audited. Nothing is pushed.
+
+### Tasks (ordered)
+Every backend commit is gated by `backend/bin/check` with DDEV running, so the new test
+script executes. Each backend commit is followed by the docs commit that describes it;
+the two repositories cannot share a commit.
+
+- [x] **1. Branches** — as above. *No commit.*
+
+- [x] **2. The coin counter is not cumulative** — *touches shared code
+  (`machine-ingest-service.php`, `machine-service.php`, both owned by `core`;
+  consumers: `wp pc machine-ingest`, the admin **Machine** screen's sensor grid)*.
+  Comments and docs only; no behaviour changes, so nothing can regress.
+  - `app/utils/machine-ingest-service.php:75-79` — `ingest_coins_dropped()`'s docblock
+    says `$coins` is "the delta the sensor moved by, not its cumulative reading". The
+    machine produces no such delta. Replace it with what the spike observed
+    (`DECISIONS.md` 2026-09-18): `sensor.coin` counts coins paid out **since the last
+    toss** and a toss resets it, so `$coins` is the number of coins this one event paid
+    out, and the caller derives it from consecutive history rows (rise → the
+    difference; fall → the new value). The signature and the behaviour are unchanged —
+    the method has always credited the number it is given.
+  - `app/utils/machine-service.php:60-63` — `get_coin_count()`'s "Cumulative coin count
+    from `sensor.coin`" becomes the same corrected sentence, with the caveat that a
+    single read cannot see a payout that started and was reset between two reads (which
+    is why Step 5 polls history, not states).
+  - `docs/DATA-MODEL.md` — the `pc_machine_coin_sensor_entity` row's note "Cumulative
+    coin counter" is wrong in the same way; corrected, dated, and pointed at the
+    `DECISIONS.md` entry.
+  → backend `docs(realtime): sensor.coin counts a payout, not a running total`
+  → docs `docs(realtime): the coin counter is not cumulative`
+
+- [ ] **3. A failed write is not a duplicate** — *only if Question 1 is answered as
+  recommended*. *Touches shared code (`machine-events.php`,
+  `machine-ingest-service.php`, both `core`; consumer: `wp pc machine-ingest`).*
+  - `Machine_Event_Log::record()` returns `0` both for a colliding `event_key` **and**
+    for a failed insert (`machine-events.php:82-85`), so a database fault is reported as
+    "already handled" and the payout is lost in silence. This is `BACKEND-REVIEW.md`
+    §10's first bullet, which `FEATURE.md` records as something Step 4 depends on.
+  - Add `Machine_Event_Log::record_result( array $event ): array` →
+    `[ 'id' => int, 'outcome' => 'inserted' | 'duplicate' | 'failed' ]`. `record()` stays
+    exactly as it is, a wrapper returning the id, so no existing caller changes meaning.
+  - `Machine_Ingest_Service::settle()` (`:126`) and `log_event()` (`:100`) use
+    `record_result()`. On `failed` they return
+    `WP_Error( 'machine_event_write_failed', …, [ 'status' => 500 ] )` instead of
+    `duplicate: true`. The CLI already branches on `$result instanceof WP_Error`
+    (`cli/machine-ingest.php:76-79`), so it reports the fault instead of claiming a
+    duplicate; no CLI change.
+  - `tests/machine-ingest.php` is created here with this task's checks.
+  → backend `fix(realtime): a machine event that cannot be written is not a duplicate`
+  → docs `docs(realtime): a failed machine-event write is reported as a failure`
+    (`DATA-MODEL.md` `wp_pc_machine_events` notes; `BACKEND-REVIEW.md` §10 bullet 1
+    marked settled.)
+
+- [ ] **4. Configuration: the shared secret and the ingest's limits** — *touches shared
+  code (`install-schema.php`, `core`; a `pc_db_version` bump runs the installer for
+  every feature)*.
+  - **The secret is a wp-config constant** (root invariant 2, `DECISIONS.md`
+    2026-05-07): `PC_MACHINE_INGEST_SECRET`. It is *not* `PC_MACHINE_TOKEN` — that one is
+    the bearer token WordPress sends *to* Home Assistant, and the two must rotate
+    independently.
+    - `backend/wp-config-sample.php` and `backend/wp-config-ddev.php` gain a commented,
+      documented `define()` next to the Stripe block (`wp-config-ddev.php:47-53`), with
+      the same "fill in locally, never commit the value" note and the reminder that
+      `ddev start` rewrites that file (`LEARNINGS.md` 2026-09-15).
+    - **No value is written anywhere in any repository.** The user puts the real one in
+      `backend/wp-config.php` (git-ignored) — the verification guide gives the command.
+  - **Two operator-tunable limits** (core rule 3; `FEATURE.md` → Data reserves
+    `pc_realtime_*` for exactly this), seeded in `Install_Schema::install_default_options()`
+    (`install-schema.php:253`):
+    - `pc_realtime_ingest_rate_max` — default `120`;
+    - `pc_realtime_ingest_rate_window_seconds` — default `60`.
+    Step 5's transport polls once a minute, so the default ceiling is ~120× its traffic.
+  - `Install_Schema::DB_VERSION` `1.9.0` → `1.10.0` (`install-schema.php:15`), because
+    `maybe_install()` returns early on an up-to-date install and the two `add_option()`
+    calls would never run (root invariant 11).
+  → backend `feat(realtime): configuration for the machine-ingest endpoint`
+  → docs `docs(realtime): the ingest secret and its rate-limit options`
+    - `DATA-MODEL.md`: the two options in the settings tables, the `pc_db_version` row
+      for `1.10.0`, and `PC_MACHINE_INGEST_SECRET` in invariant 13's constant list.
+    - root `CLAUDE.md` invariant 2's list of secret constants (as `stripe` did for its
+      two).
+
+- [ ] **5. The endpoint** — `POST /pc/v1/machine/events`. *Touches shared code only
+  through `app/realtime/bootstrap.php`'s own registration; the controller is new and
+  lives in `app/realtime/`.*
+  - `app/realtime/MachineIngestController.php` — `PC\Machine_Ingest_Controller`,
+    registered from `app/realtime/bootstrap.php` on `rest_api_init`, the way
+    `app/stripe/bootstrap.php:23-26` registers the Stripe webhook. Routes never go
+    through `app/rest-api.php` (`FEATURE.md` → Entry point).
+  - **Credential.** Header `X-PC-Machine-Secret`, compared to the constant with
+    `hash_equals()`. `permission_callback` is `__return_true` with the credential named
+    in the docblock — the shipped precedent for a public route that carries its own
+    credential (`StripeWebhookController.php:59-64`, and the ANTI-PATTERNS rule that
+    allows it). A missing header, a wrong secret **and an unconfigured server** all
+    answer the same 401 `machine_ingest_unauthorized`, message *Not authorised.* — the
+    audit entry tells them apart, the answer does not.
+  - **Rate limit before the credential check.** `Rate_Limiter::check()` on the fixed key
+    `realtime_ingest` — **not** on the caller's IP, which `client_ip()` reads from a
+    spoofable `X-Forwarded-For` (`rate-limiter.php:42`, review item 5, recorded in
+    `FEATURE.md`). Checking before the secret is deliberate: it caps what an
+    unauthenticated flood can write into `wp_pc_auth_audit_log`. The cost is that such a
+    flood can also spend the window on the real transport — which loses nothing, because
+    Step 5 re-reads from its cursor. Over the limit: 429 `rate_limited` (the existing
+    registry code).
+  - **Body** (JSON): `type` (`coins_dropped` | `bonus` | `relay_closed`), `event_key`
+    (required, non-empty, ≤191 chars — invariant 1 and `DECISIONS.md` 2026-07-24),
+    `machine_id` (optional; without it nothing can be attributed), `coins` (for
+    `coins_dropped`), `bonus_number` (for `bonus`). Missing key → 400
+    `missing_event_key`; unknown type → 400 `invalid_event_type`; the two value checks
+    stay where they already are, in the service (`invalid_coin_count`,
+    `invalid_bonus_number`, both 400).
+  - **Dispatch** to `Machine_Ingest_Service::ingest_coins_dropped()` /
+    `ingest_bonus()` / `ingest_relay_closed()`, which is where attribution
+    (`pc_machine_event_player`, `queue-service.php:529`) and the credit already live.
+    Nothing new touches a wallet.
+  - **Answers.** 200 with `received: true` and a `status` for everything the transport
+    must not retry: `credited` (with `coins`, `event_id`), `recorded` (mapped to 0
+    coins), `unattributed` (nobody held the turn — the step's own wording), and
+    `already_recorded` for a replayed `event_key` (no `event_id`, nothing credited).
+    Two non-2xx besides the four above: 500 `machine_event_write_failed` from task 3
+    (the audit row could not be written, so nothing was decided and a retry is right).
+    A **wallet** write that fails answers 200 `status: failed`: the event row is already
+    written, so a retry would only collide with its own `event_key` and answer
+    `already_recorded` — the row is the forensic record and an operator settles it with
+    `wp pc machine-ingest --player=…`. That is the same reasoning the Stripe webhook
+    uses in reverse (`DECISIONS.md` 2026-09-17), and it is stated in `CONTRACTS.md`.
+  - **Every call is audited** into `wp_pc_auth_audit_log` through `Audit_Log::record()`
+    (`audit-log.php:21`), one `machine_ingest_*` event type per branch, with the
+    `event_key`, `machine_id` and `type` in the metadata — never the secret.
+  → backend `feat(realtime): POST /pc/v1/machine/events ingests machine events`
+  → docs `docs(realtime): the machine ingest endpoint`
+    - `CONTRACTS.md`: the endpoint in **current**, its `status` table and its errors;
+      registry rows for `machine_ingest_unauthorized`, `missing_event_key`,
+      `invalid_event_type`, `machine_event_write_failed`, and this endpoint added to
+      `rate_limited`, `invalid_coin_count`, `invalid_bonus_number`; the Phase 5 planned
+      bullet `POST /pc/v1/machine/webhook` replaced by what shipped under the name the
+      sprint gives it.
+    - `ARCHITECTURE.md`: "Nothing pushes machine events *in* yet" (`:362-363`) becomes
+      the endpoint plus "no transport calls it until Step 5"; the theme tree gains the
+      two new files.
+    - `PROJECT-TREE.md`: the same two files.
+    - `FEATURE.md`: Interfaces (the endpoint's real shape), Data (the two options),
+      Invariants 1 and 4 now enforced by code rather than asserted.
+
+### Files to create/change
+- **`backend/wp-content/themes/pc/` — new:** `app/realtime/MachineIngestController.php`,
+  `tests/machine-ingest.php`.
+- **`backend/wp-content/themes/pc/` — changed:** `app/realtime/bootstrap.php` (the
+  feature's own); and, all `core`: `app/utils/machine-events.php`,
+  `app/utils/machine-ingest-service.php`, `app/utils/machine-service.php` (a docblock),
+  `app/utils/install-schema.php`.
+- **`backend/` — changed:** `wp-config-sample.php`, `wp-config-ddev.php` (a commented
+  `define()` and its note; no value).
+- **Docs:** `CONTRACTS.md`, `DATA-MODEL.md`, `ARCHITECTURE.md`, `PROJECT-TREE.md`,
+  `BACKEND-REVIEW.md`, `docs/features/realtime/FEATURE.md`, root `CLAUDE.md`, this plan
+  file.
+- **Nothing in `frontend/` or `admin/`.**
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/machine-ingest.php`, run by every `backend/bin/check`
+with DDEV up. This is a **money zone** (root `CLAUDE.md` → Project profile: machine-event
+idempotency and crediting), so the tests ship in the same commits as the code. Fixtures
+follow `tests/machine-rooms.php` and `tests/stripe-webhook.php`: a throwaway player with
+a known coin lot, a throwaway `pc_room` with a per-run random machine id, a queue entry
+and an open session — all removed in `finally`, together with every wallet, lot, machine
+event, audit and rate-limit transient the run creates. The secret: the constant when the
+local `wp-config.php` defines it, otherwise a random one defined for the run, so the
+check stays green on a machine that has not configured it yet.
+- **Task 3 — duplicate vs failure:**
+  - a fresh key → `inserted`; the same key again → `duplicate`, id 0;
+  - an insert forced to fail (the `query` filter that
+    `tests/stripe-webhook.php:311-321` uses) → `failed`, and `settle()` answers
+    `WP_Error` 500 `machine_event_write_failed`, not a duplicate;
+  - that forced failure moves no wallet and leaves no event row.
+- **Task 5 — the endpoint, driven through `rest_do_request()` so the route, its
+  permission callback and its body parsing all run:**
+  - **wrong secret → 401**, and the body carries no code, message or data beyond
+    `machine_ingest_unauthorized` / *Not authorised.* (the step: "reveals nothing");
+    no header → the same 401; and the unconfigured case (an empty configured secret
+    never matches) checked on the comparison helper directly, since a constant cannot be
+    undefined mid-run;
+  - **a missing `event_key` is refused** 400 `missing_event_key`, and no row was
+    written; an unknown `type` → 400 `invalid_event_type`;
+  - **a bonus credits exactly the mapped coin count at the FIFO-head unit price** — the
+    wallet rises by the map's number for that bonus number, and the event row's
+    `unit_price` equals the player's head lot price; a bonus mapped to 0 records without
+    crediting;
+  - **a coins-dropped event credits the count reported, once** — the balance rises by
+    exactly that many coins;
+  - **replay:** the identical body again → 200 `already_recorded`, the balance does not
+    move, and `wp_pc_machine_events` holds exactly one row for that key;
+  - **an unattributed event** (a machine id no room carries) → 200 `unattributed`, no
+    wallet movement, no coin lot, and **no `wp_pc_transactions` row** (root invariant 6);
+  - **the rate limit** answers 429 once the configured max is spent in the window, and
+    the transient is cleared afterwards so the rest of the file runs;
+  - **every call wrote an audit row**, and no audit row contains the secret.
+- Each new behaviour is also run against the code as it was before the task, and the
+  matching checks must fail there — the practice Step 3 used. Results go into the
+  execution notes.
+- No existing test changes: `record()` keeps its signature and every other script
+  (`machine-rooms.php`, `stripe-*.php`, `wallet-rollback.php`) is untouched by these
+  files.
+
+### Docs to update
+The three the step names — `docs/CONTRACTS.md` (the endpoint and its error codes, in
+"current"), `docs/DATA-MODEL.md` (the new options and constant, and the corrected
+coin-counter meaning), `docs/ARCHITECTURE.md` (the ingest flow) — plus, per core rule 5,
+the ones these changes make stale: `docs/PROJECT-TREE.md` and `ARCHITECTURE.md`'s theme
+tree (two new files), `docs/features/realtime/FEATURE.md` (Interfaces, Data, Invariants
+1 and 4), `docs/BACKEND-REVIEW.md` (§10's first bullet, settled by task 3), and root
+`CLAUDE.md` invariant 2 (one more secret constant).
+
+### Checks
+- **ANTI-PATTERNS:** none violated.
+  - The route declares an explicit `permission_callback` and, being public, carries its
+    own credential — a shared secret plus a rate limit, both named in the rule itself.
+  - The secret is a wp-config constant, never an option, never logged, never committed;
+    the two limits are options with defaults in `Install_Schema`, not hardcoded.
+  - No money column is touched outside `Wallet_Service`; no payout reaches the ledger;
+    no `ENUM`; no cron; no plugin; no new dependency; no Home Assistant call (this step
+    only receives).
+  - `$wpdb` is not expected to throw — task 3 is precisely the missing check on a failed
+    insert.
+  - Meta keys in the fixtures come from `Post_Meta_Keys`; nothing carrying evidence is
+    deleted by product code (only the test removes its own fixtures).
+- **Docs vs reality:** mismatches, each resolved without adding work:
+  1. **The endpoint's name.** `CONTRACTS.md:1553` still plans
+     `POST /pc/v1/machine/webhook`; the sprint names `POST /pc/v1/machine/events`. The
+     sprint is the later source and the step text is explicit, so `events` ships and the
+     planned bullet is rewritten. Same for its "Step 6 / Step 7" numbering, which
+     predates the feature split.
+  2. **The bonus and the relay have no signal behind them.** `DECISIONS.md` 2026-09-18:
+     the ingest may credit only from `sensor.coin`; `sensor.lc01_12` was 0 for ten days
+     and the relay sensor follows the buttons, not a payout. The *endpoint* still
+     dispatches all three, because the step names all three and `wp pc machine-ingest`
+     already drives them — what the spike forbids is a **transport** synthesising a
+     bonus or a relay event from those sensors, which is Step 5's constraint and is
+     written into `CONTRACTS.md` beside the endpoint. `pc_machine_relay_coin_count`
+     defaults to 0, so a relay event credits nothing until an operator sets it.
+  3. **Step 5 may not call this over HTTP at all.** The chosen transport is WordPress
+     polling Home Assistant, so its poller can call `Machine_Ingest_Service` in-process.
+     The endpoint is still what the sprint's Step 4 builds and what the manual
+     verification uses; which door Step 5 walks through is Step 5's plan.
+  4. **`Install_Schema` seeds no `pc_machine_*` option** although
+     `TECH-STACK.md` → ANTI-PATTERNS says operator-tunable machine values are seeded
+     there; `DATA-MODEL.md:445-447` already records the truth. The step says "**any new**
+     option gets its default in `Install_Schema`", so the two new ones are seeded and the
+     old `pc_machine_*` gap stays an `/adhoc` (WORKLOG, Step 1).
+  5. **`settle()` writes the row, then credits, with no transaction and an unchecked
+     `mark()`** (`machine-ingest-service.php:126-173`, recorded in `FEATURE.md`). Task 3
+     fixes only the half the step depends on — telling a failed write from a duplicate.
+     The unchecked `mark()` after a successful credit stays open; no step names it.
+  6. **The player's balance does not move on a machine credit** until the Room screen is
+     re-entered or the next toss (`stores/queue.js:113`, `views/RoomView.vue:54`, from
+     Step 1). The step's manual verification says "the player's coin balance rises", so
+     the guide will have the user read the balance after a reload (or on **Wallet**) and
+     the in-room **winnings** counter live. No SPA change — that is Sprint 2's work.
+  7. **The check-command list is still stale** (`TECH-STACK.md` → Check command lists
+     only `wallet-rollback.php`); the new script is picked up without editing it, and the
+     list stays the `/adhoc` the WORKLOG already carries.
+  8. **Every toss is refused with 423 while the machine is on** (Step 2's finding). It
+     does not block this step — an ingest event needs a player holding the turn, which
+     joining the queue gives, not a successful toss — and it remains an `/adhoc`.
+- **Design:** n/a — no screen changes, and `realtime` has no design (`DECISIONS.md`
+  2026-09-15).
+- **Check command:** `backend/bin/check` (php -l, then every `tests/*.php` including the
+  new one, with DDEV up) gates every backend commit; `frontend/bin/check` is run once as
+  the sprint's gate, on an untouched repository. `docs/TECH-STACK.md` → Check command.
+- **Not locally verifiable:** `PC_MACHINE_INGEST_SECRET` in **production**
+  `wp-config.php`. Nothing in this step can create it — a deploy does not write
+  wp-config — so the one real run that verifies it is the operator adding the constant on
+  the host after the sprint reaches `main`, which Step 5's verification already depends
+  on. Everything else in this step runs locally. The agent will not sign in to either SPA
+  (`LEARNINGS.md` 2026-09-18); the signed-in player check is the user's guide, and the
+  same behaviour is covered by the test script.
+
+### Questions / ambiguities
+1. **Should this step make `Machine_Event_Log` tell a failed write from a duplicate?**
+   `record()` returns 0 for both (`machine-events.php:82-85`), so today a database fault
+   is answered as "already handled". The step promises that "a replayed `event_key`
+   answers 200 with an 'already recorded' body and credits nothing" — with the two
+   conflated, a database fault gets that same answer, the transport never retries, and a
+   payout is lost with no wallet movement and no row to find it by. `FEATURE.md` records
+   this as `BACKEND-REVIEW.md` §10's first bullet, which "S1.4 depends on, does not
+   name" — so the step assumes it without asking for it.
+   - **(a) In this step:** task 3 above — one backend commit, `record_result()` plus the
+     two service call sites, and the endpoint gains its 500 branch.
+   - **(b) Leave it:** task 3 drops out, the endpoint answers 200 `already_recorded` for
+     a database fault too, and `CONTRACTS.md` says so plainly rather than promising
+     idempotency it does not have.
+   - **(c) `/adhoc` afterwards:** task 3 drops out of this step and the endpoint ships
+     with the same flaw until someone runs the ad-hoc.
+   **Recommendation: (a).** It is a money-zone promise the step's own contract rests on,
+   it is small and contained (one new method, two call sites, no signature changes), and
+   it mirrors what the Stripe webhook already does for the one failure a retry can fix
+   (`DECISIONS.md` 2026-09-17).
+   **Resolved: approved as recommended — (a), task 3 runs in this step.**
