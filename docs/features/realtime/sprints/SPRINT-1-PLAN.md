@@ -785,7 +785,7 @@ registry), `docs/features/realtime/FEATURE.md` → Invariants #5, and `docs/BACK
 
 ---
 
-## Plan — Sprint 1, Step 4: The ingest endpoint   (status: approved, in progress)
+## Plan — Sprint 1, Step 4: The ingest endpoint   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-1-ingest-endpoint` ← `realtime/sprint-1`, in **two** repositories:
@@ -1102,3 +1102,49 @@ tree (two new files), `docs/features/realtime/FEATURE.md` (Interfaces, Data, Inv
    it mirrors what the Stripe webhook already does for the one failure a retry can fix
    (`DECISIONS.md` 2026-09-17).
    **Resolved: approved as recommended — (a), task 3 runs in this step.**
+
+### Execution notes (for `/close-step`)
+- **Commits.** Branch `realtime/sprint-1-ingest-endpoint` in `backend/` and in the root
+  docs repository, both cut from `realtime/sprint-1` (root `727df6c`, backend
+  `5443cfda`).
+  - backend: `730fcdca` (the coin-counter model), `17bf27ab` (duplicate vs failed
+    write), `ae25bd0c` (the secret and its limits), `39c3a25d` (the endpoint);
+  - docs: `970702c`, `fb8ee81`, `6f70b4c`, `792ad53`, plus this plan file.
+  Nothing pushed, nothing merged; `frontend/` and `admin/` untouched.
+- **Question 1** resolved as recommended (a): task 3 ran in this step.
+- **One deviation, raised and agreed mid-step.** Task 3 as written would have made
+  `Machine_Ingest_Service::log_event()` return a `WP_Error`. Its consumers are not only
+  the CLI: the toss endpoint reads `$event['event_id']` straight out of the result
+  (`RoomQueueController.php:155,167`), so an error object there is a fatal raised after
+  the coin was debited and the machine tossed it — a player would lose a real coin to a
+  500. Answer (a): only `settle()`, the crediting path, returns the error; `log_event()`
+  keeps its array and gains a `write_failed` flag. `RoomQueueController.php` was not
+  touched and the file list held as approved.
+- **Tests:** `tests/machine-ingest.php`, **80 checks**, all passing, run by every
+  `backend/bin/check` with DDEV up. Each new behaviour was also run against the code
+  before it, and the matching checks failed there:
+  - the duplicate/failure distinction: 5 of 30 failed on the previous
+    `Machine_Ingest_Service` (with `record_result()` present, since the old file has no
+    such method to call at all);
+  - the endpoint: 35 of 80 failed with the route unregistered.
+  One check was wrong on the first run and was fixed in the test, not the code: `?? 'x'`
+  swallows the very `null` that "the row names no player" asserts. It now reads the row
+  once and checks the column.
+- **Configuration.** `PC_MACHINE_INGEST_SECRET` is documented in `wp-config-sample.php`
+  and `wp-config-ddev.php` with **no value committed**. The local `wp-config.php` does
+  not define it yet and does not need to: the test defines a throwaway secret for its
+  own process when the constant is absent, so `backend/bin/check` is green either way.
+  The verification guide gives the user the command to set a real one.
+- **`pc_db_version` 1.9.0 → 1.10.0** ran on the local install during the step:
+  `pc_realtime_ingest_rate_max` = 120 and `pc_realtime_ingest_rate_window_seconds` = 60
+  are now seeded there. The bump is what makes `install_default_options()` run again;
+  no table changed.
+- **Not checked by the agent:** nothing was delivered to the real machine, and no SPA
+  was opened signed in (`LEARNINGS.md` 2026-09-18). The endpoint was exercised through
+  `rest_do_request()`, route and permission callback included.
+- **Observed, unchanged:** `ARCHITECTURE.md`'s `tests/` tree did not list
+  `stripe-webhook.php` before this step and still does not — `stripe`'s gap, not this
+  step's to close.
+- **Gate.** `backend/bin/check` exit 0 (55 php files; stage 2 executed,
+  `machine-ingest.php` included) and `frontend/bin/check` exit 0, before each commit and
+  again after the last one.
