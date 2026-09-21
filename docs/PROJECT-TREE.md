@@ -85,6 +85,11 @@ pusher-coin/
 │   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
 │   │       │   │   │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
 │   │       │   │   │   ├── machine-rooms.php # Machine_Rooms: which rooms claim a machine (one machine, one available room)
+│   │       │   │   │   ├── machine-poller.php # Machine_Poller: polls Home Assistant's history, delivers each payout to the ingest door
+│   │       │   │   │   ├── machine-poll-command.php # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
+│   │       │   │   │   ├── channels.php   # Realtime_Channels: the one place push-channel names are built
+│   │       │   │   │   ├── publisher.php  # Realtime_Publisher: pushes credits to Ably, fire-and-forget
+│   │       │   │   │   ├── RealtimeTokenController.php # GET /pc/v1/realtime/token — a scoped pass, never the Ably key
 │   │       │   │   │   └── MachineIngestController.php # POST /pc/v1/machine/events — shared-secret ingest of machine events
 │   │       │   │   ├── stripe/            # Feature `stripe`: reached only through bootstrap.php
 │   │       │   │   │   ├── AdminTopupController.php # GET /admin/topups (read-only list) + GET /admin/stripe/status (configured, mode)
@@ -121,7 +126,9 @@ pusher-coin/
 │   │       │   ├── style.css
 │   │       │   └── tests/
 │   │       │       ├── machine-ingest.php    # `ddev wp eval-file` check: the ingest endpoint and its idempotency (DDEV only)
+│   │       │       ├── machine-poll.php      # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
 │   │       │       ├── machine-rooms.php     # `ddev wp eval-file` check: one machine, one available room (DDEV only)
+│   │       │       ├── realtime-channel.php  # `ddev wp eval-file` check: a broken publish cannot touch a payout; the token never carries the key (DDEV only)
 │   │       │       ├── stripe-client.php     # `ddev wp eval-file` check: kopiyka conversion, mode/config, webhook signature scheme (DDEV only)
 │   │       │       ├── stripe-webhook.php    # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)
 │   │       │       └── wallet-rollback.php    # `ddev wp eval-file` check: wallet write failures roll back (DDEV only)
