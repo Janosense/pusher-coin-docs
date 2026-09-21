@@ -54,6 +54,8 @@ same commit as this file. History:
 | 1.6.0 | `wp_pc_support_tickets` |
 | 1.7.0 | `wp_pc_bet_sessions`, `wp_pc_room_queues` |
 | 1.8.0 | `wp_pc_room_messages` |
+| 1.9.0 | LiqPay options retired (`remove_retired_options()`) |
+| 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -478,6 +480,19 @@ the admin UI and `wp db export`. Rotation is a wp-config edit.
 | --- | --- | --- | --- |
 | `pc_queue_idle_timeout_seconds` | int | `60` | How long a queue entry survives without a heartbeat; the SPA's 3s queue poll is the heartbeat. `Queue_Service::idle_timeout` floors it at 10. Not exposed in the admin SPA yet. |
 
+**Realtime — the machine-event ingest.** Owned by the feature `realtime`; seeded by
+`Install_Schema` at `pc_db_version` `1.10.0`.
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_ingest_rate_max` | int | `120` | Calls `POST /pc/v1/machine/events` accepts per window, counted across all callers rather than per IP — `Rate_Limiter::client_ip()` trusts `X-Forwarded-For` (review item 5), so an IP-keyed ceiling is no ceiling. Floors at 1. |
+| `pc_realtime_ingest_rate_window_seconds` | int | `60` | The window that ceiling is spent in. Floors at 1. |
+
+The ingest **shared secret is not stored in the database** — `PC_MACHINE_INGEST_SECRET`
+in wp-config, read by the ingest controller only. It is not `PC_MACHINE_TOKEN`: that is
+the bearer token WordPress sends *to* Home Assistant, this is what the transport sends
+*in*. Rotation is a wp-config edit, and while it is unset every call answers 401.
+
 **Support & captcha**
 
 | Option key | Type | Default | Notes |
@@ -557,6 +572,7 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
     string is a defect.
 13. **Secrets never reach the database**: `JWT_AUTH_SECRET_KEY`,
     `PC_STRIPE_SECRET_KEY`, `PC_STRIPE_WEBHOOK_SECRET`, `PC_MACHINE_TOKEN`,
+    `PC_MACHINE_INGEST_SECRET`,
     `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*` are wp-config constants.
     Only their public counterparts are options — and the top-up provider now has
     none: Stripe's keys are **both** constants, and the SPAs are told only

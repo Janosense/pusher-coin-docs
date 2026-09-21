@@ -858,7 +858,7 @@ the two repositories cannot share a commit.
     (`DATA-MODEL.md` `wp_pc_machine_events` notes; `BACKEND-REVIEW.md` §10 bullet 1
     marked settled.)
 
-- [ ] **4. Configuration: the shared secret and the ingest's limits** — *touches shared
+- [x] **4. Configuration: the shared secret and the ingest's limits** — *touches shared
   code (`install-schema.php`, `core`; a `pc_db_version` bump runs the installer for
   every feature)*.
   - **The secret is a wp-config constant** (root invariant 2, `DECISIONS.md`
