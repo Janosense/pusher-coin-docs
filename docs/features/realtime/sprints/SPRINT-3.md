@@ -19,7 +19,7 @@
 
 ## Steps
 
-### [ ] Step 1 — The machine is unreachable during a broadcast window
+### [x] Step 1 — The machine is unreachable during a broadcast window
 - **Tasks:**
   - Decide the delivery channel and record it as a `DECISIONS.md` entry before writing code: email to `pc_support_email` reuses what `Support_Service` already does, but an operator who does not read that inbox gains nothing. The step plan puts the question to the user.
   - Detect the transition to unreachable from what already exists — `Machine_Service::is_online()`, the typed `machine_offline` errors, the absence of expected events — **and gate it on the room's current schedule window**: unreachable outside a window is the daily power-off and is recorded, not alerted.

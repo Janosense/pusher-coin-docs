@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 3, Step 1: The machine is unreachable during a broadcast window   (status: implemented, awaiting close)
+## Plan — Sprint 3, Step 1: The machine is unreachable during a broadcast window   (status: closed)
 
 ### Branch
 `realtime/sprint-3-outage` ← `realtime/sprint-3` ← `main`
