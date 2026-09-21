@@ -149,8 +149,15 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
   nothing, which is how it is pointed at a live machine safely.
 - `GET /pc/v1/realtime/token` — scoped channel token for a signed-in SPA.
-- The channel naming convention — one per room, one for the machine — which the
-  admin SPA reads too; changing it is "touches shared surface".
+- **The channel naming convention** (fixed S2.1, `app/realtime/channels.php` is the
+  only place it is built): `{prefix}:room:{id}` for a room, `{prefix}:machine` for the
+  operator channel, `{prefix}:room:*` as the capability pattern — `prefix` from
+  `pc_realtime_channel_prefix`, so one Ably app can host staging and production
+  without them hearing each other. **One channel per room, one for the machine, never
+  one per viewer:** the free tier caps an app at 200 channels, which a per-viewer
+  channel would pass at the 201st player. Neither SPA hardcodes a name — the token
+  endpoint returns the resolved ones — but the admin SPA reads the same channels, so
+  changing the shape is still "touches shared surface".
 - It consumes, and does not change, `core`'s `pc_machine_event_player` filter and
   `pc_machine_event_credited` action.
 
