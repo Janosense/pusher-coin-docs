@@ -19,6 +19,38 @@ Entry format:
 
 ---
 
+## 2026-09-18 — [realtime] A sprint step's own manual check would have broken the behaviour it promised
+- **Incident:** `SPRINT-1.md` Step 3's verification creates a second room carrying a live room's machine id, leaves it unavailable, and promises "the existing room keeps working throughout". Attribution (`Queue_Service::room_id_for_machine()`) took the newest room with the id, available or not. So that very scenario would have sent the live room's payouts to the empty room. The step also frames its rule per machine id, while `Machine_Service` drives one physical machine whatever the id, so two open rooms with *different* ids still share it.
+- **Root cause:** The sprint was written from `DOMAIN.md` and `BACKEND-REVIEW.md` §12, not from the code that decides where a payout lands. A manual-verification scenario is data the code then acts on, and nobody traced it through.
+- **Fix applied here:** `/plan-step` read the lookup and raised Question 1, and the user chose to fix it in the step (task 5). The per-id limit is stated in `BACKEND-REVIEW.md` §12, `FEATURE.md` invariant 5 and the `ROOM_MACHINE_ID` row of `DATA-MODEL.md`. Caught before any code, like the 2026-09-18 `stripe` entries.
+- **Transferred to playbook:** pending. Discovery should trace each step's manual-verification scenario through the code paths it touches, and check that a rule keyed on an identifier matches what the code actually keys on.
+
+---
+
+## 2026-09-18 — [realtime] A spike plan asked for a 24-hour unattended session when stored history already held the evidence
+- **Incident:** `/plan-step realtime 1 2` planned the venue day as a 24-hour live recording. The Claude Code session had to stay open that whole time, with the laptop left plugged in and online. The user could not wait ("I can't wait that long"). Home Assistant's stored history turned out to answer the coin, relay and bonus questions in minutes, including ~200 past toss presses to time against. The spike's own Session A (fact 6) had already found that ten days of history existed.
+- **Root cause:** The plan followed the step text ("one venue day of passive logging") literally. It did not weigh an evidence source it already knew of against the cost to a user who verifies by hand, and it did not ask whether a day-long session was feasible. `/do-step` runs a step as one session, so any wait inside a step ties up that session.
+- **Fix applied here:** Mid-step, the user chose stored history plus announced presses (plan task 4 records the change). For this project, a plan that needs a session open for hours states that wall-clock cost up front and names any cheaper recorded source first.
+- **Transferred to playbook:** pending — `/plan-step` could require a step's wall-clock cost to be stated whenever it exceeds one working session.
+
+---
+
+## 2026-09-18 — [realtime] A one-line question during `/do-step` was answered by carrying on with the step
+- **Incident:** During `/do-step` the user wrote "check the token". The agent ran the token check, which passed, and then went on in the same turn to write and trial-run the logger without first answering. The user interrupted: "What are you doing??? … I need a simple answer from you."
+- **Root cause:** `/do-step` had authorised the tasks, so the agent treated the mid-turn message as a sub-task of the run, not as a question expecting a plain answer and a pause. With a user-verified profile the user cannot follow tool output, so progress without an answer reads as being ignored.
+- **Fix applied here:** Answered in one sentence, stopped, and waited. For this project, a user message that arrives mid-run gets a plain answer first; the run continues only after that, or when the message itself says to continue.
+- **Transferred to playbook:** pending
+
+---
+
+## 2026-09-18 — [realtime] A plan named its base commit from the session-start snapshot, and the execution notes then guessed why it differed
+- **Incident:** `/plan-step realtime 1 1` wrote "`main` (`cfc3d75` at plan time)". That id came from the git status the session is handed at start, not from a live `git rev-parse main`, and `main` had already moved to `1cfa370` at 12:39:44, 21 minutes before the plan file was written. `/do-step` saw the difference and correctly checked that Step 1's text was unchanged. But it then wrote in the plan's execution notes that the sprint text "sat uncommitted on disk during planning". That was an inference stated as fact, and the reflog does not support it. It was corrected at `/close-step`.
+- **Root cause:** The session-start git status is a snapshot, and nothing in `/plan-step` asks for a named commit id to be read live. When reality later differed, the agent explained the gap instead of looking it up. `git reflog --date=iso main` answers it in one line.
+- **Fix applied here:** The execution notes are corrected in the close commit. For this project, a plan that names a commit id reads it with `git rev-parse` at plan time. A difference found later is explained from `git reflog`, never by inference.
+- **Transferred to playbook:** pending — `/plan-step` §3 could require every commit id it records to be read live, not taken from the session context.
+
+---
+
 ## 2026-09-18 — [stripe] A step plan promised a signed-in browser check that the agent's own rules forbid
 - **Incident:** `/plan-step stripe 2 2` wrote that `/do-step` would check the new admin screens in a browser by placing a session "in `localStorage` from a token minted by `\PC\AuthController::issue_access_token`". At execution the agent declined that very action: writing an access token into a browser to authenticate falls under its standing prohibition on entering credentials or tokens, which holds even on request. Only the signed-out redirect was observed. Every signed-in screen state went to the user's guide, which the plan had presented as the fallback for a *missing extension*, not for the plan's own method.
 - **Root cause:** The plan chose a verification method without checking it against the agent's standing prohibitions — the same class of collision as the 2026-09-17 test-card entry. The admin SPA's only other way in is the two-step sign-in, whose 6-digit code arrives by email (Mailpit locally), so an agent has no permitted route past it.
@@ -80,3 +112,13 @@ Entry format:
 - **Root cause:** The playbook assumes the check command exists on every branch work happens on. With chained sprint branches, tooling created inside a sprint is absent from `main` until the sprint boundary — and hotfixes are exactly the work that branches from `main`.
 - **Fix applied here:** Gated with the exact committed script taken from the sprint branch (`git show realtime/sprint-1:bin/check`), run against the ad-hoc tree and removed again, rather than with a hand-written command chain. The durable fix is to land tooling like the check command on `main` directly instead of inside a sprint.
 - **Transferred to playbook:** pending
+
+## 2026-09-21 — [realtime] A plan named a shared function's consumers from the audit instead of from the code
+- **What happened:** the Step 4 plan changed `Machine_Ingest_Service::log_event()` to return a `WP_Error` and stated that its only consumer was `wp pc machine-ingest`, which handles one. It has a second: the toss endpoint reads `$event['event_id']` straight out of the result (`RoomQueueController.php:155,167`). Shipping the plan as written would have thrown a fatal *after* the player's coin was debited and the machine had tossed it — a real coin lost to a 500. It surfaced only when `/do-step` grepped the callers before editing.
+- **Why it happened:** the delta-audit in `FEATURE.md` lists `RoomQueueController.php` as shared code this feature touches, but describes it by the toss flow, not by which service methods it calls. The plan read the audit's consumer note ("today's only producer") as the consumer list and never asked the code.
+- **Rule:** before a plan changes the signature or return type of a shared function, grep for every caller and name them in the task — the audit says which *files* matter, never which *functions* they call. A consumer list in a plan is a claim about the code, so it is checked against the code.
+
+## 2026-09-21 — [realtime] A plan's test-cleanup clause enumerated the fixtures and forgot the rows the code under test writes
+- **What happened:** the Step 5 plan said the new checks would end in "a `finally` that removes every fixture, option, transient and filter it touched" — and they did exactly that. Nothing in that list is a `wp_pc_machine_events` row, and the whole point of the code under test is to write them. Eleven runs during the step left 162 test rows in the forensic table that records real payouts. Noticed only during the end-of-step sweep for leftovers, and fixed there.
+- **Why it happened:** the cleanup clause was written by listing what the *test* creates (users, rooms, options, transients, filters) rather than what the *code* writes when the test runs it. `tests/machine-ingest.php` already deletes its own event rows by key prefix, so the pattern existed one step earlier and was not carried across — the plan reached for a generic phrase instead of the neighbouring script.
+- **Rule:** a test-cleanup clause names the tables the code under test writes, not only the fixtures the test creates. When a sibling script in `tests/` already cleans up after the same table, the plan cites that script rather than re-describing cleanup in the abstract.

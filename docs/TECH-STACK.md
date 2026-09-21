@@ -58,10 +58,36 @@ WP-CLI on DDEV:
 
 ```bash
 ddev wp eval-file wp-content/themes/pc/tests/wallet-rollback.php   # backend: every Wallet_Service write failure rolls back (53 checks)
+ddev wp eval-file wp-content/themes/pc/tests/machine-poll.php     # realtime: the HA history poller — arithmetic, replay, gaps, scheduling, crediting (71 checks)
 ```
+
+The list above is not exhaustive — `tests/` holds more scripts than it names, and
+`backend/bin/check` runs every one of them. Keeping the list current is a standing
+`/adhoc` item.
 
 A new script in `tests/` is picked up by `backend/bin/check` without editing it, and must
 keep the WP-CLI + DDEV guard (`DECISIONS.md` 2026-09-15).
+
+**The machine transport's schedule is not covered by any check command.** WordPress
+polls Home Assistant's history on a schedule (`DECISIONS.md` 2026-09-18); the poller
+and its wiring are checked by `machine-poll.php`, but *whether the host actually ticks*
+is a property of the host, not of the code. Two things can drive it and both are safe
+together:
+
+- **WP-Cron**, scheduled by the feature bootstrap — needs no host setup, but runs only
+  when the site gets traffic, and not at all where `DISABLE_WP_CRON` is true or
+  loopback requests are blocked. A player holding a turn generates traffic every 3s, so
+  it ticks exactly when it matters.
+- **A real cron**, if the host offers one — then `DISABLE_WP_CRON` may be set to true
+  in `wp-config.php` and the line is:
+
+  ```cron
+  * * * * * cd /path/to/wordpress && wp pc machine-poll --quiet >/dev/null 2>&1
+  ```
+
+`wp pc machine-poll --status` says which of the two has been running, and when — it
+reads `pc_realtime_poll_last_run`, so it answers on a host where nobody has a shell to
+watch with. Verified only by a real host, never locally.
 
 `npm run lint` only reports; `npm run lint:fix` is the one that rewrites files. CI runs
 the underlying commands rather than the scripts: `php -l` over the theme in `backend`,

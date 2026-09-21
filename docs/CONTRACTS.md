@@ -556,7 +556,13 @@ count must not let you jump your own place in the queue.
 Response (`200`): the queue envelope, as above.
 
 Errors: `invalid_coin_qty` 400, `insufficient_balance` 409,
-`room_not_found` 404, `room_unavailable` 409.
+`room_not_found` 404, `room_unavailable` 409, `machine_already_in_use` 409.
+
+`machine_already_in_use` is checked before anything else: another non-trashed
+`available` room carries this room's `machine_id`, so the join would start a second
+queue on one machine. It clears when an operator makes one room unavailable or gives
+it another machine id (`wp pc machine-rooms` lists such rooms). The player SPA shows
+the `message` as sent (`realtime` Sprint 1 Step 3).
 
 ### `POST /pc/v1/rooms/{id}/queue/leave`
 
@@ -884,6 +890,80 @@ settlement rolled back and the row is still `pending` — the one
 recoverable failure, so Stripe is asked to retry rather than being told
 all is well).
 
+### `POST /pc/v1/machine/events`
+
+The machine-event ingest. **Public route; a shared secret is the
+credential** — `X-PC-Machine-Secret`, compared to
+`PC_MACHINE_INGEST_SECRET` with a constant-time compare. Nothing else
+writes `wp_pc_machine_events` on the crediting path.
+
+**Its caller in production is `Machine_Poller`** (`realtime` Sprint 1
+Step 5), which polls Home Assistant's history on a schedule and posts
+here with `rest_do_request()` — an in-process dispatch of this same
+route, secret header included, so the transport is a client of the door
+rather than a way around it. The route stays public and credentialled
+because the transport is not required to stay in-process.
+
+Request:
+```json
+{
+  "type": "coins_dropped",
+  "event_key": "ha:sensor.coin:2026-09-10T11:36:14.233147+00:00",
+  "machine_id": "demo_sunset",
+  "coins": 3
+}
+```
+
+| Field | Required | Meaning |
+| --- | --- | --- |
+| `type` | yes | `coins_dropped`, `bonus` or `relay_closed`. `toss` and `offline` are ours to write and are refused here. |
+| `event_key` | yes | The idempotency key. A repeat is recorded once and credited once (`DECISIONS.md` 2026-07-24). The transport chosen on 2026-09-18 builds it as `ha:{entity_id}:{last_updated}`. |
+| `machine_id` | no | Matched against `pc_room_machine_id` to find the player holding the turn. Absent or unknown ⇒ the event is logged `unattributed`. |
+| `coins` | `coins_dropped` | Coins **this one payout** dropped — not a sensor reading. `sensor.coin` is not cumulative. |
+| `bonus_number` | `bonus` | 1–12; the coins come from `pc_machine_bonus_map`. |
+
+**Almost everything answers 200,** for the reason the Stripe webhook does:
+a transport that gets an error retries, and retrying a permanent
+condition buys an identical delivery forever. The body carries a
+`status`, and every call is written to `wp_pc_auth_audit_log`.
+
+| `status` | Meaning |
+| --- | --- |
+| `credited` | Coins went to the player holding the turn, priced at their FIFO-head lot price. `coins` and `event_id` say how many and which row. |
+| `recorded` | Accepted and logged, no coins owed — a bonus number the map pays 0 for. |
+| `unattributed` | Nobody held the turn for that machine. Logged, no wallet movement — normal for coins the machine drops while idle. |
+| `already_recorded` | That `event_key` is on file. Nothing credited, nothing changed. |
+| `failed` | The row is written but the wallet move did not happen. **Still 200:** the row already holds this `event_key`, so a retry could only come back `already_recorded`. The row is the forensic record and an operator settles it with `wp pc machine-ingest --player=…`. |
+
+Errors:
+- `rate_limited` 429 — the ceiling (`pc_realtime_ingest_rate_max` per
+  `pc_realtime_ingest_rate_window_seconds`) is counted across all
+  callers, not per IP, and is checked **before** the secret, so an
+  unauthenticated flood cannot fill the audit log. A refused call is a
+  poll the transport repeats from its own cursor; nothing is lost.
+- `machine_ingest_unauthorized` 401 — a wrong secret, a missing header
+  and a server with no secret configured all answer this, with no hint
+  which. The audit log tells them apart.
+- `missing_event_key` 400, `invalid_event_type` 400,
+  `invalid_coin_count` 400 (`coins` < 1), `invalid_bonus_number` 400
+  (outside 1–12).
+- `machine_event_write_failed` 500 — the event row itself could not be
+  written, so nothing was decided and the caller **should** retry. This
+  is the one case a retry fixes, which is why it is the one non-2xx
+  besides the four above.
+
+**What may be sent is a transport question.** The Step 2 spike found no
+payout signal behind `sensor.lc01_12` or either relay sensor
+(`DECISIONS.md` 2026-09-18), so a transport may not manufacture `bonus`
+or `relay_closed` events from them — crediting a bonus's mapped coins
+*and* the coins it physically drops would pay one payout twice. The three
+types exist because `wp pc machine-ingest` drives all three and an
+operator settles dropped events with them.
+
+Machine payouts credit coin lots and never write `wp_pc_transactions`
+(root `CLAUDE.md` invariant 6), so nothing here shows on the player's
+**History** screen.
+
 ### `GET /pc/v1/admin/me`
 
 Probe used by the admin SPA to verify the current session is both
@@ -929,7 +1009,13 @@ Response (`201`): the admin-room shape.
 
 Errors: `invalid_room_name` 400, `invalid_room_status` 400,
 `invalid_room_url` 400, `invalid_room_machine_id` 400,
-`room_create_failed` 500.
+`machine_already_in_use` 409, `room_create_failed` 500.
+
+`machine_already_in_use` — the room would be `available` on a non-empty
+`machine_id` that another non-trashed `available` room already carries. The
+`message` names that room (`… used by the available room "Sunset Pusher" (#11) …`).
+Checked before anything is written, so a refused create leaves no room behind. An
+empty `machine_id` claims nothing (`realtime` Sprint 1 Step 3).
 
 ### `GET /pc/v1/admin/rooms/{id}`
 
@@ -945,7 +1031,11 @@ Request: any subset of the create payload.
 
 Response (`200`): the updated admin-room shape.
 
-Errors: `room_not_found` 404, plus the create-time validation errors.
+Errors: `room_not_found` 404, plus the create-time validation errors, and
+`machine_already_in_use` 409. It is judged on the room's resulting state (a sent
+value, else the stored one), so switching a room to `available` and moving an
+available room onto a claimed `machine_id` are both refused, and a refused update
+changes nothing.
 
 ### `DELETE /pc/v1/admin/rooms/{id}`
 
@@ -1534,12 +1624,16 @@ All Phase 4 endpoints ship in the current section.
 `PUT /pc/v1/admin/machine/bonus-map` ship in the current section. Still
 planned:
 
-- `POST /pc/v1/machine/webhook` — HA outbound webhook ingress
-  (HMAC-signed payload). One of the two candidate transports for Step 7;
-  the other is a backend poller and neither is picked until the Step 6
-  walk-through establishes whether HA can push at all. Whichever wins
-  calls `Machine_Ingest_Service`, which already ships — the endpoint is
-  a thin signature-check + `event_key` wrapper over it.
+- ~~`POST /pc/v1/machine/webhook`~~ — shipped as
+  **`POST /pc/v1/machine/events`** in the current section (`realtime`
+  Sprint 1 Step 4), under the name that sprint gives it. The spike it
+  waited for chose the transport: WordPress polls Home Assistant's
+  history (`DECISIONS.md` 2026-09-18), so no automation pushes to us and
+  the credential is a shared secret rather than an HMAC over a payload
+  Home Assistant cannot send. The endpoint is the thin
+  credential-check + `event_key` wrapper over `Machine_Ingest_Service`
+  this bullet expected, and the transport that calls it shipped in
+  Sprint 1 Step 5 — so this bullet is fully closed.
 - `POST /pc/v1/realtime/auth` — private-channel subscription auth for
   the Step 7 push channel (provider unpicked: Pusher / Ably / Soketi).
 
@@ -1601,6 +1695,10 @@ One canonical code per failure mode — do not invent variants.
 | `invalid_transaction_status` | 400 | admin/topups |
 | `invalid_date` | 400 | transactions |
 | `invalid_bonus_map` | 400 | admin/machine/bonus-map PUT |
+| `invalid_event_type` | 400 | machine/events (only `coins_dropped`, `bonus`, `relay_closed` may be sent in) |
+| `missing_event_key` | 400 | machine/events (without one a repeat would be credited twice) |
+| `invalid_coin_count` | 400 | machine/events (`coins` < 1) |
+| `invalid_bonus_number` | 400 | machine/events (outside 1–12) |
 | `weak_password` | 400 | sign-up, confirm-password-change |
 | `invalid_coin_qty` | 400 | wallet/topup |
 | `invalid_coin_price` | 400 | admin/coin-pricing PUT |
@@ -1619,6 +1717,7 @@ One canonical code per failure mode — do not invent variants.
 | `rest_forbidden` | 401 | auth/logout, user/accept-terms, user/set-nickname, user/me, user/request-email-confirmation, user/request-password-change, user/confirm-password-change, admin/me, admin/rooms/* (when unauthenticated; 403 when authed but non-admin) |
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `stripe_signature_invalid` | 401 | payments/stripe/webhook |
+| `machine_ingest_unauthorized` | 401 | machine/events (wrong secret, missing header, or no secret configured — the answer never says which) |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
 | `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
@@ -1638,15 +1737,17 @@ One canonical code per failure mode — do not invent variants.
 | `nickname_taken` | 409 | user/set-nickname, user/me PATCH (planned) |
 | `insufficient_balance` | 409 | wallet/withdraw |
 | `room_unavailable` | 409 | rooms/{id}/queue*, rooms/{id}/play |
+| `machine_already_in_use` | 409 | admin/rooms POST/PUT, rooms/{id}/queue/join (another available room carries the machine id) |
 | `withdrawal_already_pending` | 409 | wallet/withdraw |
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
 | `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
 | `relay_closed` | 423 | rooms/{id}/play |
-| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account) |
+| `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account), machine/events (one ceiling across all callers, checked before the secret) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
 | `wallet_write_failed` | 500 | wallet/topup, wallet/withdraw, rooms/{id}/play, admin/withdrawals/{id}/reject, payments/stripe/webhook (settlement rolled back; Stripe retries) |
+| `machine_event_write_failed` | 500 | machine/events (the event row could not be written, so nothing was decided — retry) |
 | `ticket_write_failed` | 500 | support/tickets |
 | `message_write_failed` | 500 | rooms/{id}/messages POST |
 | `user_creation_failed` | 500 | sign-up, google-auth/authentication |

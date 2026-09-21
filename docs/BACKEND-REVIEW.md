@@ -97,14 +97,32 @@ works only because someone uploaded `vendor/` by hand.
       (`rest-api/RoomQueueController.php:187`).
     - The 2-second machine timeout (`utils/machine-service.php:30`) means a slow but
       successful toss gets refunded, i.e. a free toss.
-    - A database error on a machine event is reported as a "duplicate" and the payout is
-      dropped (`utils/machine-events.php:85`).
+    - **[settled 2026-09-21 — `realtime` Sprint 1 Step 4]** A database error on a machine
+      event is reported as a "duplicate" and the payout is dropped
+      (`utils/machine-events.php:85`).
+      *Settled:* `Machine_Event_Log::record_result()` answers `inserted`, `duplicate` or
+      `failed`, and the crediting path (`Machine_Ingest_Service::settle()`) turns `failed`
+      into a `machine_event_write_failed` 500 so the caller retries instead of retiring
+      the event unpaid. `record()` keeps its old meaning for callers that have one.
+      *Still true:* the audit-only path (`log_event()`, used by the toss endpoint) reports
+      the failure as a flag and carries on — a toss whose audit row could not be written is
+      still a toss, and failing it would cost the player a real coin. And `settle()` still
+      writes the row outside a transaction with an unchecked `mark()`, so a crash between
+      the row and the credit leaves a row every replay skips; no step names that yet.
 11. **LiqPay `sandbox` payments count as real money** (`rest-api/PaymentController.php:78`).
     A chargeback that arrives after coins were credited is ignored without being logged
     (`rest-api/PaymentController.php:74`).
-12. **Every room drives the same physical machine** (`utils/machine-service.php:38`). If two
+12. **[settled 2026-09-18 for rooms that name the same machine id — `realtime` Sprint 1
+    Step 3]** **Every room drives the same physical machine** (`utils/machine-service.php:38`). If two
     rooms are set "available", two separate queues control one machine, and wins can go to
     the wrong player.
+    *Settled:* a non-empty `pc_room_machine_id` can back only one available room.
+    `POST`/`PUT /admin/rooms` refuse a second with `machine_already_in_use`, a queue join
+    into a pair already in the data is refused, and `wp pc machine-rooms` lists shared ids
+    (`app/realtime/machine-rooms.php`).
+    *Still true:* `Machine_Service` drives one physical machine whatever the id, so two
+    available rooms with **different** or **empty** ids still share it. The guard protects
+    the machine only when the id names it.
 13. **Public room endpoints expose unfinished rooms.** They show draft and even trashed rooms
     (`rest-api/RoomController.php:59, 108`).
 14. **Money is sometimes handled as a float,** which the TECH-STACK.md rules forbid:

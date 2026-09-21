@@ -22,7 +22,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Delta-audit
+### [x] Step 1 — Delta-audit
 - **Tasks:**
   - Read `docs/features/core/FEATURE.md` and `docs/features/stripe/FEATURE.md` (Interfaces, Invariants) and the shared code this feature will touch: `app/utils/machine-ingest-service.php`, `machine-events.php`, `queue-service.php`, `machine-service.php`; on the SPA side `stores/queue.js`, `stores/chat.js`, `components/PlaceBet.vue`. Write the touchpoints into `FEATURE.md` → Fit into the host → Shared code it depends on, and list any conflict with either sibling's invariants.
   - Confirm `app/realtime/` will register exactly the way `app/stripe/` does — one `require_once … bootstrap.php` line in `functions.php` — and note it in `FEATURE.md` → Entry point.
@@ -33,7 +33,7 @@
 - **Docs to update:** `docs/features/realtime/FEATURE.md` → Fit into the host.
 - **Depends on:** —
 
-### [ ] Step 2 — Spike: how machine events leave Home Assistant
+### [x] Step 2 — Spike: how machine events leave Home Assistant
 - **Tasks:**
   - Spike code is throwaway and is not merged into `main`. Timebox: one working session at the desk plus one venue day of passive logging.
   - **Desk, first:** sample `GET /api/states/` for `sensor.coin`, `sensor.lc01_12`, `sensor.relay_on` and `sensor.sw_b_t_relay` twice, 60 s apart, while nothing happens, and compare `last_reported` with `last_changed`. If `last_reported` moves while `state` does not, the integration re-reports unchanged values and a repeated bonus number is observable through `last_reported` or `context.id`; if it does not move, a repeat is invisible to every transport and Step 4 must not price payouts from the bonus number alone.
@@ -45,7 +45,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the transport entry); `docs/PUSHER-COIN-COMMANDS.txt` where the machine contradicts it (the relay entity at least); `docs/ROADMAP.md` Phase 5 §6 — the walk-through it wanted is replaced by this observation.
 - **Depends on:** —
 
-### [ ] Step 3 — One machine, one active room
+### [x] Step 3 — One machine, one active room
 - **Tasks:**
   - `AdminRoomController` refuses to set a room `available` when another non-trashed room carries the same `pc_room_machine_id` and is itself available. New error code `machine_already_in_use`.
   - `Queue_Service` refuses a join for a room whose machine is claimed by another available room, so existing bad data cannot start a second queue before the operator fixes it.
@@ -56,7 +56,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (error code); `docs/features/realtime/FEATURE.md` → Invariants; `docs/BACKEND-REVIEW.md` (§12 settled).
 - **Depends on:** Step 1
 
-### [ ] Step 4 — The ingest endpoint
+### [x] Step 4 — The ingest endpoint
 - **Tasks:**
   - `POST /pc/v1/machine/events` in `app/realtime/`, registered from `app/realtime/bootstrap.php`. Shared-secret authentication with a constant-time compare, rate-limited, every call audited. The secret is a wp-config constant.
   - Dispatch to `Machine_Ingest_Service::ingest_bonus` / `ingest_relay_closed` / `ingest_coins_dropped`. `event_key` is required; a request without one is rejected.
@@ -68,7 +68,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (endpoint + error codes, in "current"); `docs/DATA-MODEL.md` (options, constants, and the corrected meaning of `wp_pc_machine_events.coins_credited` if it changed); `docs/ARCHITECTURE.md` (the ingest data flow, which currently says nothing pushes events in).
 - **Depends on:** Step 2
 
-### [ ] Step 5 — The transport
+### [x] Step 5 — The transport
 - **Tasks:**
   - Build the transport the Step 2 `DECISIONS.md` entry names. The task list differs per option, so `/plan-step` produces it after Step 2 closes — writing it now would be guessing:
     - *HA automation → webhook:* the automation committed as documentation, the shared secret on both sides, `event_key` built Home-Assistant-side from `context.id` or `last_reported`.

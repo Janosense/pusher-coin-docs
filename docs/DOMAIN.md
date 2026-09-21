@@ -23,8 +23,8 @@
 | **Queue** | The waiting line for a room, in arrival order. |
 | **Turn** (bet session) | One player's stretch at the head of the queue: how many coins they played, how many they won, how much that was worth. |
 | **Toss** | One coin dropped into the machine. The single moment a coin is spent. |
-| **Bonus** | The machine's bonus wheel, landing on 1–12. Each number is worth a number of coins, set by the operator in the bonus map. |
-| **Relay** | The machine's payout gate. While it is closed the machine is paying out and no toss is allowed; when it closes, a configured number of coins is credited. |
+| **Bonus** | The machine's bonus wheel, landing on 1–12. Each number is worth a number of coins, set by the operator in the bonus map. *Observed 2026-09-18 (`DECISIONS.md`, the `realtime` spike): no bonus appeared in ten days of the machine's history, so how one is reported, and whether its coins also count as a normal payout, is still unknown.* |
+| **Relay** | The machine's payout gate. While it is closed the machine is paying out and no toss is allowed; when it closes, a configured number of coins is credited. *Observed 2026-09-18 (`DECISIONS.md`, the `realtime` spike): no Home Assistant sensor reports this gate. `sensor.relay_on` follows the relay the software switches with its two buttons, reads 1 (closed) as its normal state, and does not change during payouts; `sensor.sw_b_t_relay` never changed. Until a signal for it is found, the software can neither lock the toss on it nor credit on it.* |
 | **Theme song** | Optional per-room audio the player can switch on. A device-local preference, never sent to the server. |
 | **Nickname** | The name a player is known by in the queue and the chat. Chosen once, required before chatting or playing. |
 | **Support subject** | An operator-maintained line in the support form's dropdown. |
@@ -40,6 +40,7 @@
 - A coin bought for a price is worth that price when it comes back. Money owed to a player never changes because the operator changed the coin price afterwards.
 - Payouts are physical: the machine decides, not the software. The software only records what the machine reports and credits it to whoever holds the turn at that moment.
 - If nobody holds the turn when a payout happens, the payout belongs to nobody and no wallet moves.
+- A payout reaches the player about a minute after the coins fall, not instantly. The software asks the machine what happened on a schedule rather than being told, so the delay is the waiting between two questions (`DECISIONS.md` 2026-09-18 measured 65 s on a 60-second schedule). Shortening the schedule shortens the wait; nothing is lost while it waits, because the machine's own history still holds it.
 - The currency is the Ukrainian hryvnia. Every amount is exact to the kopiyka.
 - Money leaves the system only by hand: a player requests a withdrawal, an operator approves and pays out, or rejects and the coins come back at their original prices. A player may have one withdrawal request open at a time.
 - Before a player can move money or play, they must have accepted the current terms, chosen a nickname, and confirmed their email address. Chatting requires the terms and the nickname but not the confirmed email — chat moves no money.

@@ -275,17 +275,22 @@ thin backend service so the rest of the app never talks to it directly.
      `pc_machine_bonus_map` (JSON option) + `pc_machine_relay_coin_count`.
      Admin SPA `SettingsView` renders a 4×3 grid editor with the relay
      field below.
-   - *Crediting* `[partial]` — `wp_pc_machine_events` (Install_Schema
-     1.5.0) + `Machine_Event_Log` + `Machine_Ingest_Service`, which
-     turns an event into a wallet credit: `ingest_bonus`,
-     `ingest_relay_closed`, `ingest_coins_dropped`. Events dedupe on
-     `event_key`, price at the player's FIFO-head lot price, and credit
-     via `Wallet_Service::credit_lot` without touching the ledger (see
-     `DATA-MODEL.md`). Deliberately transport-agnostic — Step 7 picks
-     how events arrive. Two gaps remain: attribution goes through the
-     `pc_machine_event_player` filter, which nothing hooks until Phase 6,
-     so events log `unattributed` and pay nobody; and the only caller
-     today is `wp pc machine-ingest`, the manual replay / test command.
+   - *Crediting* `[done]` — *re-tagged 2026-09-21 by `realtime` Sprint 1
+     Steps 4 and 5, which closed both of the gaps this entry listed.*
+     `wp_pc_machine_events` (Install_Schema 1.5.0) + `Machine_Event_Log`
+     + `Machine_Ingest_Service` turn an event into a wallet credit:
+     `ingest_bonus`, `ingest_relay_closed`, `ingest_coins_dropped`.
+     Events dedupe on `event_key`, price at the player's FIFO-head lot
+     price, and credit via `Wallet_Service::credit_lot` without touching
+     the ledger (see `DATA-MODEL.md`). Attribution is hooked (Phase 6
+     §4), and events now arrive by themselves: `POST /pc/v1/machine/events`
+     is the door and `Machine_Poller` polls Home Assistant's history on
+     a schedule and knocks on it. `wp pc machine-ingest` remains the
+     manual replay for an event the transport dropped.
+     **Caveat:** only `sensor.coin` increments are credited. No bonus was
+     ever observed (`DECISIONS.md` 2026-09-18), so the bonus map is
+     configured, tested and unreachable in production until one is seen —
+     which is item 6's remaining open question, not a code gap.
 4. **Coin-throw acknowledgement** `[done]` — *re-tagged 2026-09-15 (was
    `[todo]`).* Closed by Phase 6 §3 and never updated here, though the
    tracking matrix already said so. `Machine_Service::toss_coin()` enforces
@@ -301,20 +306,38 @@ thin backend service so the rest of the app never talks to it directly.
    translates that error *after* a rejected toss — the button is never
    pre-emptively disabled, because knowing the relay state without hammering
    the machine needs Step 7's push channel.
-6. **Documentation walk-through with Dima** `[todo]` — **now the
-   critical path**: it gates Step 7's transport choice, which gates the
-   rest of the phase. Needs: can HA push (automation → webhook) or must
-   we poll — `PUSHER-COIN-COMMANDS.txt` documents reads and service
-   calls only, no outbound webhook; sensor semantics and edge cases
-   (machine offline, sensor debounce, coins-from-bonus vs
-   coins-from-relay overlap); and the source of truth / rotation policy
-   for the machine bearer token.
+6. **Documentation walk-through with Dima** `[partial]` — *replaced
+   2026-09-18 by observation: the `realtime` Sprint 1 Step 2 spike
+   (`DECISIONS.md` 2026-09-18 "Spike: machine events reach WordPress by
+   polling Home Assistant's history").*
+   - Push or poll → answered: this Home Assistant has no outbound-HTTP
+     service, so WordPress polls HA's history.
+   - Sensor semantics → answered:
+     - the coin counter counts coins paid out since the last toss, a toss
+       resets it, and it updates on a ~2 s Modbus cycle;
+     - the relay follows the relay buttons, its normal state is 1, and it
+       carries no payout signal (so no coins-from-relay overlap exists);
+     - unchanged values are never re-reported;
+     - an offline machine shows its sensors `unavailable` about 3.5 min
+       after power-off.
+   - Token source and rotation → already documented in
+     `PUSHER-COIN-COMMANDS.txt` (a wp-config constant; rotate on HA's
+     profile page).
+   - **Still open:** what a bonus looks like, and whether its coins also
+     pass through `sensor.coin`. No bonus was seen in ten days.
 7. **Machine-event channel** `[todo]` — websocket / SSE feed from the backend
    so the SPA reflects coin drops, bonus events, and relay state without
-   polling. Likely Pusher / Ably / a self-hosted Soketi.
+   polling. Ably, decided 2026-09-15; `realtime` Sprint 2 builds it.
+   **The inbound half is no longer part of this item:** events reach
+   WordPress by themselves as of `realtime` Sprint 1 Step 5 (§3
+   *Crediting*). What is still open here is the *outbound* half — pushing
+   them to the browser instead of the SPA's 3-second polls.
 
 Exit criteria: the backend mediates every machine call, players see
-real-time machine events, and bonuses settle automatically.
+real-time machine events, and bonuses settle automatically. **Met except
+for "real-time" in the browser**: events now arrive from the machine on
+their own and settle to the right player within about 65 s, but the SPA
+still learns about it by polling — §7 is what closes that.
 
 ---
 
@@ -477,7 +500,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
 | 5 | Player main screen | 6 |
-| 6 | Physical machine integration | 5 — step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6/7 open |
+| 6 | Physical machine integration | 5 — step 3 crediting closed 2026-09-21 by the `realtime` ingest endpoint + transport; step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); 7 open — inbound done, browser push is `realtime` Sprint 2 |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |
@@ -510,5 +533,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
   Backend returns `apple_not_configured` until `APPLE_CLIENT_ID` etc.
   are populated.
 - Source of truth for the machine bearer token and rotation policy.
-- Walk through `PUSHER-COIN-COMMANDS.txt` with Dima to confirm sensor
-  semantics and edge cases (relay/bonus ordering, debounce, offline machine).
+- ~~Walk through `PUSHER-COIN-COMMANDS.txt` with Dima to confirm sensor
+  semantics and edge cases (relay/bonus ordering, debounce, offline machine).~~
+  Resolved 2026-09-18 by observation in the `realtime` Sprint 1 Step 2 spike
+  (`DECISIONS.md` 2026-09-18), except for the bonus: none was seen.
