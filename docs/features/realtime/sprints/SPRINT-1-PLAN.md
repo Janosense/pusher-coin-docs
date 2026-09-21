@@ -1151,7 +1151,7 @@ tree (two new files), `docs/features/realtime/FEATURE.md` (Interfaces, Data, Inv
 
 ---
 
-## Plan — Sprint 1, Step 5: The transport   (status: approved, in progress)
+## Plan — Sprint 1, Step 5: The transport   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-1-transport` ← `realtime/sprint-1`
@@ -1273,3 +1273,18 @@ test so the failure is the behaviour and not a missing method (`LEARNINGS.md`
 
 ### Questions / ambiguities
 none
+
+### Execution notes (Step 5)
+- **Branch:** `realtime/sprint-1-transport` in both repositories, cut from `realtime/sprint-1`. Backend `356b03b3` `ed6bffdc` `b96633f7` `ba6449e9` `18f3bb03`; docs `20ff916` `854f04b` `4d051ed` `22ddc5d` `3c28660`.
+- **One sequencing change inside the approved file list:** `bootstrap.php`'s `require_once` for the poller landed in task 3 rather than task 4, because task 3's checks cannot load the class otherwise and every task must leave the branch green on its own. Task 4 added the command's `require_once` and all the scheduling wiring, as planned. No file outside the plan's list was touched.
+- **A real bug the checks found.** `strtotime()` truncates to the second and Home Assistant writes microseconds (`…T11:36:14.233147+00:00`). The counter rises in bursts, so two changes inside one second are ordinary — and the cursor comparison was dropping the second one unpaid. Fixed with a microsecond-aware `instant()`, and the check that names it (`a second change inside the cursor second is still paid`) was added. It surfaced as two checks colliding on one `event_key`, which is also why the test's timestamp helper now emits unique microseconds the way HA does.
+- **Before/after proofs**, each reverting only the behaviour under test so the failure is the behaviour and not a missing method (`LEARNINGS.md` 2026-09-21):
+  - microsecond comparison → `strtotime()`: exactly 1 failure, the burst check.
+  - a stopped delivery advancing the cursor anyway: exactly 3 failures, all three rate-limit checks — the difference between "recovered" and "silently lost".
+  - scheduling without the reschedule-on-changed-interval rule: exactly 1 failure, the check that names it.
+  - The poller and the command are new files, so there is no pre-step behaviour to revert for the rest: before task 3 nothing delivered anything, which is the step's premise.
+- **`wp pc machine-poll --status` was run for real** and answered (`No pass has ever finished on this install`). WP-CLI's dispatcher is not observable from inside `eval-file`, so the registration assertion was replaced by one on our own half (the class is present and invokable) and the command's real entry point is driven with and without `--dry-run`.
+- **Test hygiene, fixed in this step:** the checks were leaving ~12 `wp_pc_machine_events` rows per run. They now delete by the run's own machine id, and the 162 rows earlier runs had left in the local install were removed. No users or rooms leaked (`mp-%` and `Poll test%` both return nothing).
+- **`pc_db_version` 1.10.0 → 1.11.0** ran on the local install; the three `pc_realtime_poll_*` options are seeded there, and the WP-Cron event is scheduled with a real next tick.
+- **Not done, deliberately:** nothing was pointed at the real Home Assistant, no machine button was pressed, no power was switched, and no SPA was opened signed in. Every check answers HA through `pre_http_request`, so they run on a machine with no token.
+- **Gate:** `backend/bin/check` exit 0 before every commit (58 php files; stage 2 executed, `machine-poll.php` among them) and `frontend/bin/check` exit 0 at the end — `lint: OK`, `build: OK` — confirming the untouched SPA still passes.
