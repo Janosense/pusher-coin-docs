@@ -1071,6 +1071,16 @@ and widening either message is a permission decision, not a convenience.
 | `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
 | `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
 | `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
+| `chat` | the whole message — `{id, room_id, user_id, nickname, body, created_at}`, byte for byte what `GET /rooms/{id}/messages` returns | after a message is accepted by `POST /rooms/{id}/messages`. A refused body, a muted author and a rate-limited caller publish nothing |
+
+**`chat` is the one message that carries its own content, and the reason
+is the rule, not an exception to it: what may travel is what the read
+already gives away.** `GET /rooms/{id}/messages` is **public** — the room
+page is public and guests read the conversation there — so a body and a
+nickname on this channel reveal nothing the API does not already serve to
+anybody at all. The `queue` message is the same rule applied to a
+play-ready-gated read, which is why it carries a version and no queue.
+Widening either is a permission decision; so is narrowing the read.
 
 A `relay` message is a courtesy, not a gate: it is what greys the toss
 button out *before* the player tries. The live read inside

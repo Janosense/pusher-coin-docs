@@ -397,3 +397,115 @@ until it is.
   buys one thing: the fix can reach `main` on its own instead of waiting for Steps 3, 4 and 5
   to close. Choose this if you want the toss unblocked on the host before the sprint merges.
 
+
+---
+
+## Plan — Sprint 2, Step 4: Chat on the same channel   (status: approved, in progress)
+
+### Branch
+`realtime/sprint-2-chat` ← `realtime/sprint-2`
+(git model in root `CLAUDE.md`. The same branch name in `backend/`, `frontend/` and the
+docs repository; `admin/` is not touched — the admin **Chat moderation** screen already
+does everything this step needs from it, and no step of Sprints 1–3 edits `admin/`.)
+
+### What is settled before this step starts
+- **Chat reads are cursor-based on `id`** — `DECISIONS.md` 2026-09-07. The cursor survives the move to push and becomes the catch-up path; it is not replaced.
+- **Publishing is fire-and-forget** — `FEATURE.md` → Invariants #2. A failed publish is logged and swallowed and may never fail, delay or roll back what triggered it.
+- **The SPA never sees the Ably key; it asks for a scoped pass** — `DECISIONS.md` 2026-09-15 and 2026-09-21.
+- **Moderation hides, it does not delete** — root `CLAUDE.md` invariant 10. Nothing here deletes a row; a hidden message is one whose `status` flipped.
+- **A mute is a server-side fact** — `DECISIONS.md` 2026-09-07. Account-wide, checked on every post, whatever the client believes.
+- **`stores/chat.js`, `RoomChatController.php`, `AdminChatController.php` and `stores/queue.js` belong to `core`** — every task touching them is marked accordingly.
+
+### One thing the code cannot do yet, and one that turns out to be easy
+1. **`realtime.js` supports exactly one listener.** As shipped in S2.2, `subscribe()`
+   begins by tearing the whole client down, so the moment `stores/chat.js` subscribes it
+   would kill the queue's subscription and vice versa — and in a room they are both live
+   at once. One Ably connection has to serve several consumers before chat can ride it.
+   That is task 1: a derived necessity of "`stores/chat.js` subscribes", not new scope.
+2. **Chat messages may travel in full, unlike queue messages.** `GET /rooms/{id}/messages`
+   is **public** (`RoomChatController.php:53`, `__return_true`) — guests read the
+   conversation on a public room page. So publishing a message body and nickname on the
+   room channel reveals nothing the API does not already serve to anybody at all, and a
+   subscriber can render it without a re-read. This is the exact opposite of the `queue`
+   message, which carries a version and no queue because *its* read is play-ready gated.
+   The plan states the reason in `CONTRACTS.md` next to both, so the difference reads as a
+   rule rather than an inconsistency.
+
+### Tasks (ordered)
+- [ ] **1. One connection, several listeners.** `frontend/src/services/realtime.js`: keep one Ably client and one channel per room, and let consumers register under a name — `subscribe(key, roomId, channelName, handlers)` / `unsubscribe(key)`, with teardown when the last one leaves. Every message is fanned out to each registered handler set; `onStatus` and `onCatchUp` reach all of them, so a reconnect catches both stores up. `stores/queue.js` moves to the new signature and behaves exactly as before. **Touches shared code — may affect other features** (`core`: `frontend/src/stores/queue.js`). → `refactor(realtime): one channel, several listeners`
+- [ ] **2. A posted message is announced.** `Realtime_Publisher::announce_chat( int $room_id, array $message )` publishes `chat` on the room channel carrying exactly the serialized message the public read returns — `{id, room_id, user_id, nickname, body, created_at}`. Called from `RoomChatController::post_message()` after `Chat_Service::post()` has succeeded, so a refused body, a muted author and a rate-limited caller publish nothing at all. **Touches shared code — may affect other features** (`core`: `app/rest-api/RoomChatController.php`). → `feat(realtime): a chat message is announced to the room`
+- [ ] **3. Moderation is announced.** `Realtime_Publisher::announce_moderation( int $room_id, int $message_id, string $status )` publishes `moderation` `{room_id, message_id, status}` — an id and a state, never a body, because a hidden message's text is precisely what must stop travelling. Called from `AdminChatController::update_message()` after `Chat_Service::set_status()` succeeds, for both `hidden` and `visible`. The admin gate, the audit row and the 404 are unchanged. **Touches shared code — may affect other features** (`core`: `app/rest-api/AdminChatController.php`). → `feat(realtime): moderation reaches the room it happened in`
+- [ ] **4. The chat store subscribes.** `frontend/src/stores/chat.js`: subscribe under its own key; append a pushed `chat` message through the existing `append()`, which already ignores anything it holds, so a pushed message and a just-sent one cannot render twice; on `moderation` with `hidden` drop that id from the buffer, and on `visible` re-open the conversation with a cold read (`after=0`), which is what a reload would do and costs one request on a rare event; catch up through the `after` cursor on every connect and reconnect; **fall back to the 3-second poll when no channel can be established**, and stop it the moment one is — the same shape `stores/queue.js` already uses. **Touches shared code — may affect other features** (`core`: `frontend/src/stores/chat.js`). → `feat(realtime): the chat rides the room channel`
+
+### Files to create/change
+**`backend/` (theme `pc`)**
+- `app/realtime/publisher.php` — `announce_chat()`, `announce_moderation()`.
+- `app/rest-api/RoomChatController.php` — **shared `core`**: one publish after a successful post.
+- `app/rest-api/AdminChatController.php` — **shared `core`**: one publish after a successful status change.
+- `tests/realtime-chat.php` — **new**.
+
+**`frontend/`**
+- `src/services/realtime.js` — the consumer registry (this feature's own file).
+- `src/stores/queue.js` — **shared `core`**: the new subscribe signature, no behaviour change.
+- `src/stores/chat.js` — **shared `core`**: subscribe, moderate, catch up, fall back.
+
+**No new dependency** (`ably` is already in `frontend/package.json` from S2.2), so core rule 1 is not engaged. No table, no column, no option, no `pc_db_version` bump, and **no new route** — nothing here changes a permission or adds a surface.
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/realtime-chat.php`, run by `backend/bin/check` under DDEV, with Ably stubbed through `pre_http_request` — the pattern `realtime-queue.php` and `realtime-relay.php` use. The step's own Tests are the first three:
+
+1. **Catch-up through the cursor, without duplicating or skipping.** Messages posted while a client was away are returned by `?after=<last id>` exactly once, in order, and a client that then re-reads with the new cursor gets nothing. Including across a hide: a message hidden while the client was away is simply absent, never a gap in the sequence.
+2. **Moderation reaches other viewers.** Hiding publishes exactly one `moderation` with `{room_id, message_id, status: 'hidden'}` and **no body**; restoring publishes `visible`; the hidden message disappears from the public read at the same moment.
+3. **The rate limit is still enforced server-side.** The 11th message inside a minute is refused, and **nothing is published** — a refused post may not announce itself.
+4. **A muted account is refused whatever its client believes** — `chat_muted` 403, no row written, nothing published. Same for an empty body and one over 500 characters.
+5. **What a `chat` message carries** is exactly the public read's shape and nothing more — no IP, no status, no muted-until. Asserted field by field, so widening it has to be deliberate.
+6. **A dead Ably cannot fail a post.** With the publish erroring, `POST /rooms/{id}/messages` still answers 201, the row is still there, and a `realtime_publish_failed` row is in the audit log.
+7. **Moderation is still admin-only.** A signed-in non-admin gets the same refusal as before and publishes nothing.
+8. **Cleanup.** The script removes every row it created — messages, rooms, users, wallet rows and the audit rows it caused — and restores every option and user meta it touched (`LEARNINGS.md` 2026-09-21, three instances of this class; S2.3's script was measured before and after and left nothing).
+
+**Test-critical zones touched:** none of the money zones. The `Permissions::*` callbacks are *not* changed by this step — both chat routes keep the gate they have — but check 7 asserts the admin one still holds, because a task edits that controller.
+
+**The browser half has no automated coverage.** `frontend/` has no test runner and this step does not add one, so tasks 1 and 4 — including the reconnect and the fallback — are covered only by the manual guide. Task 1 also touches the *queue's* subscription, so the guide re-checks the queue as well as the chat.
+
+### Docs to update
+- `docs/ARCHITECTURE.md` — the **Chat** data-flow paragraph ("polled every 3s") and the `stores/` row for `chat.js`.
+- `docs/CONTRACTS.md` — two rows in **Room channel messages** (`chat`, `moderation`), and the note on why a chat body may travel where a queue entry may not; `GET /rooms/{id}/messages` gains the same "no longer polled by a signed-in client" note the queue read has.
+- `docs/DECISIONS.md` — a new entry: the cursor's role (unchanged rule, new job — the catch-up path rather than the transport), chat bodies on the channel because the read is public, and the answer to Question 1 about guests. The 2026-09-07 entry is not edited.
+- `docs/features/realtime/FEATURE.md` — Interfaces: the two new messages and the multi-consumer service.
+- `docs/TECH-STACK.md` → ANTI-PATTERNS — the `LIMIT/OFFSET` rule's reason mentions "between two polls"; the rule does not change, its reason does, exactly as the cron rule's did in S2.2.
+- `docs/features/realtime/verification/sprint-2-step-4.md` — written by `/close-step`.
+
+### Checks
+- **ANTI-PATTERNS:** none violated. Chat paging stays cursor-based on `id` (the rule's reason is updated, not the rule); no route is added, so no `permission_callback` question arises; no new gate is invented; nothing is hard-deleted — moderation still flips `status`; no secret moves; no operator-tunable value is hardcoded; no cron is added.
+- **Docs vs reality:** **three mismatches, all corrected here.** (1) `ARCHITECTURE.md`'s Chat paragraph and `stores/` row still describe a 3-second poll as the transport. (2) `chat-service.php:13` and `RoomChatController.php:33` both say "Phase 5 Step 7's push channel replaces both polls at once" — that is this step, and the comments are rewritten with the code. (3) `stores/chat.js:12-15` says "`startPolling` becomes `subscribe` and nothing below it changes" — nearly true, and the exception is worth writing down: moderation had no client-side handling at all, because a poll never had to remove anything. **Reported only, not acted on:** `admin/` still polls its own screens every 3 s; no step of these sprints touches it (`FEATURE.md` → Fit into the host).
+- **Design:** n/a — no component changes. `RoomChat.vue` renders the same list from the same store and is not edited; `DESIGN.md` → Components' `Room chat` row (guest read-only, muted, sending, rate-limited) stays exactly as it is.
+- **Check command:** `backend/bin/check` and `frontend/bin/check` (`docs/TECH-STACK.md` → Check command). Both exist and exit 0 on the base.
+- **Not locally verifiable:**
+  - **Two browsers seeing one message at the same moment** — there is still **no Ably account**, so every local check stubs the HTTP. This is the third step in a row to carry it, and it is now the whole of what Sprint 2 has never once exercised for real.
+  - **Anything the browser does** — the subscription, the reconnect, the fallback and the moderation removal have no automated coverage at all.
+- **The sprint's "grep the frontend for the old interval" check is settled, not open.** `DECISIONS.md` 2026-09-21 kept the 3-second interval in `stores/queue.js` deliberately as the fallback for a channel that cannot be established; `stores/chat.js` keeps its own for the same reason, and additionally because of Question 1. The honest check is that it does not *run* while the channel is up, and the guide will check exactly that.
+
+### Questions / ambiguities
+
+**Question 1 — Do guests ride the channel, or keep polling?**
+**Resolved: approved as recommended — (a) guests keep the 3-second poll; signed-in viewers get push.** No permission change; the chat store falls back exactly as it does when the server has no Ably key.
+The room page is public and the chat read is public, but `GET /realtime/token` requires a
+signed-in caller (S2.1, and its close recorded this collision in as many words: "Steps 2
+and 4 must keep a non-channel path for them or 'no 3-second poll remains' collides with
+guest viewers"). Step 2 never had to answer it, because the queue read is play-ready gated
+and guests were never polling it. Chat is the first thing in this sprint that guests
+actually use.
+- **(a) — recommended. Guests keep the 3-second poll; signed-in viewers get push.** The
+  chat store asks for a pass, gets a 401, and falls back — the same path it already takes
+  when the server has no Ably key. No permission changes, nothing new to reason about, and
+  a guest's conversation stays exactly as live as it is today. *This is what the tasks
+  above are written to.* The cost is that the sprint's goal sentence is met for signed-in
+  players only, which the plan says in `DECISIONS.md` rather than leaving implied.
+- **(b) Widen the token endpoint to issue an anonymous, room-subscribe-only pass.** Guests
+  get instant chat too. It costs a permission change to an endpoint shipped two steps ago,
+  a `clientId` every guest shares, and — the real price — **one of Ably's 200 concurrent
+  connections per guest**, on a free tier whose ceiling this sprint's own goal says to
+  measure and write down. Spending it on read-only viewers before anyone has watched a
+  single real connection is the wrong order. Choose this if guest liveness matters more
+  than the ceiling, and it adds a task to this step.
+
