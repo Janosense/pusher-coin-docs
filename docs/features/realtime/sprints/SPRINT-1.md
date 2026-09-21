@@ -68,7 +68,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (endpoint + error codes, in "current"); `docs/DATA-MODEL.md` (options, constants, and the corrected meaning of `wp_pc_machine_events.coins_credited` if it changed); `docs/ARCHITECTURE.md` (the ingest data flow, which currently says nothing pushes events in).
 - **Depends on:** Step 2
 
-### [ ] Step 5 — The transport
+### [x] Step 5 — The transport
 - **Tasks:**
   - Build the transport the Step 2 `DECISIONS.md` entry names. The task list differs per option, so `/plan-step` produces it after Step 2 closes — writing it now would be guessing:
     - *HA automation → webhook:* the automation committed as documentation, the shared secret on both sides, `event_key` built Home-Assistant-side from `context.id` or `last_reported`.

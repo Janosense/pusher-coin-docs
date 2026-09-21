@@ -40,6 +40,7 @@
 - A coin bought for a price is worth that price when it comes back. Money owed to a player never changes because the operator changed the coin price afterwards.
 - Payouts are physical: the machine decides, not the software. The software only records what the machine reports and credits it to whoever holds the turn at that moment.
 - If nobody holds the turn when a payout happens, the payout belongs to nobody and no wallet moves.
+- A payout reaches the player about a minute after the coins fall, not instantly. The software asks the machine what happened on a schedule rather than being told, so the delay is the waiting between two questions (`DECISIONS.md` 2026-09-18 measured 65 s on a 60-second schedule). Shortening the schedule shortens the wait; nothing is lost while it waits, because the machine's own history still holds it.
 - The currency is the Ukrainian hryvnia. Every amount is exact to the kopiyka.
 - Money leaves the system only by hand: a player requests a withdrawal, an operator approves and pays out, or rejects and the coins come back at their original prices. A player may have one withdrawal request open at a time.
 - Before a player can move money or play, they must have accepted the current terms, chosen a nickname, and confirmed their email address. Chatting requires the terms and the nickname but not the confirmed email — chat moves no money.

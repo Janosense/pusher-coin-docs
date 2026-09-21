@@ -1151,7 +1151,7 @@ tree (two new files), `docs/features/realtime/FEATURE.md` (Interfaces, Data, Inv
 
 ---
 
-## Plan — Sprint 1, Step 5: The transport   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 5: The transport   (status: closed)
 
 ### Branch
 `realtime/sprint-1-transport` ← `realtime/sprint-1`
