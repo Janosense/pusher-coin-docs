@@ -609,8 +609,12 @@ Bearer + play-ready. Toss exactly one coin. Empty request body.
 The order of operations is the contract:
 
 1. Refuse unless the caller holds the turn (`not_player_turn` 403).
-2. Refuse while `sensor.relay_on` reads closed (`relay_closed` 423) —
-   the machine is mid-payout.
+2. Refuse while `sensor.relay_on` reads **open** (`relay_open` 423) — the
+   machine has been taken out of service by hand. Its normal, playable
+   state is *closed*: the sensor idles at `1` and does not move during a
+   payout (`DECISIONS.md` 2026-09-18). Before `realtime` Sprint 2 Step 3
+   this was the other way round and refused every toss while the machine
+   was on.
 3. Debit one coin FIFO (`insufficient_balance` 409).
 4. Call the machine. **Only HTTP 200 counts as a toss.**
 5. On any machine failure, re-credit the exact lot price consumed and
@@ -633,7 +637,7 @@ Response (`200`):
 
 `toss_id` is the `wp_pc_machine_events` row for the toss.
 
-Errors: `not_player_turn` 403, `relay_closed` 423,
+Errors: `not_player_turn` 403, `relay_open` 423,
 `insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
 409, `machine_offline` 503, `machine_call_failed` 502,
 `machine_unauthorized` 502, `machine_not_configured` 500,
@@ -1852,7 +1856,7 @@ One canonical code per failure mode — do not invent variants.
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
 | `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
-| `relay_closed` | 423 | rooms/{id}/play |
+| `relay_open` | 423 | rooms/{id}/play (the relay was opened by hand — the machine is out of service; replaced `relay_closed` in `realtime` Sprint 2 Step 3, which found the test inverted) |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account), machine/events (one ceiling across all callers, checked before the secret) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
