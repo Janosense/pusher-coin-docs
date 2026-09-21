@@ -32,7 +32,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (token endpoint); `docs/DATA-MODEL.md` (the constant and any option); `docs/ARCHITECTURE.md` → Integrations (Ably row) and the data flow; `docs/features/realtime/FEATURE.md` → Interfaces.
 - **Depends on:** —
 
-### [ ] Step 2 — The queue subscribes instead of polling
+### [x] Step 2 — The queue subscribes instead of polling
 - **Tasks:**
   - `frontend/src/services/realtime.js`: connect using the token endpoint, subscribe to the room channel, expose an event stream to the stores. Reconnect with backoff; on reconnect, catch up rather than assume nothing was missed. A player on a flaky mobile connection is the normal case.
   - `stores/queue.js` stops its 3-second full read. **Touches shared code.**

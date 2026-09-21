@@ -1044,6 +1044,29 @@ Errors:
   caller's fault. Publishing is a silent no-op in the same state, so
   payouts still credit normally; they are simply not pushed.
 
+### Room channel messages
+
+Not HTTP: what WordPress publishes to `{prefix}:room:{id}` for subscribed
+browsers (`realtime` Sprint 2). A pass for a room channel is granted to
+**any signed-in caller**, while `GET /rooms/{id}/queue` is play-ready
+gated — so what may travel here is narrower than what the API serves,
+and widening either message is a permission decision, not a convenience.
+
+| Message | Data | Sent when |
+|---|---|---|
+| `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
+| `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
+
+A `queue` message is a change ping: the client answers a version it has
+not seen by re-reading `GET /rooms/{id}/queue` through the existing gate.
+Push decides *when* to read; the permission still decides *what* may be
+read. A dropped message therefore costs one stale second, not a wrong
+queue.
+
+Publishing is fire-and-forget throughout: a failed publish is recorded
+as `realtime_publish_failed` and swallowed, and can never fail the join,
+leave, toss or payout that triggered it.
+
 ### `GET /pc/v1/admin/me`
 
 Probe used by the admin SPA to verify the current session is both

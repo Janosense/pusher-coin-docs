@@ -412,3 +412,19 @@ Entry format:
   - **Guests are not served.** The endpoint requires a signed-in caller, but rooms are public. Steps 2 and 4 must keep a non-channel path for guests, or the sprint goal "no 3-second poll remains" collides with guest viewers.
   - **Nothing is proven against real Ably yet:** no account exists, so every check stubs the HTTP and the dashboard verification waits on one.
 
+
+---
+
+## 2026-09-21 — The queue heartbeat is a cheap write that answers a version — superseding the 3-second poll of 2026-07-30
+- **Supersedes:** 2026-07-30 "The room queue is persisted, and pruned on read". That entry's decision — persist the queue, prune it on read, heal on traffic with no cron — still stands. What changes is the traffic it healed on: it was the SPA's 3-second `GET /rooms/{id}/queue`, and it is now an explicit heartbeat. The old entry is left as written.
+- **Context:** `realtime` Sprint 2 Step 2 moved the room onto the push channel. Removing the poll removes three things it did as a side-effect and that nothing else was doing: holding the caller's place, pruning players who had gone silent, and promoting the next one when the head disappeared.
+- **Decision — `POST /rooms/{id}/queue/heartbeat`, every `pc_queue_idle_timeout_seconds / 3`.** It touches, prunes, syncs, and answers `{version}` and no state. A client re-reads `GET queue` only when the version differs from the one it holds. A third of the timeout means two lost beats are harmless.
+- **Decision — it touches the caller *before* pruning, unlike `state()`.** A client that has reached the server is by definition not idle, and a browser throttling a backgrounded tab's timers can easily cost a beat or two; with the other order a returning client's own heartbeat is what evicts it. `state()` keeps its existing order — only the heartbeat is reversed, and only because holding the caller's place is its entire job.
+- **Decision — a queue message carries a version and no queue.** A room-channel pass goes to any signed-in caller; `GET queue` is `require_play_ready`. Putting entries on the channel would hand a not-yet-play-ready account what the API refuses them. So push decides *when* to read and the existing permission still decides *what*.
+- **Decision — the store falls back to the 3-second poll when the channel cannot be established.** No Ably key on the server, a token endpoint that is down, a chunk that will not load: the room keeps working on the old interval and stops it the moment the channel comes up. A room that polls is worse than a room that listens; a room that does neither is broken. **This means the 3-second interval still exists in `stores/queue.js` by design** — the sprint's own verification expected it to be gone, and the honest check is that it does not *run* while the channel is up.
+- **Consequences:**
+  - **The version is how a silent promotion travels.** When a head goes quiet nobody publishes anything, but the next heartbeat returns a version that moved, and the promoted player re-reads.
+  - **Request volume drops by roughly an order of magnitude per player** — one small write every 20s plus a read only on real change, against 20 full reads a minute.
+  - **`ably` 2.28.0 enters `frontend/`** under core rule 1, dynamically imported so it costs the main bundle nothing (its own 58 kB gzipped chunk, fetched only by a room).
+  - **None of the browser half is covered by an automated check.** `frontend/` has no test runner and this step did not add one; the manual guide is the only thing that exercises the subscription, the reconnect, the fallback and the winnings.
+

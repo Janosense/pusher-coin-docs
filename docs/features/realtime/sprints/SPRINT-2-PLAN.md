@@ -127,7 +127,7 @@ only the file under test so the failure is the behaviour and not a missing class
 
 ---
 
-## Plan — Sprint 2, Step 2: The queue subscribes instead of polling   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 2: The queue subscribes instead of polling   (status: closed)
 
 ### Branch
 `realtime/sprint-2-queue` ← `realtime/sprint-2`
