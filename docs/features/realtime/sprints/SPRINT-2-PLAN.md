@@ -400,7 +400,7 @@ until it is.
 
 ---
 
-## Plan — Sprint 2, Step 4: Chat on the same channel   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 4: Chat on the same channel   (status: closed)
 
 ### Branch
 `realtime/sprint-2-chat` ← `realtime/sprint-2`

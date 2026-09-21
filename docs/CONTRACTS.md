@@ -659,10 +659,18 @@ Errors: `not_player_turn` 403, `relay_open` 423,
 guests watch the broadcast there, so they read the conversation too —
 `RoomChat.vue` has rendered it read-only to guests since Phase 3.
 
+**No longer polled by a signed-in client** (`realtime` Sprint 2 Step 4).
+A posted message and a moderation arrive on the room's push channel, and
+this read is the catch-up: a client calls it once when it opens the room
+and again on every reconnect. **A guest still polls it** every 3 seconds
+— the room and this read are public, but an Ably pass requires a
+signed-in caller.
+
 Cursor-based, not offset-based: pass the highest `id` you already hold
-as `after` and you get back only what is newer. A conversation that
-gains rows between two polls would re-send or skip messages under
-`LIMIT/OFFSET`.
+as `after` and you get back only what is newer. Under `LIMIT/OFFSET` a
+conversation that gained rows in between would re-send or skip messages
+— and the gap to cover is now "while the client was disconnected"
+rather than "between two polls", which is longer and less predictable.
 
 Query: `?after=0&limit=50`. `after=0` (the default) is a cold open and
 returns the **newest** `limit` messages, oldest-first; `after=N` returns
