@@ -19,7 +19,8 @@
 | Player SPA | Vue 3 (`<script setup>`, Composition API) | 3.5.21 | — |
 | Player SPA build | Vite | 5.4.20 | — |
 | Player SPA state / routing / HTTP | Pinia 3.0.3, Vue Router 4.5.1, Axios 1.12.0 | — | — |
-| Player SPA extras | `hls.js` 1.6.16 (dynamic import), `imask` 7.6.1 | — | Mux LL-HLS playback; phone / code / coin-quantity masking |
+| Player SPA extras | `hls.js` 1.6.16 (dynamic import), `imask` 7.6.1, `ably` 2.28.0 (dynamic import) | — | Mux LL-HLS playback; phone / code / coin-quantity masking; the live room channel |
+| Player SPA — Ably client | `ably` | 2.28.0 (locked `realtime` S2.2) | Approved under core rule 1. It does the token exchange against our `authUrl`, the reconnect backoff and the renewal on expiry — the parts this feature is actually about and the parts `frontend/` has no test runner to cover. The reason the backend has **no** SDK (`vendor/` never reaches production, `DECISIONS.md` 2026-09-17) does not apply here: Vercel builds from `package.json`. Dynamically imported, like `hls.js` and for the same reason: it is its own 212 kB / 58 kB-gzipped chunk that only a room ever fetches, leaving the main bundle at 261 kB / 92 kB — where it was before |
 | Admin SPA | Vue 3.5.34, Vite 5.4.21, Pinia 3.0.4, Vue Router 4.6.4, Axios 1.16.0 | — | Same stack as the player SPA, without `hls.js` and `imask` |
 | Lint / format | ESLint 8.57.1 + Prettier (3.6.2 frontend, 3.8.3 admin); `php -l` for the theme | — | No PHPCS, PHPStan or Psalm anywhere |
 | Testing | **none** | — | No PHPUnit, no Vitest, no Playwright, in any of the three repositories |
@@ -31,6 +32,33 @@
 The two SPAs have drifted apart on patch/minor versions (Vue 3.5.21 vs 3.5.34, Axios
 1.12 vs 1.16, Prettier 3.6 vs 3.8). Nothing depends on them matching today; it is
 recorded here so nobody assumes they do.
+
+### Ably free tier — what actually spends it
+
+Written down at the end of `realtime` Sprint 2 (Step 5) so Sprint 3 has a number to
+plan against. The tier is **6M messages/month, 200 concurrent connections, 200
+channels** (`DECISIONS.md` 2026-09-15).
+
+**Observed peak: none. Nothing has ever connected.** No Ably account exists, no
+`PC_ABLY_KEY` is set on any install, and no dashboard has been opened — through
+Sprint 2's four steps the publisher has only ever been exercised against a stub. The
+first real number comes from Ably's dashboard after the key is set on the host, on a
+day the venue is open; until then what follows is arithmetic, not measurement, and
+should be read as an upper bound on what the design can spend rather than as what it
+does spend.
+
+| Ceiling | What spends one | Reached at |
+|---|---|---|
+| 200 concurrent connections | One per **signed-in player with a room open**. One connection serves every listener in that browser — the queue and the chat share it (S2.4) — so it is one per browser tab, not one per store. Guests spend none: they have no pass and keep the 3-second chat poll (`DECISIONS.md` 2026-09-21). The admin SPA spends none: `admin/src/services/realtime.js` is still unbuilt. | **200 simultaneous signed-in room viewers** — not 200 players, not 200 rooms |
+| 200 channels | One per room, plus one for the machine. Never one per viewer (S2.1). | 199 rooms |
+| 6M messages/month | `queue` on every join / leave / toss, `credit` on every payout, `relay` only on a real transition (at most one per 60-second poll pass), `chat` and `moderation` per message. **Chat is the highest-volume of these by some distance** and is the one to watch as rooms fill. | — |
+
+The connection ceiling is the binding one, and it binds on *simultaneous signed-in
+viewers of a room*. Two things already lean on that being the number: guests were left
+on the poll rather than given a pass, precisely so a read-only viewer does not spend a
+connection; and one connection is shared across a tab's listeners rather than one per
+store. Both decisions get cheaper to revisit once a real peak exists, and neither
+should be revisited before then.
 
 ## Check command
 
@@ -147,10 +175,18 @@ machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP
   `status`; a retired support subject is trashed; a drained coin lot stays at
   `qty = 0`; a revoked refresh token keeps its row. A `DELETE` in a moderation or
   money path is almost certainly wrong.
-- **Do not add a cron job for queue housekeeping.** Queue pruning happens on read;
-  the SPA's 3s poll is the heartbeat. The design deliberately heals on traffic alone.
+- **Do not add a cron job for queue housekeeping.** Queue pruning still happens on a
+  request, and the design still heals on traffic alone — but the request is no longer
+  the SPA's 3-second full read. Since `realtime` Sprint 2 Step 2 it is an explicit
+  `POST /rooms/{id}/queue/heartbeat`: a cheap write that touches the caller, prunes the
+  absent, promotes the next player and answers a version rather than the queue. The
+  rule is unchanged; only its reason moved.
 - **Do not paginate chat with `LIMIT/OFFSET`.** Reads are cursor-based on `id`
-  (`?after=<last id>`); an offset would re-send or skip messages between two polls.
+  (`?after=<last id>`); an offset would re-send or skip messages. Since `realtime`
+  Sprint 2 Step 4 the gap it protects is no longer "between two polls" but "while a
+  client was disconnected", which is longer and less predictable — the cursor stopped
+  being the transport and became the catch-up. The rule is unchanged; only its reason
+  moved, and it matters more now, not less.
 - **Do not build product UI in `/wp-admin/`,** and do not introduce ACF. Every
   operator surface is a view in the admin SPA against `pc/v1/admin/*`. `/wp-admin/`
   stays available for plugin, theme and emergency DB work only.

@@ -299,13 +299,25 @@ thin backend service so the rest of the app never talks to it directly.
    (`rest-api/RoomQueueController.php:129–189`). Known gaps sit in
    `BACKEND-REVIEW.md` §10: a re-credit that itself fails is silent, and the
    2-second timeout refunds a slow-but-successful toss.
-5. **Relay-closed lock** `[partial]` — *re-tagged 2026-09-15 (was `[todo]`).*
-   Server half `[done]`: `POST /rooms/{id}/play` reads
-   `Machine_Service::get_relay_closed()` and refuses with 423 `relay_closed`
-   while the machine is mid-payout. SPA half `[todo]`: `PlaceBet.vue` only
-   translates that error *after* a rejected toss — the button is never
-   pre-emptively disabled, because knowing the relay state without hammering
-   the machine needs Step 7's push channel.
+5. **Relay lock** `[done]` — *re-tagged 2026-09-21 by `realtime` Sprint 2
+   Step 3, which found the server half inverted and rebuilt the item around
+   what the machine actually reports.* The name changed with it: there is no
+   "relay-closed lock", because **closed is the machine working**.
+   - *What was wrong.* `POST /rooms/{id}/play` read `sensor.relay_on` = 1 as
+     "mid-payout" and answered 423 to **every toss while the machine was on**.
+     The Sprint 1 Step 2 spike (`DECISIONS.md` 2026-09-18) showed the relay
+     idles at 1, never moves during a payout, and follows the operator's own
+     `input_button.relay_on` / `relay_off` presses.
+   - *Server half* `[done]`: the refusal is now `relay_open` 423 and fires
+     while the relay is **open** — the machine taken out of service by hand,
+     where a toss would cost a coin for nothing because Home Assistant
+     answers 200 to the button press either way.
+   - *SPA half* `[done]`: `Realtime_Relay_Watch` reads the relay once per
+     poll pass and publishes a change to the room's channel; the queue
+     envelope carries `machine_locked` so the button is right at first paint;
+     `PlaceBet.vue` disables the toss with the reason visible. The button is
+     a courtesy — the live read in `play()` is still the authority, which is
+     what covers the up-to-60-second gap before a change is seen.
 6. **Documentation walk-through with Dima** `[partial]` — *replaced
    2026-09-18 by observation: the `realtime` Sprint 1 Step 2 spike
    (`DECISIONS.md` 2026-09-18 "Spike: machine events reach WordPress by
@@ -500,7 +512,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
 | 5 | Player main screen | 6 |
-| 6 | Physical machine integration | 5 — step 3 crediting closed 2026-09-21 by the `realtime` ingest endpoint + transport; step 4 closed by Phase 6; step 5 server half closed, SPA half open; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); 7 open — inbound done, browser push is `realtime` Sprint 2 |
+| 6 | Physical machine integration | 5 — step 3 crediting closed 2026-09-21 by the `realtime` ingest endpoint + transport; step 4 closed by Phase 6; **step 5 closed 2026-09-21** by `realtime` Sprint 2 Step 3, which also corrected an inverted server-side lock that refused every toss; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); 7 open — inbound done, browser push is `realtime` Sprint 2 |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |

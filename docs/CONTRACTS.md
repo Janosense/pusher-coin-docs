@@ -511,11 +511,13 @@ Errors: `room_not_found` 404.
 
 Bearer + play-ready. The room's queue, and the turn it confers.
 
-**Doubles as the heartbeat.** The backend drops entries whose player
-stopped calling this for `pc_queue_idle_timeout_seconds` (default 60),
-so a client that wants to hold its place must keep polling — the SPA
-does, every 3s. Phase 5 Step 7's push channel will replace the poll;
-the endpoint stays as the state-of-truth read.
+**No longer the heartbeat, and no longer polled.** The SPA subscribes to
+the room's push channel and calls this only when it hears a version it
+has not seen (`realtime` Sprint 2 Step 2). Holding a place is now
+`POST queue/heartbeat`'s job. This endpoint remains the state-of-truth
+read and the only place the queue itself is served — which is why the
+channel message carries no queue: this route is play-ready gated, and a
+room-channel pass is not.
 
 Response (`200`):
 ```json
@@ -528,7 +530,8 @@ Response (`200`):
     "started_at": "2026-07-28 20:45:00", "ended_at": null,
     "coins_played": 1, "coins_won": 0, "money_won": "0.00"
   },
-  "idle_timeout_seconds": 60
+  "idle_timeout_seconds": 60,
+  "machine_locked": false
 }
 ```
 
@@ -536,6 +539,15 @@ Response (`200`):
 has *left* to play, not what they declared. `online_count` counts queued
 players, not everyone watching the room. `session` is the head's open
 bet session, or `null` for an empty queue.
+
+`machine_locked` is `true` while the machine has been taken out of
+service by hand — the relay opened at the venue (`realtime` Sprint 2
+Step 3). It is the last state the poll pass saw, read from
+`pc_realtime_relay_state`, so this endpoint never calls Home Assistant;
+after first paint the room follows the `relay` channel message instead.
+It greys the toss button out; it does not decide anything, because
+`POST /rooms/{id}/play` reads the relay live and its `relay_open` 423 is
+the authority.
 
 Errors: `room_not_found` 404, `room_unavailable` 409.
 
@@ -564,6 +576,35 @@ queue on one machine. It clears when an operator makes one room unavailable or g
 it another machine id (`wp pc machine-rooms` lists such rooms). The player SPA shows
 the `message` as sent (`realtime` Sprint 1 Step 3).
 
+### `POST /pc/v1/rooms/{id}/queue/heartbeat`
+
+Bearer + play-ready — **the same gate as the queue read**, deliberately:
+it must not become a way to learn anything the read would refuse.
+Empty request body.
+
+What the 3-second poll used to do as a side-effect, on purpose and
+without the read: it touches the caller's row so their place survives
+`pc_queue_idle_timeout_seconds`, prunes players who have gone silent,
+and promotes the next one when the head has gone. **The caller is
+touched before the prune runs**, unlike `GET queue` — a client that has
+reached the server is not idle, and a backgrounded tab throttled by the
+browser would otherwise be evicted by its own heartbeat.
+
+Response (`200`):
+
+```json
+{ "version": "7f3a91c04be2" }
+```
+
+**It answers no state at all** — no entries, no session, no turn holder.
+A client compares `version` with the one it holds and re-reads
+`GET queue` only when they differ. That is also how a player promoted by
+*another* player's silence finds out: nothing was published, but the
+version moved.
+
+The SPA calls it every `pc_queue_idle_timeout_seconds / 3` (20s by
+default), so a place survives two lost beats.
+
 ### `POST /pc/v1/rooms/{id}/queue/leave`
 
 Bearer + play-ready. Leave the queue; closes the bet session if the
@@ -578,8 +619,12 @@ Bearer + play-ready. Toss exactly one coin. Empty request body.
 The order of operations is the contract:
 
 1. Refuse unless the caller holds the turn (`not_player_turn` 403).
-2. Refuse while `sensor.relay_on` reads closed (`relay_closed` 423) —
-   the machine is mid-payout.
+2. Refuse while `sensor.relay_on` reads **open** (`relay_open` 423) — the
+   machine has been taken out of service by hand. Its normal, playable
+   state is *closed*: the sensor idles at `1` and does not move during a
+   payout (`DECISIONS.md` 2026-09-18). Before `realtime` Sprint 2 Step 3
+   this was the other way round and refused every toss while the machine
+   was on.
 3. Debit one coin FIFO (`insufficient_balance` 409).
 4. Call the machine. **Only HTTP 200 counts as a toss.**
 5. On any machine failure, re-credit the exact lot price consumed and
@@ -602,7 +647,7 @@ Response (`200`):
 
 `toss_id` is the `wp_pc_machine_events` row for the toss.
 
-Errors: `not_player_turn` 403, `relay_closed` 423,
+Errors: `not_player_turn` 403, `relay_open` 423,
 `insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
 409, `machine_offline` 503, `machine_call_failed` 502,
 `machine_unauthorized` 502, `machine_not_configured` 500,
@@ -614,10 +659,18 @@ Errors: `not_player_turn` 403, `relay_closed` 423,
 guests watch the broadcast there, so they read the conversation too —
 `RoomChat.vue` has rendered it read-only to guests since Phase 3.
 
+**No longer polled by a signed-in client** (`realtime` Sprint 2 Step 4).
+A posted message and a moderation arrive on the room's push channel, and
+this read is the catch-up: a client calls it once when it opens the room
+and again on every reconnect. **A guest still polls it** every 3 seconds
+— the room and this read are public, but an Ably pass requires a
+signed-in caller.
+
 Cursor-based, not offset-based: pass the highest `id` you already hold
-as `after` and you get back only what is newer. A conversation that
-gains rows between two polls would re-send or skip messages under
-`LIMIT/OFFSET`.
+as `after` and you get back only what is newer. Under `LIMIT/OFFSET` a
+conversation that gained rows in between would re-send or skip messages
+— and the gap to cover is now "while the client was disconnected"
+rather than "between two polls", which is longer and less predictable.
 
 Query: `?after=0&limit=50`. `after=0` (the default) is a cold open and
 returns the **newest** `limit` messages, oldest-first; `after=N` returns
@@ -963,6 +1016,97 @@ operator settles dropped events with them.
 Machine payouts credit coin lots and never write `wp_pc_transactions`
 (root `CLAUDE.md` invariant 6), so nothing here shows on the player's
 **History** screen.
+
+### `GET /pc/v1/realtime/token`
+
+The scoped pass a browser needs to listen on the push channel.
+`Permissions::require_logged_in` — an anonymous caller gets 401 and is
+told nothing.
+
+**It never returns `PC_ABLY_KEY`.** What it returns is an Ably *token
+request*: the fields below, signed with an HMAC-SHA256 keyed by the
+secret half of the app key. The SPA hands it to Ably, Ably verifies the
+signature and issues the real token. Signing here rather than fetching a
+token means no outbound call on a request a player is waiting for.
+
+```json
+{
+  "token_request": {
+    "keyName":    "xxxxxx.yyyyyy",
+    "ttl":        3600000,
+    "capability": "{\"pc:room:*\":[\"subscribe\"]}",
+    "clientId":   "42",
+    "timestamp":  1789980000000,
+    "nonce":      "…32 chars…",
+    "mac":        "…base64…"
+  },
+  "channels": { "room_pattern": "pc:room:*", "machine": null }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `keyName` | The **public** half of the app key. Ably requires it; it is not a secret. |
+| `ttl` | Milliseconds, from `pc_realtime_token_ttl_seconds`. Floored at 60 s and capped at 24 h, Ably's own limit. |
+| `capability` | A JSON **string** (Ably signs it as one). `subscribe` only — the browser is untrusted and everything on these channels originates on the server. |
+| `clientId` | The caller's WordPress user id. |
+| `mac` | Base64 HMAC-SHA256 over `keyName`, `ttl`, `capability`, `clientId`, `timestamp`, `nonce`, each followed by `\n`. |
+| `channels` | The resolved names, so neither SPA hardcodes the convention. `machine` is `null` for a non-admin. |
+
+**What a pass allows.** Every signed-in caller gets `subscribe` on
+`{prefix}:room:*` — rooms are public (`DOMAIN.md`), so granting the
+pattern lets a player move between rooms without a new pass and reveals
+nothing they could not already see. `{prefix}:machine` is operator
+detail and is added **only** for `manage_options`. Nothing is ever
+granted `publish`.
+
+Errors:
+- `realtime_not_configured` 503 — no `PC_ABLY_KEY` on this server. The
+  same shape as `stripe_not_configured`: a server condition, not the
+  caller's fault. Publishing is a silent no-op in the same state, so
+  payouts still credit normally; they are simply not pushed.
+
+### Room channel messages
+
+Not HTTP: what WordPress publishes to `{prefix}:room:{id}` for subscribed
+browsers (`realtime` Sprint 2). A pass for a room channel is granted to
+**any signed-in caller**, while `GET /rooms/{id}/queue` is play-ready
+gated — so what may travel here is narrower than what the API serves,
+and widening either message is a permission decision, not a convenience.
+
+| Message | Data | Sent when |
+|---|---|---|
+| `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
+| `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
+| `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
+| `chat` | the whole message — `{id, room_id, user_id, nickname, body, created_at}`, byte for byte what `GET /rooms/{id}/messages` returns | after a message is accepted by `POST /rooms/{id}/messages`. A refused body, a muted author and a rate-limited caller publish nothing |
+| `moderation` | `{room_id, message_id, status}` — an id and a state, **never a body** | after `PATCH /admin/chat/messages/{id}` hides or restores a message. A hidden message leaves the public read at the same moment |
+
+**`chat` is the one message that carries its own content, and the reason
+is the rule, not an exception to it: what may travel is what the read
+already gives away.** `GET /rooms/{id}/messages` is **public** — the room
+page is public and guests read the conversation there — so a body and a
+nickname on this channel reveal nothing the API does not already serve to
+anybody at all. The `queue` message is the same rule applied to a
+play-ready-gated read, which is why it carries a version and no queue.
+Widening either is a permission decision; so is narrowing the read.
+
+A `relay` message is a courtesy, not a gate: it is what greys the toss
+button out *before* the player tries. The live read inside
+`POST /rooms/{id}/play` still decides whether a coin is taken, so a
+message that is late, dropped or never sent costs a refused toss and a
+423, never a lost coin. It is seen within one poll interval
+(`pc_realtime_poll_interval_seconds`, 60 by default) of the relay moving.
+
+A `queue` message is a change ping: the client answers a version it has
+not seen by re-reading `GET /rooms/{id}/queue` through the existing gate.
+Push decides *when* to read; the permission still decides *what* may be
+read. A dropped message therefore costs one stale second, not a wrong
+queue.
+
+Publishing is fire-and-forget throughout: a failed publish is recorded
+as `realtime_publish_failed` and swallowed, and can never fail the join,
+leave, toss or payout that triggered it.
 
 ### `GET /pc/v1/admin/me`
 
@@ -1634,8 +1778,14 @@ planned:
   credential-check + `event_key` wrapper over `Machine_Ingest_Service`
   this bullet expected, and the transport that calls it shipped in
   Sprint 1 Step 5 — so this bullet is fully closed.
-- `POST /pc/v1/realtime/auth` — private-channel subscription auth for
-  the Step 7 push channel (provider unpicked: Pusher / Ably / Soketi).
+- ~~`POST /pc/v1/realtime/auth`~~ — shipped as
+  **`GET /pc/v1/realtime/token`** in the current section (`realtime`
+  Sprint 2 Step 1), under the name that sprint gives it. The provider is
+  no longer unpicked: Ably, on its free tier (`DECISIONS.md`
+  2026-09-15). A `GET` rather than a `POST` because it creates nothing —
+  the pass is signed from the caller's own identity — and "token"
+  rather than "auth" because what comes back is a token request, not a
+  session.
 
 ### Phase 6 — queue & play
 
@@ -1718,6 +1868,7 @@ One canonical code per failure mode — do not invent variants.
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `stripe_signature_invalid` | 401 | payments/stripe/webhook |
 | `machine_ingest_unauthorized` | 401 | machine/events (wrong secret, missing header, or no secret configured — the answer never says which) |
+| `realtime_not_configured` | 503 | realtime/token (no `PC_ABLY_KEY` on this server; publishing is a silent no-op in the same state) |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
 | `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
@@ -1742,7 +1893,7 @@ One canonical code per failure mode — do not invent variants.
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
 | `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
-| `relay_closed` | 423 | rooms/{id}/play |
+| `relay_open` | 423 | rooms/{id}/play (the relay was opened by hand — the machine is out of service; replaced `relay_closed` in `realtime` Sprint 2 Step 3, which found the test inverted) |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account), machine/events (one ceiling across all callers, checked before the secret) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |

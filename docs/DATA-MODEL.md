@@ -57,6 +57,8 @@ same commit as this file. History:
 | 1.9.0 | LiqPay options retired (`remove_retired_options()`) |
 | 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 | 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
+| 1.12.0 | `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` (the push channel) — no table change, same reason |
+| 1.13.0 | `open_room_id` + `UNIQUE KEY open_room` on `wp_pc_bet_sessions`, and the one-off migration that closes the sessions the duplicate-session race left open |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -324,15 +326,29 @@ next player takes over or the player abandons. Written through `Queue_Service`.
 id              BIGINT   PK
 user_id         BIGINT
 room_id         BIGINT
+open_room_id    BIGINT   NULL  -- = room_id while open, NULL once closed
 started_at      DATETIME
 ended_at        DATETIME NULL
 coins_played    INT      DEFAULT 0
 coins_won       INT      DEFAULT 0
 money_won       DECIMAL(12,2) DEFAULT 0
+UNIQUE KEY (open_room_id)
 ```
 
 Wins land here through the `pc_machine_event_credited` action, so the in-room
 winnings counter is per-turn rather than lifetime.
+
+`open_room_id` exists only to carry Invariant 9. It mirrors `room_id` while the
+session is open and goes back to `NULL` in the same statement that sets `ended_at`;
+MySQL lets `NULL` repeat in a unique index and nothing else, so the unique key means
+**at most one open session per room, refused by the server rather than checked by the
+caller** — the same shape as `wp_pc_machine_events.event_key`. Before `realtime`
+Sprint 2 Step 5 the rule was prose: two simultaneous requests each read "no open
+session" and each inserted one, and the row that did not win the queue's `session_id`
+stayed open for ever, able to collect a payout the player's screen never showed. A
+request that loses the insert now re-reads and adopts the winner's session. Rows that
+predate the migration carry `NULL` here and are not protected by the key, which is
+what the one-off cleanup in `Install_Schema` and `wp pc queue-sessions` are for.
 
 ### `wp_pc_room_queues`
 
@@ -425,7 +441,7 @@ so an old ticket still resolves its label.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.11.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
+| `pc_db_version` | string | `'1.12.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -500,7 +516,24 @@ at `pc_db_version` `1.11.0`. WordPress polls Home Assistant's history for what
 | `pc_realtime_poll_interval_seconds` | int | `60` | The schedule, in both the WP-Cron event and the `cron_schedules` entry behind it. The spike's promised 65 s latency is this plus the machine's ~2 s Modbus cycle and the history call; shortening it shortens that. Floors at 30 — below that a traffic-driven WP-Cron cannot keep up and a real cron gains nothing, because Home Assistant's own history is what protects against a late poll. Changing it reschedules the event. |
 | `pc_realtime_poll_machine_id` | string | `''` | Which machine the polled events carry, matched against rooms' `pc_room_machine_id` to find the player holding the turn. **Required:** while it is empty the poller records `machine_poll_unconfigured`, holds its cursor and credits nothing, rather than logging every real payout as belonging to nobody. |
 | `pc_realtime_poll_backfill_seconds` | int | `3600` | How far back a poller with no cursor looks — the first run ever, or after an evicted object cache. Bounded on purpose: a cursorless read of the whole ten-day retention would spend the ingest rate limit re-delivering events credited long ago (they would all answer `already_recorded`, but the window would be gone). Floors at 60. |
-| `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts and stop reason — how "is the schedule actually ticking?" gets answered on a host where nobody has a shell. |
+| `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts, stop reason and what the relay watch saw — how "is the schedule actually ticking?" and "is the machine in service?" get answered on a host where nobody has a shell. |
+| `pc_realtime_relay_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'locked' => bool, 'at' => ISO-8601 ]` — the last known state of `sensor.relay_on`, written only when it *changes*, so a machine that is simply working costs no write per pass. It is what `GET /rooms/{id}/queue` answers `machine_locked` from, so the room screen needs no Home Assistant call. Rebuildable by definition (the next pass re-reads the machine) and **never the authority for a toss**, which reads Home Assistant itself. Unset means unlocked. |
+
+**Realtime — the push channel out to the browsers.** Owned by `realtime`; seeded by
+`Install_Schema` at `pc_db_version` `1.12.0`. WordPress publishes machine events to
+Ably and the SPAs subscribe (`DECISIONS.md` 2026-09-15).
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_channel_prefix` | string | `'pc'` | Namespaces this install's channels inside the Ably app, so a staging and a production install can share one app without hearing each other. Channels are `{prefix}:room:{id}` and `{prefix}:machine` — one per room and one for the machine, **never one per viewer**: the free tier caps channels at 200. Both SPAs learn the resolved names from `GET /realtime/token` rather than hardcoding them, which is what makes this safe to change. Falls back to `pc` when empty. |
+| `pc_realtime_token_ttl_seconds` | int | `3600` | How long a scoped channel pass stays valid. Floors at 60 and caps at 24 h — Ably's own maximum. |
+
+The Ably key itself is **not in the database** — `PC_ABLY_KEY` in wp-config, in Ably's
+`name:secret` form. The SPAs never receive it: `GET /pc/v1/realtime/token` answers a
+token request *signed* with the secret half, which does not contain it. Rotation is a
+wp-config edit; while it is unset, publishing is a silent no-op (payouts credit exactly
+as before, they are simply not pushed) and the token endpoint answers
+`realtime_not_configured`.
 
 **The cursor is a transient,** `pc_realtime_cursor_sensor_coin`: the `last_updated` of
 the last history row the poller delivered successfully. Rebuildable and never a source
@@ -551,7 +584,8 @@ wp_pc_transactions 1 ──* wp_pc_coin_lots (source_txn_id — which top-up bou
 
 pc_room (wp_posts) 1 ──* wp_pc_room_schedules  (room_id)
 pc_room            1 ──* wp_pc_room_queues     (room_id; UNIQUE (room_id, user_id))
-pc_room            1 ──* wp_pc_bet_sessions    (room_id; at most one with ended_at IS NULL)
+pc_room            1 ──* wp_pc_bet_sessions    (room_id; at most one with ended_at IS NULL,
+                                                 enforced by UNIQUE (open_room_id))
 pc_room            1 ──* wp_pc_room_messages   (room_id)
 
 pc_support_subject (wp_posts) 1 ──* wp_pc_support_tickets  (subject_id, no FK by design)
@@ -585,6 +619,12 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
    Without it a retry double-credits.
 9. **At most one open bet session per room** (`ended_at IS NULL`). This is what makes
    a machine event attributable; break it and payouts go to the wrong player.
+   **Enforced, not asserted:** `open_room_id` mirrors `room_id` while the session is
+   open and is `NULL` once it closes, under `UNIQUE KEY open_room`, so the database
+   refuses a second open row and a request that loses the race adopts the winner's
+   session instead of creating one. The head's `wp_pc_room_queues.session_id` and the
+   room's open session are kept identical, because the two drifting apart is what made
+   the race cost money rather than merely leave litter.
 10. **`wp_pc_room_queues` has one entry per (room, user)** and is pruned on read, not
     by cron.
 11. **Nothing that carries evidence is hard-deleted** — chat rows flip `status`,

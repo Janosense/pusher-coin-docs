@@ -20,10 +20,10 @@ all three and tracks only the documentation and the playbook), separate deploy
 pipelines, and communication exclusively over HTTPS/JSON.
 
 The whole loop — sign up, verify, top up, queue, toss, settle, withdraw, support —
-works end to end over HTTP polling. Machine events now reach WordPress by
-themselves, on a schedule that polls Home Assistant's history; what is still missing
-is the push *out* to the browser, which is why several sections below say "polled
-every 3s". Phase status lives in `ROADMAP.md`.
+works end to end. Machine events reach WordPress by themselves, on a schedule that
+polls Home Assistant's history, and reach the player's browser over a push channel:
+the room's queue and its winnings are pushed, not polled. **Chat is still polled every
+3s** until `realtime` Sprint 2 Step 4. Phase status lives in `ROADMAP.md`.
 
 ```
 ┌──────────────────────────┐
@@ -77,7 +77,7 @@ parse or trust the JWT payload (the token is opaque to it).
 | `router/index.js` | Route table and `beforeEach` guard. Routes carry `meta.requiresAuth` / `meta.requiresGuest` / `meta.allowsBeforeGate`; the guard awaits `authStore.initializeAuth()` before deciding. |
 | `views/` | Page-level components mapped 1:1 to routes: `RoomsView` (`/`), `RoomView` (`/room/:id`, public), `SignInView`, `SignUpView`, `AccountView`, `HistoryView`, `SupportView` (public), and the three gate / landing views `AcceptTermsView`, `ChooseNicknameView`, `ConfirmEmailView`. `AboutView` exists but is not in the route table. |
 | `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (live, 3s poll, owns its poll lifecycle), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
-| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue, 3s poll that doubles as the heartbeat), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
+| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue: subscribes to the room's Ably channel, re-reads on a version change, heartbeats every 20s, falls back to a 3s poll if the channel is unavailable; also holds whether the machine is out of service, from the envelope, the `relay` message and the server's refusal of a toss), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — subscribes to the room's Ably channel, appends a pushed message, drops a hidden one, re-opens the conversation on a restore, catches up through the `after` cursor on every connect, and falls back to the 3s poll for a guest or an unavailable channel), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
 | `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `sessionService.js` is the inactivity timer. The top-up hand-off needs no service of its own — `ReplenishmentBalance.vue` navigates to the `checkout_url` that `walletService.topup()` returns. |
 | `assets/` | Global CSS (`main.css`, `styles/colors.css`, block-scoped CSS in `styles/blocks/`), images, the brand SVG logo. |
 | `public/` | Static files served verbatim by Vite (`favicon.ico`). |
@@ -225,7 +225,12 @@ themes/pc/
 ├── tests/
 │   ├── machine-ingest.php   # `ddev wp eval-file` check: the ingest endpoint, idempotency and crediting (DDEV only)
 │   ├── machine-poll.php     # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
+│   ├── realtime-relay.php   # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
+│   ├── realtime-channel.php # `ddev wp eval-file` check: the push channel — a broken publish cannot touch a payout; the token never carries the key (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
+│   ├── realtime-queue.php   # `ddev wp eval-file` check: the queue rides the channel; the heartbeat holds a place and answers a version (DDEV only)
+│   ├── realtime-chat.php    # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
+│   ├── queue-sessions.php   # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
@@ -235,6 +240,13 @@ themes/pc/
     │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
     │   ├── machine-rooms.php         # Machine_Rooms: which rooms claim a machine
     │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
+    │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
+    │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
+    │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
+    │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
+    │   ├── channels.php              # Realtime_Channels: the one place channel names are built
+    │   ├── publisher.php             # Realtime_Publisher: pushes credits to Ably, fire-and-forget
+    │   ├── RealtimeTokenController.php # GET /realtime/token — the scoped pass a browser gets instead of the key
     │   └── MachineIngestController.php # POST /machine/events — the shared-secret ingest door
     ├── stripe/              # Feature `stripe` — the ONLY code that talks to Stripe
     │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
@@ -344,10 +356,31 @@ payout pipeline.
 
 **Queue and heartbeat — FIXED.** A player joins a room's queue declaring how many
 coins they intend to play; FIFO order by `joined_at`; the head of the queue holds an
-open bet session (`ended_at IS NULL`, at most one per room). The SPA polls
-`GET /rooms/{id}/queue` every 3s and that poll *is* the heartbeat — entries whose
-`last_seen_at` is older than `pc_queue_idle_timeout_seconds` are pruned on the next
-read, so the queue heals on traffic alone with no cron.
+open bet session (`ended_at IS NULL`, at most one per room — **enforced by the
+database** since `realtime` Sprint 2 Step 5: `wp_pc_bet_sessions.open_room_id` carries
+the room id while the session is open and `UNIQUE KEY open_room` refuses the second
+row, so two simultaneous requests cannot each open one).
+
+**The SPA no longer polls it.** `join`, `leave` and `play` each announce the room on
+its Ably channel, and the browser re-reads `GET /rooms/{id}/queue` only when it hears
+a version it has not seen. The announcement carries `{room_id, version}` and **no
+queue**: the channel is readable by any signed-in account while the read is
+`require_play_ready`, so push decides *when* to read and the existing permission still
+decides *what* may be read.
+
+Holding a place is now `POST /rooms/{id}/queue/heartbeat`, every
+`pc_queue_idle_timeout_seconds / 3` (20s by default, so two lost beats are harmless).
+It does what the poll used to do as a side-effect — touch the caller, prune entries
+whose `last_seen_at` has aged past the timeout, promote the next player — and answers
+a version rather than the queue. It touches **before** pruning, unlike `GET queue`: a
+client that has reached the server is not idle, and a backgrounded tab throttled by
+the browser would otherwise be evicted by its own heartbeat. The version it returns is
+also how a player promoted by *another* player's silence finds out, since nothing was
+published.
+
+The queue still heals on traffic alone and still has no cron; the traffic is now an
+explicit heartbeat rather than a 3-second full read. If the channel cannot be
+established at all, the store falls back to the old 3-second poll.
 
 **Play (the toss) — FIXED.** `POST /rooms/{id}/play` is the one place a coin is
 spent. In order: refuse if the caller is not at the head; refuse with 423
@@ -399,9 +432,40 @@ bootstrap schedules and `wp pc machine-poll` — and a transient lock makes over
 passes impossible, so one real machine event is one ingest call on either. `wp pc
 machine-ingest` remains the manual replay for an event the transport dropped.
 
+**The same pass also watches the relay.** `Realtime_Relay_Watch`
+(`app/realtime/relay-watch.php`) reads `sensor.relay_on` once per pass and, when it
+has moved, caches the new state in `pc_realtime_relay_state` and announces it to the
+room. The relay carries no payout signal — it idles closed and follows the operator's
+own relay buttons (`DECISIONS.md` 2026-09-18) — so an **open** relay means the machine
+has been taken out of service by hand, which is the one thing about it worth telling a
+player. It runs *before* the coin work and outside its guards: a missing ingest secret
+or an unreadable history stops that pass and the relay is still watched, and a relay
+that cannot be read stops nothing and leaves the cached state alone, because an
+unreadable relay is not a locked one. One extra state read a minute, no second
+schedule, nothing new to deploy.
+
+**And out to the browsers.** `Machine_Ingest_Service` fires
+`pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`
+(`app/realtime/publisher.php`) hooks it, resolves the machine id to its room and posts
+one compact `credit` message to that room's Ably channel — `user_id`, `coins`,
+`room_id`, `event_id`, `at`. **No money:** a room channel is readable by everyone
+watching the room, and what another player's coins cost them is not theirs to see, so
+`unit_price` stays behind the authenticated endpoints the winner's own totals come
+from. Channel names are built in one place (`app/realtime/channels.php`) and handed to
+the SPAs by the token endpoint, so neither hardcodes them. The publish is
+fire-and-forget in the strict sense: it runs after the credit, and every failure is
+logged and swallowed rather than returned (`FEATURE.md` → Invariants #2).
+
 **Chat.** Reads are public and cursor-based — `GET /rooms/{id}/messages?after=<last
-id>`, polled every 3s by the same store that owns the chat panel's open/closed
-state — so a guest watching a broadcast sees the conversation read-only. Writes go
+id>` — so a guest watching a broadcast sees the conversation read-only. **A signed-in
+client no longer polls it.** A posted message is published on the room's channel
+carrying the whole message, and moderation is published as an id and a state; the
+cursor stopped being the transport and became the catch-up, run on every connect and
+reconnect (`realtime` Sprint 2 Step 4). A chat body may travel where a queue entry may
+not, and it is the same rule in both directions — what may travel is what the read
+already gives away, and this read is public. Two cases still poll on the 3-second
+interval, both deliberate: a **guest**, who has no Ably pass because the token endpoint
+requires signing in, and any client whose channel cannot be established. Writes go
 through `require_chat_ready`, are capped at 500 sanitised plain-text characters, and
 are rate-limited to 10 per minute per account. Chat deliberately does not require the
 room to be `available` the way the queue does: a room in maintenance is where players
@@ -448,6 +512,7 @@ persisted in the room's `pc_room_stream_url` post meta.
 |---|---|---|---|---|
 | **Home Assistant** | The physical machine: power on/off, `toss_coin()`, sensor reads (coin count, bonus number, light bitfield, relay state), relay open/close, a soft-failing batched snapshot for the admin view, `is_online()`, and `get_state_history()` — every state an entity passed through between two instants, which is what the inbound transport polls. Only `Machine_Service` calls it. | Bearer token | 2s HTTP timeout, except history reads at 10s (a wider window is slower, and the toss path's refund threshold must not move with it); typed `WP_Error` (`machine_not_configured`, `machine_offline`, `machine_unauthorized`, `machine_call_failed`, `machine_unavailable_state`) mapped by callers to 502 / 503 so a machine fault never looks like an auth failure. The batched snapshot soft-fails per field. | `PC_MACHINE_TOKEN` (wp-config). Base URL + entity ids are `pc_machine_*` WP options, defaults matching `PUSHER-COIN-COMMANDS.txt`. |
 | **Stripe** | Hosted Checkout for top-ups (UAH) and the settlement webhook — the only place a top-up reaches `completed`. Only `Stripe_Client` calls it. No SDK: plain `wp_remote_post` against a pinned API version (`2026-06-24.dahlia`). | Bearer secret key outbound; an HMAC signature over the raw body inbound | Session creation failing is `stripe_call_failed` 502 and the row is parked `failed`. Inbound: a bad signature is 401 and a rolled-back settlement is 500, both of which Stripe retries for three days; every other condition answers 200 with a `note` so Stripe stops. `adaptive_pricing` is sent `false` so the presented currency cannot be converted. | `PC_STRIPE_SECRET_KEY` and `PC_STRIPE_WEBHOOK_SECRET` (wp-config). The provider has no WP option at all. |
+| **Ably** | The push channel out to the browsers: WordPress publishes machine events to a room's channel and the SPAs subscribe, replacing the 3-second polls. Free tier — 6M messages/month, 200 concurrent connections, 200 channels. Only `Realtime_Publisher` calls it, and only ever to publish. | An app key as HTTP Basic outbound. Browsers never get the key: `GET /pc/v1/realtime/token` answers an HMAC-signed Ably *token request*, scoped to `subscribe` on `{prefix}:room:*`, plus `{prefix}:machine` for admins — never `publish`. | **Fire-and-forget.** A publish runs after the wallet has already moved and cannot affect it: every failure is caught, written to `wp_pc_auth_audit_log` as `realtime_publish_failed` and swallowed, with a 2s timeout. An unconfigured key is a silent no-op, so an install with no Ably account credits players normally and simply does not push; the token endpoint then answers `realtime_not_configured` 503. | `PC_ABLY_KEY` (wp-config), in Ably's `name:secret` form. The channel prefix and token TTL are `pc_realtime_*` WP options. |
 | **Mux** | LL-HLS playback of the venue's RTMP stream. | Playback URL only | `LiveStream.vue` falls back to `<video>` or an iframe by URL shape; Safari uses native HLS. | None in the app — the playback URL is `pc_room_stream_url` post meta. |
 | **Turnstile / hCaptcha** | Guest anti-abuse on `POST /support/tickets`. | siteverify call with a secret | **Unconfigured is the off switch**: with an empty provider or secret the guest path runs unchallenged and the admin panel flags it in red. This is a launch blocker — see `backend/wp-content/themes/pc/CAPTCHA_SETUP.md`. | `PC_CAPTCHA_SECRET` (wp-config); `pc_captcha_site_key` + provider are WP options. |
 | **Google Sign-In** | ID-token exchange, then the same email-code 2FA. | Google ID token verified with `google/apiclient` | Parked: the SPA hides the button while `VITE_GOOGLE_CLIENT_ID` is empty. Backend untouched. | `GOOGLE_CLIENT_ID` (wp-config, the audience). See `backend/wp-content/themes/pc/GOOGLE_AUTH_SETUP.md`. |

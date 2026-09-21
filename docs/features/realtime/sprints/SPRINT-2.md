@@ -21,7 +21,7 @@
 
 ## Steps
 
-### [ ] Step 1 — Publish to Ably, and hand the SPA a token
+### [x] Step 1 — Publish to Ably, and hand the SPA a token
 - **Tasks:**
   - `app/realtime/` gains a publisher: on `pc_machine_event_credited` and on a relay-state transition, publish a compact event to the room's channel. Wrapped so any failure is logged and swallowed.
   - `GET /pc/v1/realtime/token` — a scoped Ably token request for a signed-in caller, limited to the channels that caller may read. Admins additionally get the machine channel.
@@ -32,7 +32,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (token endpoint); `docs/DATA-MODEL.md` (the constant and any option); `docs/ARCHITECTURE.md` → Integrations (Ably row) and the data flow; `docs/features/realtime/FEATURE.md` → Interfaces.
 - **Depends on:** —
 
-### [ ] Step 2 — The queue subscribes instead of polling
+### [x] Step 2 — The queue subscribes instead of polling
 - **Tasks:**
   - `frontend/src/services/realtime.js`: connect using the token endpoint, subscribe to the room channel, expose an event stream to the stores. Reconnect with backoff; on reconnect, catch up rather than assume nothing was missed. A player on a flaky mobile connection is the normal case.
   - `stores/queue.js` stops its 3-second full read. **Touches shared code.**
@@ -43,7 +43,7 @@
 - **Docs to update:** `docs/ARCHITECTURE.md` (the queue data flow says "polled every 3s" in several places); `docs/features/realtime/FEATURE.md` → Interfaces; `docs/TECH-STACK.md` → ANTI-PATTERNS ("do not add a cron for queue housekeeping" justifies itself with the 3s poll being the heartbeat — the reason changes here, the rule does not); `docs/DECISIONS.md` — a **new** entry superseding 2026-07-30 on what the heartbeat is now, never an edit to the old one.
 - **Depends on:** Step 1
 
-### [ ] Step 3 — The relay lock the player can see
+### [x] Step 3 — The relay lock the player can see
 - **Tasks:**
   - Publish relay open/closed transitions to the room channel, using the relay entity and polarity Sprint 1 Step 2 recorded.
   - `PlaceBet` disables the toss control while the relay is closed, with the reason visible, and re-enables it on the opening transition. **Touches shared code.**
@@ -54,7 +54,7 @@
 - **Docs to update:** `docs/ROADMAP.md` (Phase 5 §5 → `[done]`); `docs/DESIGN.md` → Components (`PlaceBet` gains a state).
 - **Depends on:** Step 2
 
-### [ ] Step 4 — Chat on the same channel
+### [x] Step 4 — Chat on the same channel
 - **Tasks:**
   - Publish new messages and moderation events to the room channel; `stores/chat.js` subscribes and drops its 3-second poll. **Touches shared code.**
   - Keep the `after` cursor as the catch-up path for a reconnecting or newly opened client.
@@ -64,7 +64,7 @@
 - **Docs to update:** `docs/ARCHITECTURE.md` (the chat data flow); `docs/DECISIONS.md` if the cursor's role changed.
 - **Depends on:** Step 2
 
-### [ ] Step 5 — The duplicate-session race
+### [x] Step 5 — The duplicate-session race
 - **Tasks:**
   - `BACKEND-REVIEW.md` §15: simultaneous queue requests can open two bet sessions for one room that never close. Removing the polls reduces the traffic that caused it; it does not remove the race.
   - Make "open a session for the head of the queue" atomic, so the `ended_at IS NULL` invariant — at most one open session per room — holds under concurrency.

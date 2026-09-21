@@ -129,8 +129,29 @@ works only because someone uploaded `vendor/` by hand.
     - Session winnings (`utils/queue-service.php:341, 431`).
     - Price input parsing (`rest-api/WalletController.php:197`,
       `rest-api/AdminCoinPricingController.php:97`).
-15. **Queue polls write to the database every 3 seconds per viewer.** Simultaneous polls can
-    open duplicate game sessions that never close (`utils/queue-service.php:253`).
+15. **[settled 2026-09-21 — `realtime` Sprint 2 Step 5]** **Queue polls write to the
+    database every 3 seconds per viewer.** Simultaneous polls can open duplicate game
+    sessions that never close (`utils/queue-service.php:253`, now `:307`).
+    *Settled:* the polls went first — since Sprint 2 Step 2 a signed-in client
+    subscribes and sends one cheap heartbeat instead of a 3-second full read — but that
+    only thinned the traffic, and the race was never in the polling. `sync_turn()` read
+    "is there an open session?" and then inserted one, so any two simultaneous requests
+    could each open a session; measured on the local install with 12 concurrent
+    processes against the pre-fix logic, **all 12 opened one**. `wp_pc_bet_sessions`
+    now carries `open_room_id` — the room id while the session is open, NULL once it
+    closes — under `UNIQUE KEY open_room`, so the database refuses the second row and a
+    caller that loses the insert adopts the winner's session. The same 12 processes
+    through the fixed `sync_turn()` produce exactly one. The head's `session_id` and
+    the room's open session are now kept identical, which is the half that made this
+    cost money: `open_session()` answers the newest row while the room screen shows the
+    row the head points at, so a payout could be banked on a session the player was not
+    looking at. Sessions the old code left open are closed (never deleted) on the
+    version bump, each with an audit row, and `wp pc queue-sessions` reports the state
+    of any install.
+    *Still true:* a guest still polls the chat every 3 seconds — the room and its chat
+    are public but an Ably pass is not (`DECISIONS.md` 2026-09-21) — so guest traffic
+    is unchanged. Rows written before the migration carry a NULL `open_room_id` and are
+    not covered by the key until it runs; `wp pc queue-sessions` flags them.
 
 ## Cleanup
 

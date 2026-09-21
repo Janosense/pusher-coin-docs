@@ -24,7 +24,7 @@
 | **Turn** (bet session) | One player's stretch at the head of the queue: how many coins they played, how many they won, how much that was worth. |
 | **Toss** | One coin dropped into the machine. The single moment a coin is spent. |
 | **Bonus** | The machine's bonus wheel, landing on 1–12. Each number is worth a number of coins, set by the operator in the bonus map. *Observed 2026-09-18 (`DECISIONS.md`, the `realtime` spike): no bonus appeared in ten days of the machine's history, so how one is reported, and whether its coins also count as a normal payout, is still unknown.* |
-| **Relay** | The machine's payout gate. While it is closed the machine is paying out and no toss is allowed; when it closes, a configured number of coins is credited. *Observed 2026-09-18 (`DECISIONS.md`, the `realtime` spike): no Home Assistant sensor reports this gate. `sensor.relay_on` follows the relay the software switches with its two buttons, reads 1 (closed) as its normal state, and does not change during payouts; `sensor.sw_b_t_relay` never changed. Until a signal for it is found, the software can neither lock the toss on it nor credit on it.* |
+| **Relay** | The machine's service switch — **not** a payout gate. *Settled 2026-09-21 (`DECISIONS.md`, `realtime` Sprint 2 Step 3), on the 2026-09-18 spike's observations.* `sensor.relay_on` idles **closed** (`1`) whenever the machine is working, never moves during a payout, and follows only the two relay buttons someone at the venue presses. So **closed is normal and open means the machine has been taken out of service by hand**: while it is open nobody may toss, because Home Assistant would still answer 200 to the toss and the coin would buy nothing. Nothing is ever credited from the relay — the earlier "when it closes, a configured number of coins is credited" rule described a payout signal the machine does not have, and `pc_machine_relay_coin_count` stays unreachable. |
 | **Theme song** | Optional per-room audio the player can switch on. A device-local preference, never sent to the server. |
 | **Nickname** | The name a player is known by in the queue and the chat. Chosen once, required before chatting or playing. |
 | **Support subject** | An operator-maintained line in the support form's dropdown. |
@@ -34,7 +34,7 @@
 
 - A room shows exactly one machine. What happens on screen is what happens in the venue.
 - And the reverse: a machine is played through one room at a time. Two rooms pointed at the same machine would run two queues over one physical shelf, and a payout could not say whose it was.
-- Only one player plays a room at a time. The queue is first come, first served by arrival time; the player at the head holds the turn.
+- Only one player plays a room at a time. The queue is first come, first served by arrival time; the player at the head holds the turn. One turn per room is a fact the database keeps rather than a rule the software remembers to follow: two requests arriving in the same instant cannot open two turns for one room. They could until `realtime` Sprint 2 Step 5, and a payout could then be recorded against a turn the player never saw.
 - A turn survives a page reload. It ends when the player leaves, goes quiet past the idle timeout, or the next player takes over.
 - A coin is spent only when it is actually thrown. If the machine does not confirm the toss, the coin was not spent.
 - A coin bought for a price is worth that price when it comes back. Money owed to a player never changes because the operator changed the coin price afterwards.
