@@ -225,6 +225,7 @@ themes/pc/
 ├── tests/
 │   ├── machine-ingest.php   # `ddev wp eval-file` check: the ingest endpoint, idempotency and crediting (DDEV only)
 │   ├── machine-poll.php     # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
+│   ├── realtime-relay.php   # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
 │   ├── realtime-channel.php # `ddev wp eval-file` check: the push channel — a broken publish cannot touch a payout; the token never carries the key (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
@@ -237,6 +238,7 @@ themes/pc/
     │   ├── machine-rooms.php         # Machine_Rooms: which rooms claim a machine
     │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
+    │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── channels.php              # Realtime_Channels: the one place channel names are built
     │   ├── publisher.php             # Realtime_Publisher: pushes credits to Ably, fire-and-forget
@@ -422,6 +424,18 @@ audit row, never a silent gap. Two things drive it — the WP-Cron event the fea
 bootstrap schedules and `wp pc machine-poll` — and a transient lock makes overlapping
 passes impossible, so one real machine event is one ingest call on either. `wp pc
 machine-ingest` remains the manual replay for an event the transport dropped.
+
+**The same pass also watches the relay.** `Realtime_Relay_Watch`
+(`app/realtime/relay-watch.php`) reads `sensor.relay_on` once per pass and, when it
+has moved, caches the new state in `pc_realtime_relay_state` and announces it to the
+room. The relay carries no payout signal — it idles closed and follows the operator's
+own relay buttons (`DECISIONS.md` 2026-09-18) — so an **open** relay means the machine
+has been taken out of service by hand, which is the one thing about it worth telling a
+player. It runs *before* the coin work and outside its guards: a missing ingest secret
+or an unreadable history stops that pass and the relay is still watched, and a relay
+that cannot be read stops nothing and leaves the cached state alone, because an
+unreadable relay is not a locked one. One extra state read a minute, no second
+schedule, nothing new to deploy.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`

@@ -1060,6 +1060,14 @@ and widening either message is a permission decision, not a convenience.
 |---|---|---|
 | `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
 | `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
+| `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
+
+A `relay` message is a courtesy, not a gate: it is what greys the toss
+button out *before* the player tries. The live read inside
+`POST /rooms/{id}/play` still decides whether a coin is taken, so a
+message that is late, dropped or never sent costs a refused toss and a
+423, never a lost coin. It is seen within one poll interval
+(`pc_realtime_poll_interval_seconds`, 60 by default) of the relay moving.
 
 A `queue` message is a change ping: the client answers a version it has
 not seen by re-reading `GET /rooms/{id}/queue` through the existing gate.

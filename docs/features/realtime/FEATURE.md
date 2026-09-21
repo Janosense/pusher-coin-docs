@@ -90,7 +90,9 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (S1.4); `pc_realtime_poll_interval_seconds` (60),
   `pc_realtime_poll_machine_id` (`''`, **required** — the poller holds its cursor
   until it is set) and `pc_realtime_poll_backfill_seconds` (3600), the transport
-  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded;
+  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded,
+  and `pc_realtime_relay_state` (S2.3), also written at runtime and only when the
+  relay actually moves — the last known lock state the room screen paints with;
   and `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
   (3600), the push channel (S2.1).
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
@@ -152,11 +154,27 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `rest_do_request()`. Driven by the WP-Cron event `pc_realtime_poll` and by
   `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
   nothing, which is how it is pointed at a live machine safely.
-- **The room channel's messages** (S2.2): `queue` carries `{room_id, version}` and
+- **The room channel's messages** (S2.2, S2.3): `queue` carries `{room_id, version}` and
   **nothing else** — the channel is readable by any signed-in account while
   `GET /rooms/{id}/queue` is play-ready gated, so a client answers a new version by
   re-reading through that gate. `credit` carries `{room_id, user_id, coins, event_id,
-  at}` and no money. Widening either is a permission decision, not a convenience.
+  at}` and no money. `relay` carries `{room_id, locked, at}` and names neither the
+  sensor nor the machine. Widening any of them is a permission decision, not a
+  convenience.
+- **`Realtime_Relay_Watch`** (S2.3) — one read of `sensor.relay_on` per pass of the
+  poll schedule, through `Machine_Service` like every other Home Assistant call. The
+  relay carries no payout signal (`DECISIONS.md` 2026-09-18): it idles **closed** and
+  follows the operator's own relay buttons, so an **open** relay means the machine has
+  been taken out of service by hand. A change is cached in `pc_realtime_relay_state`
+  and published as `relay` `{room_id, locked, at}`; an unreadable relay publishes
+  nothing, changes nothing and audits `machine_relay_read_failed`, because an
+  unreadable relay is not a locked one. It runs before the coin work and outside its
+  guards, so neither half can stop the other.
+- `POST /pc/v1/rooms/{id}/play` is the authority on that lock, not the channel: it
+  reads the relay live and answers `relay_open` 423 (S2.3 — it previously read the
+  normal state as "closed" and refused every toss while the machine was on). The
+  queue envelope carries `machine_locked` from the cache, so the button is right at
+  first paint without a Home Assistant call on a queue read.
 - `POST /pc/v1/rooms/{id}/queue/heartbeat` (S2.2) — what is left of the 3-s poll: a
   cheap write, gated exactly as the queue read is, answering a version and no state.
 - `GET /pc/v1/realtime/token` — the scoped pass a signed-in SPA needs (shipped S2.1).
