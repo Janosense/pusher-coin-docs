@@ -89,6 +89,8 @@ pusher-coin/
 │   │       │   │   │   ├── machine-poll-command.php # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
 │   │       │   │   │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place; `--close` cleans up
 │   │       │   │   │   ├── relay-watch.php # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
+│   │       │   │   │   ├── outage-watch.php # Realtime_Outage_Watch: is the machine answering? An outage inside a broadcast window is an incident; outside one it is the nightly power-off
+│   │       │   │   │   ├── alerts.php     # Realtime_Alerts: the one door an operator notification leaves through (email)
 │   │       │   │   │   ├── channels.php   # Realtime_Channels: the one place push-channel names are built
 │   │       │   │   │   ├── publisher.php  # Realtime_Publisher: pushes credits to Ably, fire-and-forget
 │   │       │   │   │   ├── RealtimeTokenController.php # GET /pc/v1/realtime/token — a scoped pass, never the Ably key
@@ -135,6 +137,7 @@ pusher-coin/
 │   │       │       ├── realtime-chat.php     # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
 │   │       │       ├── realtime-relay.php    # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
 │   │       │       ├── queue-sessions.php     # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
+│   │       │       ├── realtime-outage.php    # `ddev wp eval-file` check: the outage incident, its grace period and its window gate (DDEV only)
 │   │       │       ├── stripe-client.php     # `ddev wp eval-file` check: kopiyka conversion, mode/config, webhook signature scheme (DDEV only)
 │   │       │       ├── stripe-webhook.php    # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)
 │   │       │       └── wallet-rollback.php    # `ddev wp eval-file` check: wallet write failures roll back (DDEV only)
