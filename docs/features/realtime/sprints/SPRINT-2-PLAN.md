@@ -255,3 +255,145 @@ not papered over with an invented assertion.
 - **Out of scope, found and reported, not fixed:** `tests/machine-poll.php` (S1.5) and `tests/realtime-channel.php` (S2.1) delete their throwaway rooms but not the `wp_pc_room_queues` / `wp_pc_bet_sessions` rows those rooms accumulated — 25 orphaned queue rows and 57 orphaned session rows in the local install, purged by hand here. **This is the third instance of the cleanup class of bug** (`LEARNINGS.md` 2026-09-21). Both files belong to closed steps and neither is in this plan's file list, so they were left alone: the fix belongs in `/adhoc`. This step's own script cleans both tables and leaves nothing.
 - **Not done, deliberately:** nothing was pointed at real Ably (still no account), and no SPA was opened signed in. Everything the browser does in this step — subscribing, reconnecting, the fallback, the winnings — is therefore unverified until the manual guide is run, exactly as the plan's Not-locally-verifiable section said.
 - **Gate:** `backend/bin/check` exit 0 before every backend commit (63 php files; stage 2 executed, `realtime-queue.php` among them) and `frontend/bin/check` exit 0 before every frontend commit and at the end — `lint: OK`, `build: OK`.
+
+---
+
+## Plan — Sprint 2, Step 3: The relay lock the player can see   (status: closed)
+
+### Branch
+`realtime/sprint-2-relay` ← `realtime/sprint-2`
+(git model in root `CLAUDE.md`. The same branch name in `backend/`, `frontend/` and the
+docs repository; `admin/` is not touched — the step text says the admin **Machine**
+screen has no relay control and none is added.)
+
+### What is settled before this step starts
+- **Relay semantics are whatever Sprint 1 Step 2 recorded** (`SPRINT-2.md` → Fixed decisions). That entry is `DECISIONS.md` 2026-09-18 "Spike: machine events reach WordPress by polling Home Assistant's history", and it records three facts this plan does not re-derive:
+  1. the contact sensor is **`sensor.relay_on`** — `sensor.sw_b_t_relay` read `0` for ten days including while the relay was switched, so it is not the contact;
+  2. **`1` means closed, `0` means open**, by the documented button names (`input_button.relay_on` = "замкнуть"), confirmed 1.1 s after each press;
+  3. **its normal state is `1` (closed), and it does not move during a payout** — it stayed `1` through all 28 rises of the coin counter in ten days of history.
+- **The same entry records the defect this step runs into:** "`Machine_Service::get_relay_closed()` reads the normal `1` as 'closed', so `POST /rooms/{id}/play` answers 423 `relay_closed` to **every toss while the machine is on**. That is a defect in frozen `core`, for `/adhoc`. Sprint 2 Step 3's 'relay lock' has no payout signal to follow." See **Questions** — this is Question 1 and Question 2, and the tasks below are written under the recommended answers.
+- **Publishing is fire-and-forget** — `FEATURE.md` → Invariants #2. A failed publish is logged and swallowed and may never fail, delay or roll back what triggered it.
+- **`PlaceBet.vue`, `stores/queue.js`, `queue-service.php` and `RoomQueueController.php` belong to `core`** — every task touching them is marked accordingly.
+- **Machine power is manual** — `DECISIONS.md` 2026-09-18. Nothing here switches it, and no task presses a relay button; the *verification* may, once, on the user's explicit go-ahead, which the step text itself sanctions.
+
+### What the step text assumes that the machine does not do
+The step says "publish relay open/closed transitions … using the relay entity and polarity
+Sprint 1 Step 2 recorded" and "`PlaceBet` disables the toss control while the relay is
+**closed**". Applied literally to the recorded polarity, the button is disabled whenever
+`sensor.relay_on` reads `1` — which is every moment the machine is on. That is not a
+reading of the step anyone intended; it is the same inversion the server already has, which
+is why the server refuses every toss today. `DECISIONS.md` beats the sprint text
+(`/plan-step` §5 precedence), so this plan takes "the relay lock" to mean **the state that
+blocks a toss**, which by the recorded polarity is the relay being **open** (`0`), and says
+so in every artefact it touches. Question 1 is where that reading can be refused.
+
+### Tasks (ordered)
+- [x] **1. The server stops refusing every toss.** `RoomQueueController::play()` refuses when the relay reads **open**, not closed: `if ( ! $relay_closed )`, error code **`relay_open`** (423) with the message "The machine is out of service. Try again shortly." `Machine_Service` is not touched — `get_relay_closed()` reports the contact correctly and the admin snapshot stays truthful; the defect is the controller's reading of it. Docblock and `docs/CONTRACTS.md` corrected in the same commit (the play order-of-operations, the error registry, and the "mid-payout" wording that the spike disproved). **Touches shared code — may affect other features** (`core`: `app/rest-api/RoomQueueController.php`; the only consumer of the error code is `frontend/src/components/PlaceBet.vue`, task 5). → `fix(realtime): the toss lock refuses an open relay, not a closed one`
+- [x] **2. The relay is watched, and a change is announced.** New `app/realtime/relay-watch.php` (`Realtime_Relay_Watch`): one live read of `pc_machine_relay_sensor_entity` per poll pass through `Machine_Service::get_relay_closed()`, compared with the last known value cached in the `pc_realtime_relay_state` option; on a change, `Realtime_Publisher::announce_relay( $room_id, bool $locked )` publishes `relay` `{room_id, locked, at}` to that room's channel. The room comes from `Queue_Service::room_id_for_machine( Machine_Poller::machine_id() )`, exactly as `announce_credit()` resolves it; no room claiming the machine means nothing to tell. Called from `Machine_Poller::run()` **before** the coin work and outside its guards, so a missing ingest secret or a failed history read cannot stop it, and its own failure cannot stop them; `--dry-run` reads and reports but neither caches nor publishes. A read failure is audited (`machine_relay_read_failed`) and **leaves the cached state alone** — an unreadable relay is not a locked one, because the 423 is the authority. → `feat(realtime): watch the relay and announce a change to the room`
+- [x] **3. The room knows the state before anything is published.** `Queue_Service::state()` carries `machine_locked` (bool) read from the cached option — no Home Assistant call on a queue read, ever. This is what makes the button correct at first paint rather than only after the next transition. **Touches shared code — may affect other features** (`core`: `app/utils/queue-service.php`; consumers are `GET /rooms/{id}/queue`, join, leave and play, all of which return this envelope). `docs/CONTRACTS.md` queue envelope updated in the same commit. → `feat(realtime): the queue envelope carries the machine lock`
+- [x] **4. The browser listens for it.** `frontend/src/services/realtime.js` subscribes to `relay` and exposes `onRelay`; `frontend/src/services/queueService.js` maps `machine_locked`; `frontend/src/stores/queue.js` gains a `machineLocked` ref set from every envelope, from a pushed `relay` message, and — because the server is the authority — set to `true` when `play()` is refused with `relay_open` and to `false` on a successful toss. **Touches shared code — may affect other features** (`core`: `stores/queue.js`, `services/queueService.js`). → `feat(realtime): the room follows the relay lock`
+- [x] **5. The button greys out, with the reason.** `frontend/src/components/PlaceBet.vue`: the toss button is disabled while `machineLocked`, with a visible line under it ("The machine is out of service — you can't toss right now."), and `PLAY_ERRORS` gains `relay_open` and drops `relay_closed`. The join and leave controls are untouched: a player may still queue for a machine that is being serviced. `docs/DESIGN.md` → Components (the `Place bet` row's state list) and `docs/ROADMAP.md` Phase 5 §5 → `[done]` in the same commit. **Touches shared code — may affect other features** (`core`: `components/PlaceBet.vue`). → `feat(realtime): the toss button shows the relay lock`
+
+### Execution notes
+- **Tasks 1–5 ran as written**, one commit each in `backend/` or `frontend/` plus its docs commit. One thing was added inside task 2's scope rather than beyond it: the relay watch's outcome also goes into `pc_realtime_poll_last_run`, because the plan promised `wp pc machine-poll --status` would show it and `--status` reads that option rather than a live pass.
+- **The bug the checks name.** Ten of the first sixteen checks fail on the pre-step code, including "a closed relay is the machine working — the toss goes through". That is the production defect `DECISIONS.md` 2026-09-18 recorded: every toss refused with 423 while the machine is on.
+- **Found while writing the tests, and fixed in place:** two audit-log checks first counted rows in the whole table, so they would have passed on debris from an earlier run. They now count only rows above a floor taken at start-up, and the cleanup deletes exactly those.
+- **Out of scope, found and reported, not fixed:** the local install still carries orphaned rows from earlier steps' scripts (90 wallets, 276 coin lots, 2 queue rows, 4 sessions) — the `/adhoc` item `LEARNINGS.md` 2026-09-21 already names. This step's own script was measured before and after a run and leaves nothing: every table count was identical. `PROJECT-TREE.md` was also missing `realtime-queue.php` from S2.2; one line, added with this step's own.
+- **Gate:** `backend/bin/check` exit 0 before every backend commit (65 php files; `realtime-relay.php` in the executed list) and `frontend/bin/check` exit 0 before every frontend commit — `lint: OK`, `build: OK`.
+
+### Files to create/change
+**`backend/` (theme `pc`)**
+- `app/realtime/relay-watch.php` — **new**, `Realtime_Relay_Watch`.
+- `app/realtime/publisher.php` — `announce_relay()`.
+- `app/realtime/machine-poller.php` — one call into the watch at the top of `run()`, its outcome in the returned array under `relay` (so `wp pc machine-poll --status` and `--dry-run` show it).
+- `app/rest-api/RoomQueueController.php` — **shared `core`**: the inverted refusal, the new code, the docblock.
+- `app/utils/queue-service.php` — **shared `core`**: `machine_locked` in `state()`.
+- `tests/realtime-relay.php` — **new**.
+
+**`frontend/`**
+- `src/services/realtime.js` — the `relay` subscription.
+- `src/services/queueService.js` — **shared `core`**: `machine_locked` in `mapState`.
+- `src/stores/queue.js` — **shared `core`**: `machineLocked`, and the 423 as the authority.
+- `src/components/PlaceBet.vue` — **shared `core`**: the disabled state and its reason.
+
+**No new dependency**, so core rule 1 is not engaged. `admin/` and `wp-config*` are untouched. No table, no column, no `pc_db_version` bump: `pc_realtime_relay_state` is written at runtime and never seeded, exactly as `pc_realtime_poll_last_run` is (`FEATURE.md` → Data), so `Install_Schema` does not change.
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/realtime-relay.php`, run by `backend/bin/check` under DDEV, with Home Assistant stubbed through `pre_http_request` and Ably stubbed the same way (the pattern `tests/realtime-channel.php` and `tests/realtime-queue.php` already use). Each check that describes new behaviour must fail against the current code:
+
+1. **The lock, both ways.** `sensor.relay_on` = `1` → `play()` does **not** refuse (this check fails on today's code, which is the bug); `0` → `play()` refuses `relay_open` 423 **before any debit**, and the caller's balance and coin lots are unchanged.
+2. **The 423 in the gap** (the step's own test). Cached state says unlocked while the live relay reads open: the toss is still refused 423 and no coin is lost — the cache is a courtesy, the read is the gate.
+3. **A refusal costs nothing.** After a refused toss the wallet, the coin lots, the queue row's `coins_remaining` and `wp_pc_machine_events` are all exactly as before.
+4. **The watch publishes on a change and only on a change.** `1` → `0` publishes exactly one `relay` message with `locked: true`; a second pass at `0` publishes nothing; `0` → `1` publishes `locked: false`.
+5. **The payload is `{room_id, locked, at}` and nothing else** — no entity id, no sensor value, no machine id.
+6. **A dead Ably changes nothing.** A publish that fails leaves the cached state updated, the pass's result unchanged and a `realtime_publish_failed` audit row behind (fire-and-forget, `FEATURE.md` → Invariants #2).
+7. **An unreadable relay is not a locked one.** `get_relay_closed()` returning a `WP_Error` leaves the cached state untouched, publishes nothing, audits `machine_relay_read_failed`, and does not stop the coin pass.
+8. **The coin pass and the relay watch do not block each other.** A missing ingest secret stops the coin pass (`stopped: unconfigured`) and the relay is still watched; a failed history read likewise.
+9. **`--dry-run` neither caches nor publishes.**
+10. **No room, nothing to tell.** A machine id no available room carries: no publish, no error, cached state still updated.
+11. **The envelope carries the lock.** `GET /rooms/{id}/queue`, join, leave and play all return `machine_locked`, read from the option with **no HTTP call to Home Assistant** (asserted by counting `pre_http_request` hits).
+12. **Cleanup.** The script deletes every row it created — rooms, `wp_pc_room_queues`, `wp_pc_bet_sessions`, `wp_pc_machine_events`, wallet/coin-lot rows and audit rows — and restores `pc_realtime_relay_state` and every option it touched (`LEARNINGS.md` 2026-09-21, three instances of this class).
+
+**Test-critical zones touched:** the toss path is a money zone (`CLAUDE.md` → Test-critical zones: machine-event idempotency and crediting; every `Permissions::*` callback is unchanged here). Checks 1–3 are the money checks and ship in task 1 with the code.
+
+**The browser half has no automated coverage.** `frontend/` has no test runner and this step does not add one, so tasks 4 and 5 are covered only by the manual guide — the same gap Step 2 closed with words rather than tests, restated here so the close report does not discover it.
+
+### Docs to update
+- `docs/ROADMAP.md` — Phase 5 §5 `[partial]` → `[done]`, and its "while the machine is mid-payout" rewritten: the spike disproved it. The tracking matrix row with it.
+- `docs/DESIGN.md` → Components — the `Place bet` row's states: `relay closed` becomes `machine out of service`.
+- `docs/CONTRACTS.md` — `POST /rooms/{id}/play` order of operations and error registry (`relay_closed` 423 → `relay_open` 423, with what changed and why); the queue envelope's `machine_locked`; a `relay` row in **Room channel messages**.
+- `docs/ARCHITECTURE.md` — the poll pass now also watches the relay and publishes it; the outbound leg.
+- `docs/DATA-MODEL.md` — the `pc_realtime_relay_state` option (runtime-written, not seeded).
+- `docs/features/realtime/FEATURE.md` — Interfaces (the `relay` message and the watch), Data (the new option), and the shared-code note on `RoomQueueController.php` / `machine-service.php`.
+- `docs/DECISIONS.md` — a new entry recording what the relay lock means now. The 2026-09-18 spike entry said the old meaning was wrong and left the replacement open; this states it, and does not edit that entry.
+- `docs/features/realtime/verification/sprint-2-step-3.md` — written by `/close-step`.
+
+### Checks
+- **ANTI-PATTERNS:** none violated. Home Assistant is called only through `Machine_Service` (the watch calls `get_relay_closed()`); no operator-tunable value is hardcoded (the entity is `pc_machine_relay_sensor_entity`, the pass interval is `pc_realtime_poll_interval_seconds`); no cron job is added for queue housekeeping (the watch rides the poll schedule that already exists); no secret moves; no route is added at all, so no `permission_callback` question arises; no money column is touched outside `Wallet_Service`; no `ENUM`, no literal meta key.
+- **Docs vs reality:** **four mismatches, all corrected here.** (1) `CONTRACTS.md:612` and `ROADMAP.md` §5 both say the 423 fires "while the machine is mid-payout" — the spike showed the relay does not move during a payout at all. (2) `ROADMAP.md` §5 calls the server half `[done]`; it is inverted and refuses every toss. (3) `SPRINT-2.md`'s goal sentence and Step 3's task 2 say the button greys out "because the room knows the relay is closed" — closed is the normal state; see *What the step text assumes* above. (4) `DESIGN.md` → Components already lists `relay closed` as a `Place bet` state, so the design record expects this button state; only its wording changes. **Not corrected, reported only:** `admin/src/views/MachineView.vue:156,160,168` still promises push "from Phase 5 Step 4" and labels `sensor.relay_on` "Relay closed" — the label stays true as a fact display, no step edits `admin/`, and the stale promise wants `/adhoc` (already carried in `FEATURE.md` → Fit into the host).
+- **Design:** matches `Place bet` in `docs/DESIGN.md` → Components — the row already carries a disabled-on-relay state. The wording of the state changes with the meaning; no token, no new component, no artboard (this feature has no `design/`, `DECISIONS.md` 2026-09-15).
+- **Check command:** `backend/bin/check` and `frontend/bin/check` (`docs/TECH-STACK.md` → Check command). Both exist and exit 0 on the base.
+- **Not locally verifiable:**
+  - **A real relay transition on the machine.** Local checks stub Home Assistant. Verified by one announced `input_button.relay_off` press, on the user's explicit go-ahead, with `input_button.relay_on` immediately after to restore service — the step text sanctions exactly this. Nothing in the shipped code ever presses either button.
+  - **Whether a toss with the relay open would physically fail.** Nobody has observed it; the lock is a precaution, not a measurement (see Question 1).
+  - **Anything on a real Ably channel** — there is still no Ably account, so the two-browser half of the check waits on one, exactly as Steps 1 and 2 left it.
+  - **The 60-second worst case.** The button greys out up to one poll interval (`pc_realtime_poll_interval_seconds`, 60) plus Home Assistant's 1.1 s after the relay opens. Inside that window the player's own toss is refused 423 and the button greys out from that. Only a real transition times it.
+
+### Questions / ambiguities
+
+**Question 1 — What does the relay lock mean, now that it is not a payout?**
+**Resolved: approved as recommended — (a) the open relay is the lock.** `play()` refuses `relay_open` 423 while `sensor.relay_on` reads `0`; the transition is published and the button greys out with the reason.
+`DECISIONS.md` 2026-09-18 settles the entity and the polarity and states plainly that the
+relay carries no payout signal, but it does not say what should replace the rule it
+disproved. Nobody has observed what happens to a toss while the relay is open, so this is a
+product decision, not a measurement.
+- **(a) — recommended. The open relay is the lock.** The relay's normal state is closed; an
+  operator opening it takes the machine out of service. `play()` refuses `relay_open` 423,
+  the transition is published, the button greys out with the reason. *This is what the tasks
+  above are written to.* It keeps a real interlock against the failure mode that actually
+  costs a player money — the coin is debited, Home Assistant answers 200 to the button press,
+  and nothing happens physically — and it uses only the entity and polarity the spike
+  recorded. Its weakness is honest: that an open relay would swallow a toss is an inference.
+- **(b) The lock goes away.** No payout signal, no evidence a toss depends on the relay:
+  delete the pre-check from `play()`, retire `relay_closed` from `CONTRACTS.md` and the
+  `Place bet` state from `DESIGN.md`, mark ROADMAP §5 withdrawn rather than done. Tasks 1
+  and 3–5 shrink to deletions, task 2 disappears, and the step ships no button at all. It
+  also removes one Home Assistant round-trip (and one 2-second timeout) from every toss.
+  Choose this if you know the machine takes a coin regardless of the relay.
+
+**Question 2 — Does the server correction land in this step, or in `/adhoc` first?**
+**Resolved: approved as recommended — (a) here, as task 1.**
+The 2026-09-18 entry routed it to `/adhoc`, and three WORKLOG entries have carried it as
+`/adhoc`-wanted. It has not been run, and Step 3 cannot deliver a button that means anything
+until it is.
+- **(a) — recommended. Here, as task 1.** The button is a mirror of the server rule, and
+  mirroring a broken rule ships a permanently disabled button; the sprint's own goal names
+  the 423 as "the authority", so making it correct is this step's subject, not a hotfix
+  beside it. The `/adhoc` routing was written when Step 3 looked empty ("no payout signal to
+  follow") — answer 1(a) gives it a signal, which is the premise that changed. Splitting it
+  would also mean two sessions editing the same three lines with this step's own money
+  checks unable to run in between.
+- **(b) `/adhoc` first, then re-run `/plan-step realtime 2 3`.** One extra round trip, and it
+  buys one thing: the fix can reach `main` on its own instead of waiting for Steps 3, 4 and 5
+  to close. Choose this if you want the toss unblocked on the host before the sprint merges.
+

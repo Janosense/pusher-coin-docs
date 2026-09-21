@@ -77,7 +77,7 @@ parse or trust the JWT payload (the token is opaque to it).
 | `router/index.js` | Route table and `beforeEach` guard. Routes carry `meta.requiresAuth` / `meta.requiresGuest` / `meta.allowsBeforeGate`; the guard awaits `authStore.initializeAuth()` before deciding. |
 | `views/` | Page-level components mapped 1:1 to routes: `RoomsView` (`/`), `RoomView` (`/room/:id`, public), `SignInView`, `SignUpView`, `AccountView`, `HistoryView`, `SupportView` (public), and the three gate / landing views `AcceptTermsView`, `ChooseNicknameView`, `ConfirmEmailView`. `AboutView` exists but is not in the route table. |
 | `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (live, 3s poll, owns its poll lifecycle), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
-| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue: subscribes to the room's Ably channel, re-reads on a version change, heartbeats every 20s, falls back to a 3s poll if the channel is unavailable), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
+| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue: subscribes to the room's Ably channel, re-reads on a version change, heartbeats every 20s, falls back to a 3s poll if the channel is unavailable; also holds whether the machine is out of service, from the envelope, the `relay` message and the server's refusal of a toss), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
 | `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `sessionService.js` is the inactivity timer. The top-up hand-off needs no service of its own — `ReplenishmentBalance.vue` navigates to the `checkout_url` that `walletService.topup()` returns. |
 | `assets/` | Global CSS (`main.css`, `styles/colors.css`, block-scoped CSS in `styles/blocks/`), images, the brand SVG logo. |
 | `public/` | Static files served verbatim by Vite (`favicon.ico`). |
@@ -225,6 +225,7 @@ themes/pc/
 ├── tests/
 │   ├── machine-ingest.php   # `ddev wp eval-file` check: the ingest endpoint, idempotency and crediting (DDEV only)
 │   ├── machine-poll.php     # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
+│   ├── realtime-relay.php   # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
 │   ├── realtime-channel.php # `ddev wp eval-file` check: the push channel — a broken publish cannot touch a payout; the token never carries the key (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
@@ -237,6 +238,7 @@ themes/pc/
     │   ├── machine-rooms.php         # Machine_Rooms: which rooms claim a machine
     │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
+    │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── channels.php              # Realtime_Channels: the one place channel names are built
     │   ├── publisher.php             # Realtime_Publisher: pushes credits to Ably, fire-and-forget
@@ -422,6 +424,18 @@ audit row, never a silent gap. Two things drive it — the WP-Cron event the fea
 bootstrap schedules and `wp pc machine-poll` — and a transient lock makes overlapping
 passes impossible, so one real machine event is one ingest call on either. `wp pc
 machine-ingest` remains the manual replay for an event the transport dropped.
+
+**The same pass also watches the relay.** `Realtime_Relay_Watch`
+(`app/realtime/relay-watch.php`) reads `sensor.relay_on` once per pass and, when it
+has moved, caches the new state in `pc_realtime_relay_state` and announces it to the
+room. The relay carries no payout signal — it idles closed and follows the operator's
+own relay buttons (`DECISIONS.md` 2026-09-18) — so an **open** relay means the machine
+has been taken out of service by hand, which is the one thing about it worth telling a
+player. It runs *before* the coin work and outside its guards: a missing ingest secret
+or an unreadable history stops that pass and the relay is still watched, and a relay
+that cannot be read stops nothing and leaves the cached state alone, because an
+unreadable relay is not a locked one. One extra state read a minute, no second
+schedule, nothing new to deploy.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`

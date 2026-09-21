@@ -57,7 +57,7 @@ Breakpoints in use: 768, 1024, 1440, 1920.
 | Room list / card | loading, empty, loaded | `frontend/src/components/RoomList.vue` |
 | Live stream | iframe / `<video>` / HLS; loading, error, offline | `frontend/src/components/LiveStream.vue` |
 | Room queue | empty, waiting, you-are-next, your-turn | `frontend/src/components/RoomQueue.vue` |
-| Place bet | idle, disabled (not your turn / relay closed / no coins), submitting | `frontend/src/components/PlaceBet.vue` |
+| Place bet | idle, disabled (not your turn / no coins / **machine out of service** — the relay opened at the venue, which also replaces the phase note with a line saying the turn is kept), submitting | `frontend/src/components/PlaceBet.vue` |
 | Room chat | guest read-only, muted, sending, rate-limited | `frontend/src/components/RoomChat.vue` |
 | User controls | balance, per-turn winnings, theme-song toggle | `frontend/src/components/UserControls.vue` |
 | Next broadcast countdown | scheduled / no upcoming window | `frontend/src/components/NextBroadcastCountdown.vue` |

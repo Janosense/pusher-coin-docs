@@ -87,6 +87,7 @@ pusher-coin/
 │   │       │   │   │   ├── machine-rooms.php # Machine_Rooms: which rooms claim a machine (one machine, one available room)
 │   │       │   │   │   ├── machine-poller.php # Machine_Poller: polls Home Assistant's history, delivers each payout to the ingest door
 │   │       │   │   │   ├── machine-poll-command.php # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
+│   │       │   │   │   ├── relay-watch.php # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
 │   │       │   │   │   ├── channels.php   # Realtime_Channels: the one place push-channel names are built
 │   │       │   │   │   ├── publisher.php  # Realtime_Publisher: pushes credits to Ably, fire-and-forget
 │   │       │   │   │   ├── RealtimeTokenController.php # GET /pc/v1/realtime/token — a scoped pass, never the Ably key
@@ -129,6 +130,8 @@ pusher-coin/
 │   │       │       ├── machine-poll.php      # `ddev wp eval-file` check: the history poller — arithmetic, replay, gaps, crediting (DDEV only)
 │   │       │       ├── machine-rooms.php     # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   │       │       ├── realtime-channel.php  # `ddev wp eval-file` check: a broken publish cannot touch a payout; the token never carries the key (DDEV only)
+│   │       │       ├── realtime-queue.php    # `ddev wp eval-file` check: the queue rides the channel; the heartbeat holds a place and answers a version (DDEV only)
+│   │       │       ├── realtime-relay.php    # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
 │   │       │       ├── stripe-client.php     # `ddev wp eval-file` check: kopiyka conversion, mode/config, webhook signature scheme (DDEV only)
 │   │       │       ├── stripe-webhook.php    # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)
 │   │       │       └── wallet-rollback.php    # `ddev wp eval-file` check: wallet write failures roll back (DDEV only)

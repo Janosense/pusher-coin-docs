@@ -530,7 +530,8 @@ Response (`200`):
     "started_at": "2026-07-28 20:45:00", "ended_at": null,
     "coins_played": 1, "coins_won": 0, "money_won": "0.00"
   },
-  "idle_timeout_seconds": 60
+  "idle_timeout_seconds": 60,
+  "machine_locked": false
 }
 ```
 
@@ -538,6 +539,15 @@ Response (`200`):
 has *left* to play, not what they declared. `online_count` counts queued
 players, not everyone watching the room. `session` is the head's open
 bet session, or `null` for an empty queue.
+
+`machine_locked` is `true` while the machine has been taken out of
+service by hand — the relay opened at the venue (`realtime` Sprint 2
+Step 3). It is the last state the poll pass saw, read from
+`pc_realtime_relay_state`, so this endpoint never calls Home Assistant;
+after first paint the room follows the `relay` channel message instead.
+It greys the toss button out; it does not decide anything, because
+`POST /rooms/{id}/play` reads the relay live and its `relay_open` 423 is
+the authority.
 
 Errors: `room_not_found` 404, `room_unavailable` 409.
 
@@ -609,8 +619,12 @@ Bearer + play-ready. Toss exactly one coin. Empty request body.
 The order of operations is the contract:
 
 1. Refuse unless the caller holds the turn (`not_player_turn` 403).
-2. Refuse while `sensor.relay_on` reads closed (`relay_closed` 423) —
-   the machine is mid-payout.
+2. Refuse while `sensor.relay_on` reads **open** (`relay_open` 423) — the
+   machine has been taken out of service by hand. Its normal, playable
+   state is *closed*: the sensor idles at `1` and does not move during a
+   payout (`DECISIONS.md` 2026-09-18). Before `realtime` Sprint 2 Step 3
+   this was the other way round and refused every toss while the machine
+   was on.
 3. Debit one coin FIFO (`insufficient_balance` 409).
 4. Call the machine. **Only HTTP 200 counts as a toss.**
 5. On any machine failure, re-credit the exact lot price consumed and
@@ -633,7 +647,7 @@ Response (`200`):
 
 `toss_id` is the `wp_pc_machine_events` row for the toss.
 
-Errors: `not_player_turn` 403, `relay_closed` 423,
+Errors: `not_player_turn` 403, `relay_open` 423,
 `insufficient_balance` 409, `room_not_found` 404, `room_unavailable`
 409, `machine_offline` 503, `machine_call_failed` 502,
 `machine_unauthorized` 502, `machine_not_configured` 500,
@@ -1056,6 +1070,14 @@ and widening either message is a permission decision, not a convenience.
 |---|---|---|
 | `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
 | `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
+| `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
+
+A `relay` message is a courtesy, not a gate: it is what greys the toss
+button out *before* the player tries. The live read inside
+`POST /rooms/{id}/play` still decides whether a coin is taken, so a
+message that is late, dropped or never sent costs a refused toss and a
+423, never a lost coin. It is seen within one poll interval
+(`pc_realtime_poll_interval_seconds`, 60 by default) of the relay moving.
 
 A `queue` message is a change ping: the client answers a version it has
 not seen by re-reading `GET /rooms/{id}/queue` through the existing gate.
@@ -1852,7 +1874,7 @@ One canonical code per failure mode — do not invent variants.
 | `withdrawal_not_pending` | 409 | admin/withdrawals/{id}/approve, /reject |
 | `insufficient_balance` | 409 | wallet, rooms/{id}/play, rooms/{id}/queue/join |
 | `queue_locked` | 409 | reserved for the Phase 5 Step 7 push channel; unused today |
-| `relay_closed` | 423 | rooms/{id}/play |
+| `relay_open` | 423 | rooms/{id}/play (the relay was opened by hand — the machine is out of service; replaced `relay_closed` in `realtime` Sprint 2 Step 3, which found the test inverted) |
 | `rate_limited` | 429 | sign-up, request-verification, google-auth/authentication, apple-auth/authentication, request-email-confirmation, request-password-change, support/tickets, rooms/{id}/messages (10/min per account), machine/events (one ceiling across all callers, checked before the secret) |
 | `room_create_failed` | 500 | admin/rooms POST |
 | `schedule_write_failed` | 500 | admin/rooms/{id}/schedule PUT |
