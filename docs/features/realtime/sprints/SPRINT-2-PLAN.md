@@ -517,3 +517,139 @@ actually use.
   single real connection is the wrong order. Choose this if guest liveness matters more
   than the ceiling, and it adds a task to this step.
 
+
+---
+
+## Plan — Sprint 2, Step 5: The duplicate-session race   (status: implemented, awaiting close)
+
+### Branch
+`realtime/sprint-2-sessions` ← `realtime/sprint-2`
+(git model in root `CLAUDE.md`. The same branch name in `backend/` and the docs
+repository. `frontend/` and `admin/` are **not touched**: every task is server-side, no
+response shape changes and no screen renders a field it does not render today — so
+neither SPA gets a branch.)
+
+### What is settled before this step starts
+- **At most one open bet session per room** — `DATA-MODEL.md` Invariant 9, `realtime`'s `FEATURE.md` → Conflicts, `core` invariant 3. This step does not decide the rule; it makes the database keep it.
+- **Only `Queue_Service` writes `wp_pc_bet_sessions`** — `DATA-MODEL.md`, the table's own note. The fix lives where the table's owner lives.
+- **`$wpdb` does not throw** — `TECH-STACK.md` → ANTI-PATTERNS. A failed statement returns `false` and nothing more, so every write this step adds is checked.
+- **Nothing that carries evidence is hard-deleted** — root `CLAUDE.md` invariant 10. An orphaned session is **closed**, never deleted: it holds a real player's coins played and money won.
+- **A schema change bumps `pc_db_version` and updates `DATA-MODEL.md` in the same commit** — root `CLAUDE.md` invariant 11.
+- **`Queue_Service` and `Install_Schema` belong to `core`** — the sprint's Fixed decisions; every task touching them is marked accordingly.
+
+### The race, in the code as it stands
+`sync_turn()` (`app/utils/queue-service.php:307`) does three reads and then a write: it
+takes the head of the queue, asks `open_session()` for the room's open row, and — finding
+none — calls `open_new_session()` (`:353`), which is a bare `INSERT`. Two requests that
+arrive together both read "no open session" and both insert. One of them then wins the
+`session_id` on the queue row; **the other row stays open for ever**, because the only
+thing that ever closes a session is the queue row pointing at it.
+
+That is not untidiness. `open_session()` returns the **newest** open row, while the room
+screen shows the row the queue head points at (`state()` → `$head['session_id']`). Once
+the two diverge, a machine payout banked by `record_win()` lands on a session the player
+is not looking at: the money is real, the winnings counter stops moving, and
+`resolve_player_for_machine()` is answering from a row nothing else agrees with. This is
+a money defect, not housekeeping.
+
+Removing the polls (Step 2) removed most of the traffic that collided; it removed no part
+of the race. `join`, `leave`, `play` and the heartbeat all still call `sync_turn()`
+(`RoomQueueController.php:118`), and a room with several players still produces
+simultaneous requests — that is exactly what a busy room is.
+
+### The mechanism, and why this one
+The database refuses the second row. `wp_pc_bet_sessions` gains
+`open_room_id BIGINT UNSIGNED NULL`, carrying the room id **while the session is open**
+and `NULL` once it closes, under `UNIQUE KEY open_room (open_room_id)`. MySQL lets `NULL`
+repeat in a unique index and nothing else, so "at most one open session per room" stops
+being a sentence in a document and becomes something the server enforces. A racing insert
+fails with a duplicate key; the loser re-reads and adopts the winner's session rather than
+creating a second.
+
+This is the same shape as `wp_pc_machine_events.event_key` — the one thing
+`BACKEND-REVIEW.md` singles out as done right ("A database rule (unique index on
+`event_key`) enforces this, which is the correct approach"). The alternatives were weighed
+and dropped: `SELECT … FOR UPDATE` on a row that does not exist yet relies on InnoDB gap
+locking, which is invisible in the code and cannot be asserted from a single-process
+test; `GET_LOCK()` is a lock held across PHP that a killed connection leaks, and nothing
+in this codebase uses one; a transient mutex is not atomic without a persistent object
+cache, which the FTP shared host does not guarantee.
+
+### Tasks (ordered)
+- [x] **1 — The database refuses a second open session.** `install-schema.php`: `open_room_id` on the `wp_pc_bet_sessions` `CREATE TABLE` under `UNIQUE KEY open_room`, `DB_VERSION` `1.12.0` → `1.13.0`. `queue-service.php`: `open_new_session()` writes `open_room_id` and, when the insert is refused, re-reads and returns the **winner's** id; `close_session()` clears `open_room_id` in the same statement that sets `ended_at`, so the room can open the next one; `sync_turn()` keeps the head's `session_id` and the room's open session identical rather than only filling an empty one, and never writes a `session_id` of `0`. `DATA-MODEL.md` (table block, version table row, Relations line, Invariant 9 restated as *enforced*) and `ARCHITECTURE.md:355` in the same commit. **Touches shared code (`core`) — `Queue_Service` and `Install_Schema` are read by every queue read, toss, machine credit and room screen; consuming features: `core`, `realtime`.** → `fix(queue): one open bet session per room, enforced by the database`
+- [x] **2 — Close the orphans already in the database.** `queue-service.php`: `open_sessions()` (every open row for a room, not just the newest), `orphans()` (each room holding more than one, and which row is the keeper — the one the queue head points at, else the newest, which is the row today's code already treats as live), `close_orphans()` (closes the rest and writes one `queue_session_orphan_closed` row per session to `wp_pc_auth_audit_log`, so a closure is never silent). `install-schema.php`: `migrate_open_sessions()`, run once on the version bump, **in this order** — close orphans, then backfill `open_room_id` on the survivors, then verify the unique index really exists and add it if `dbDelta` did not, auditing `queue_session_index_missing` if it still cannot. The order is the point: a backfill before the cleanup would collide with itself. `FEATURE.md` (the two lines that still call this "asserted, not enforced") in the same commit. **Touches shared code (`core`).** → `fix(queue): close the sessions the race left open`
+- [x] **3 — The operator can see it.** `app/realtime/queue-sessions-command.php` — `wp pc queue-sessions [--close] [--format=table|json|csv]`: one line per room holding an open session, a warning for any room holding more than one, and a line saying whether the unique index is in place. It lives in `app/realtime/` beside `wp pc machine-rooms` and `wp pc machine-poll` because it is this step's reporting surface rather than a permanent addition to `core`'s operator surface; registered from `app/realtime/bootstrap.php`; always exits 0, and reports without changing anything unless `--close` is given. `PROJECT-TREE.md` in the same commit. → `feat(realtime): wp pc queue-sessions reports and closes orphaned sessions`
+- [x] **4 — The checks.** `tests/queue-sessions.php`, listed below. → `test(queue): the single-open-session rule`
+- [x] **5 — The review item and the ceiling.** `BACKEND-REVIEW.md` §15 marked settled in the house format (`[settled 2026-09-21 — realtime Sprint 2 Step 5]`, `*Settled:*` / `*Still true:*`), with the citation corrected: the review points at `queue-service.php:253`, which is now `:307`. `TECH-STACK.md` — the Ably concurrent-connection ceiling, per Question 1. → `docs(realtime): §15 settled, and the connection ceiling written down`
+
+### Files to create/change
+**`backend/` — changed**
+- `wp-content/themes/pc/app/utils/install-schema.php` — **shared (`core`)**. `DB_VERSION` `1.12.0` → `1.13.0`; `open_room_id` + `UNIQUE KEY open_room` in the `pc_bet_sessions` `CREATE TABLE`; new `migrate_open_sessions()` called from `maybe_install()` **after** `install_schema()` and before `install_default_options()`.
+- `wp-content/themes/pc/app/utils/queue-service.php` — **shared (`core`)**. `open_new_session()`, `close_session()`, `sync_turn()` changed; `open_sessions()`, `orphans()`, `close_orphans()` added. `state()`, `join()`, `leave()`, `play()`'s path, `version()`, `record_win()` and `resolve_player_for_machine()` keep their signatures and their output.
+- `wp-content/themes/pc/app/realtime/bootstrap.php` — one `require_once` for the new command file.
+
+**`backend/` — created**
+- `wp-content/themes/pc/app/realtime/queue-sessions-command.php`
+- `wp-content/themes/pc/tests/queue-sessions.php`
+
+**Not changed, and worth saying so:** `RoomQueueController.php` (it calls `sync_turn()` and keeps calling it), `machine-ingest-service.php`, `wallet-service.php`, anything under `frontend/src/` or `admin/src/`. No REST response gains, loses or renames a field.
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/queue-sessions.php`, a WP-CLI `eval-file` script with
+the DDEV guard every other script carries, HTTP stubbed through `pre_http_request` (a
+credit fires `Realtime_Publisher`), and an `$audit_floor` captured at start-up so every
+audit assertion counts **this run's** rows and not debris. Money zone — these are the
+checks the profile demands:
+
+1. **The shape.** `wp_pc_bet_sessions` has `open_room_id`; a `UNIQUE` index covers it; `pc_db_version` is at least `1.13.0`.
+2. **The database refuses the second row.** A direct insert of a second open row carrying the same `open_room_id` fails. A second row with `open_room_id IS NULL` is still accepted — that is what a pre-migration row looks like, and it is exactly why the backfill exists; the check names it rather than leaving it as a surprise.
+3. **The loser adopts the winner.** Insert a session row directly, as a racing request that got there first, then call `sync_turn()`: no second row appears, and the queue head's `session_id` is the pre-existing row's id.
+4. **The ordinary path.** One head, `sync_turn()` ten times in a row: exactly one open row throughout, and `open_session()->id === head.session_id` after every call — the identity that today's code does not guarantee.
+5. **A refused insert never writes `session_id = 0`.** The queue row keeps a real id.
+6. **Handover.** The head leaves; its session is closed, its `open_room_id` is `NULL`, the next head opens a fresh one, and the room still has exactly one open row. A room can open a new session after closing one — proof the unique index does not wedge the room shut.
+7. **Orphans, on the legacy shape.** Two open rows for one room with `open_room_id IS NULL` (exactly a pre-migration database): `orphans()` reports the room and names the keeper — the row the queue head points at; `close_orphans()` closes the other, leaves the keeper open, and writes one `queue_session_orphan_closed` audit row per closed session; running it again closes nothing more and audits nothing more.
+8. **Nothing is deleted.** The closed orphan still exists, with its `coins_played`, `coins_won` and `money_won` intact — root `CLAUDE.md` invariant 10.
+9. **The backfill.** `migrate_open_sessions()` sets `open_room_id = room_id` on a legacy open row, is idempotent on a second run, and re-creates the unique index if it is missing.
+10. **Money lands on the row the player is looking at.** With one open session, `pc_machine_event_credited` banks the win on the session the head's queue row points at, `state()` reports it as the turn's winnings, and `consume_coin()` books `coins_played` on the same row — the verification's "run a real turn and confirm the win lands on it".
+11. **Attribution still answers.** `resolve_player_for_machine()` returns the head's user id with exactly one open session present, and `null` for a room with none.
+12. **Cleanup.** Every row the script creates or causes — sessions, queue entries, rooms, users, wallets, coin lots, machine events, and the audit rows above the floor — is removed, and the before/after row counts of each table are printed so the guide's reader can see it.
+
+**Not in `bin/check`, and run once by hand during the step:** genuine concurrency. Several
+`ddev wp eval` processes calling `sync_turn()` on one room at the same moment — real
+parallel connections, which a single `eval-file` script cannot be. It does not join
+`tests/`, because a race test is nondeterministic by nature: a green run proves nothing on
+its own, while check 2 proves the constraint every time. The result of that run is
+reported in the step's execution notes either way.
+
+### Docs to update
+- `docs/DATA-MODEL.md` — the `wp_pc_bet_sessions` block (`open_room_id`), the version table (`1.13.0`), the Relations line, and **Invariant 9 restated as enforced rather than asserted** (the step's own wording). Task 1.
+- `docs/ARCHITECTURE.md` — line 355's "at most one per room" says what now keeps it. Task 1.
+- `docs/features/realtime/FEATURE.md` — the two lines that still read "the §15 race (S2.5)" and "asserted, not enforced (`queue-service.php:253`, S2.5)". Task 2.
+- `docs/PROJECT-TREE.md` — `queue-sessions-command.php` and `tests/queue-sessions.php`. Task 3.
+- `docs/BACKEND-REVIEW.md` — §15 settled, citation corrected. Task 5.
+- `docs/TECH-STACK.md` — the Ably concurrent-connection ceiling. Task 5, per Question 1.
+- `docs/DECISIONS.md` — a new entry at `/close-step`: the single-open-session rule is enforced by a unique index on a nullable mirror column, and why not a lock or a transaction.
+- **Not touched:** `CONTRACTS.md` (no endpoint, payload or error code changes), `DESIGN.md` (no UI), `DOMAIN.md` (the Turn row already describes the rule correctly), `docs/features/core/FEATURE.md` (it lists the table, not its indexes), `ROADMAP.md` (no phase item covers §15).
+
+### Checks
+- **ANTI-PATTERNS:** none violated. No `ENUM` (the new column is a nullable `BIGINT`); no money column touched outside `Wallet_Service` (`coins_won` / `money_won` are session counters, already written here and unchanged by this step); `$wpdb` is never expected to throw — the insert's `false` is the signal the whole mechanism reads, and the migration's statements are checked individually; no float in a money path is added (§14's existing `%f` in `increment_session()` is pre-existing and out of scope, noted below); no cron is added for queue housekeeping; nothing is hard-deleted; no route changes, so no `permission_callback` question arises; the new column is not an operator-tunable value.
+- **Docs vs reality:** mismatch, three, all folded into tasks above. (1) `BACKEND-REVIEW.md` §15 cites `queue-service.php:253`; `sync_turn()` is at `:307` today. (2) `FEATURE.md` states the single-session rule is "asserted, not enforced" — true until task 1, stale after it. (3) `DATA-MODEL.md` Invariant 9 asserts the rule with no mechanism, which the step's own docs item calls out. **Observations that change no task:** `BACKEND-REVIEW.md` §14's float in session winnings is at `queue-service.php:395` and `:485`, not `:341, 431` — a different review item, no step names it, `/adhoc`. And `settle()`'s unchecked `mark()` outside a transaction is still unassigned, still `/adhoc`.
+- **Design:** n/a — no screen, component, token or string changes.
+- **Check command:** `backend/bin/check` (`docs/TECH-STACK.md` → Check command). DDEV is running, so stage 2 will execute all ten `tests/*.php` including the new one. `frontend/bin/check` is not run: `frontend/` is not touched.
+- **Not locally verifiable:** the migration on the production host — it runs on the first request after the FTP sync, so the one real run that verifies it is **the next deploy from `main`**, confirmed there with `wp pc queue-sessions`. And the **observed** Ably peak connection count, which needs an Ably account and real traffic (Question 1).
+
+### Questions / ambiguities
+
+**Question 1 — The step asks for "the peak concurrent-connection count observed on Ably during this sprint". Nothing has ever been observed: there is still no Ably account, no key on any install, and no dashboard has been opened. What goes into `TECH-STACK.md`?**
+**Resolved: approved as recommended — (a) write down the arithmetic and the unmeasured gap, and name the run that produces the real number.**
+- **(a) — recommended. Write down the arithmetic and the fact that the measurement has not happened, and name the run that will produce it.** One Ably connection per signed-in player with a room open; zero for guests (they poll — `DECISIONS.md` 2026-09-21) and zero for the admin SPA (`admin/src/services/realtime.js` is still the Roadmap's "left for later"), so the ceiling is reached at **200 simultaneous signed-in room viewers**, and the number to watch is that, not total players or total rooms. The entry says in as many words that the observed peak is still zero because no Ably account exists, and that the first real number comes from the dashboard after `PC_ABLY_KEY` is set on the host. *This is what task 5 is written to.* Sprint 3 then reads a bound it can act on plus an explicit gap, instead of a blank.
+- **(b) Drop the doc item from this step and carry it to Sprint 3,** which will have an account by the time it builds alerting. Honest, but it leaves the sprint goal's "written down where the next sprint can read it" unmet with nothing in its place, and the derivation in (a) costs one paragraph and is the part that actually bounds the risk.
+
+### Execution notes
+- **Commits.** backend `52845bd8` `3b0814b4` `a614dea7` `9fc6bf04`; docs `353d68a` `983f7c8` `602a9ff` `07aca4b`. `frontend/` and `admin/` untouched, as planned.
+- **The race, measured.** The plan promised one real parallel run, since `eval-file` is a single process. 12 concurrent `ddev wp eval` processes, all released at the same wall-clock second, against one room: reproducing the **pre-step** read-then-insert logic opened **12 open sessions**; through `sync_turn()` as this step leaves it, **exactly 1**. §15 was not a theoretical window.
+- **`migrate_open_sessions()` and `has_open_room_index()` are public, not private as first sketched.** `wp pc queue-sessions --close` is the same three things the version bump does, and the checks have to be able to prove the backfill and the index re-creation rather than infer them from a version number. No behaviour differs; it is a visibility choice.
+- **One unlisted file touched: `docs/PROJECT-TREE.md` gained `tests/realtime-chat.php`,** which is **Step 4's** script and was never added to the map. Found while adding this step's two entries. Left alone it would have been the third time the tree map went stale through a close and a merge (`LEARNINGS.md` 2026-09-21); folding one line into a file this task already edits was the smaller wrong. Disclosed here and in the commit body.
+- **Found, not fixed — the orphan debris now has names.** `wp pc queue-sessions` made the carried `/adhoc` visible, so it was measured per script rather than left as "earlier steps' scripts": **`tests/machine-poll.php` leaves 1 bet-session row per run** and **`tests/realtime-channel.php` leaves 1 bet session + 1 queue row per run**. Every other script in `tests/`, including this step's, leaves nothing — verified by before/after counts on eight tables. Those two belong to other steps, so they stay `/adhoc` with the names now attached.
+- **Local install:** 15 open sessions, all singletons on deleted rooms (the same debris), all backfilled by the migration; no room held more than one, so the cleanup had nothing to close outside the test fixtures. `UNIQUE KEY open_room` verified present.
+- **Checks:** `tests/queue-sessions.php` 54 checks. `backend/bin/check` exit 0, `php -l: 68 files OK`, all 11 `tests/*.php` passing. `frontend/bin/check` not run — `frontend/` is not touched by this step.
