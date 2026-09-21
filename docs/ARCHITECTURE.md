@@ -20,9 +20,10 @@ all three and tracks only the documentation and the playbook), separate deploy
 pipelines, and communication exclusively over HTTPS/JSON.
 
 The whole loop — sign up, verify, top up, queue, toss, settle, withdraw, support —
-works end to end over HTTP polling. What is still missing is the real-time
-machine-event transport, which is why several sections below say "polled every 3s".
-Phase status lives in `ROADMAP.md`.
+works end to end over HTTP polling. Machine events now reach WordPress by
+themselves, on a schedule that polls Home Assistant's history; what is still missing
+is the push *out* to the browser, which is why several sections below say "polled
+every 3s". Phase status lives in `ROADMAP.md`.
 
 ```
 ┌──────────────────────────┐
@@ -464,7 +465,7 @@ credentials live in GitHub Actions secrets.
 | **Local — backend** | DDEV: `.ddev/config.yaml` + `wp-config-ddev.php`, pulled in by the git-ignored `wp-config.php`. Host `https://pusher-coin.ddev.site`. | `ddev start` |
 | **Local — player SPA** | Vite dev server on `:5173`, `.env` points at the DDEV host. | `npm run dev` |
 | **Local — admin SPA** | Vite dev server on `:5174`. | `npm run dev` |
-| **Production — backend** | The same WordPress tree on shared hosting. | `backend/.github/workflows/main.yml`: `php -l` over the theme on every push and PR, then — only on push to `main`, only if lint passed — an FTP sync of the **entire backend tree** using repo secrets for host, user, password and target path. **A push to `main` is a production release.** |
+| **Production — backend** | The same WordPress tree on shared hosting. **The machine transport needs two things no deploy can write:** `PC_MACHINE_INGEST_SECRET` in `wp-config.php` (FTP sync never touches that file) and `pc_realtime_poll_machine_id` set to the machine id the live rooms carry. Until both exist the poller holds its cursor and credits nothing — which is recoverable, because Home Assistant keeps ten days of history. The schedule runs on WP-Cron by default; a host with a real cron can instead set `DISABLE_WP_CRON` and add `* * * * * cd /path/to/wordpress && wp pc machine-poll --quiet`. `wp pc machine-poll --status` says which is running. | `backend/.github/workflows/main.yml`: `php -l` over the theme on every push and PR, then — only on push to `main`, only if lint passed — an FTP sync of the **entire backend tree** using repo secrets for host, user, password and target path. **A push to `main` is a production release.** |
 | **Production — player SPA** | Vercel, built by Vite with `.env.production`. | `vercel.json`; CI (`frontend/.github/workflows/ci.yml`) runs `npm ci`, lint and build on every push and PR. |
 | **Production — admin SPA** | Does not exist. | No `vercel.json`, no workflow. Local-only. |
 
