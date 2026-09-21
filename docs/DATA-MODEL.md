@@ -58,6 +58,7 @@ same commit as this file. History:
 | 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 | 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
 | 1.12.0 | `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` (the push channel) — no table change, same reason |
+| 1.13.0 | `open_room_id` + `UNIQUE KEY open_room` on `wp_pc_bet_sessions`, and the one-off migration that closes the sessions the duplicate-session race left open |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -325,15 +326,29 @@ next player takes over or the player abandons. Written through `Queue_Service`.
 id              BIGINT   PK
 user_id         BIGINT
 room_id         BIGINT
+open_room_id    BIGINT   NULL  -- = room_id while open, NULL once closed
 started_at      DATETIME
 ended_at        DATETIME NULL
 coins_played    INT      DEFAULT 0
 coins_won       INT      DEFAULT 0
 money_won       DECIMAL(12,2) DEFAULT 0
+UNIQUE KEY (open_room_id)
 ```
 
 Wins land here through the `pc_machine_event_credited` action, so the in-room
 winnings counter is per-turn rather than lifetime.
+
+`open_room_id` exists only to carry Invariant 9. It mirrors `room_id` while the
+session is open and goes back to `NULL` in the same statement that sets `ended_at`;
+MySQL lets `NULL` repeat in a unique index and nothing else, so the unique key means
+**at most one open session per room, refused by the server rather than checked by the
+caller** — the same shape as `wp_pc_machine_events.event_key`. Before `realtime`
+Sprint 2 Step 5 the rule was prose: two simultaneous requests each read "no open
+session" and each inserted one, and the row that did not win the queue's `session_id`
+stayed open for ever, able to collect a payout the player's screen never showed. A
+request that loses the insert now re-reads and adopts the winner's session. Rows that
+predate the migration carry `NULL` here and are not protected by the key, which is
+what the one-off cleanup in `Install_Schema` and `wp pc queue-sessions` are for.
 
 ### `wp_pc_room_queues`
 
@@ -569,7 +584,8 @@ wp_pc_transactions 1 ──* wp_pc_coin_lots (source_txn_id — which top-up bou
 
 pc_room (wp_posts) 1 ──* wp_pc_room_schedules  (room_id)
 pc_room            1 ──* wp_pc_room_queues     (room_id; UNIQUE (room_id, user_id))
-pc_room            1 ──* wp_pc_bet_sessions    (room_id; at most one with ended_at IS NULL)
+pc_room            1 ──* wp_pc_bet_sessions    (room_id; at most one with ended_at IS NULL,
+                                                 enforced by UNIQUE (open_room_id))
 pc_room            1 ──* wp_pc_room_messages   (room_id)
 
 pc_support_subject (wp_posts) 1 ──* wp_pc_support_tickets  (subject_id, no FK by design)
@@ -603,6 +619,12 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
    Without it a retry double-credits.
 9. **At most one open bet session per room** (`ended_at IS NULL`). This is what makes
    a machine event attributable; break it and payouts go to the wrong player.
+   **Enforced, not asserted:** `open_room_id` mirrors `room_id` while the session is
+   open and is `NULL` once it closes, under `UNIQUE KEY open_room`, so the database
+   refuses a second open row and a request that loses the race adopts the winner's
+   session instead of creating one. The head's `wp_pc_room_queues.session_id` and the
+   room's open session are kept identical, because the two drifting apart is what made
+   the race cost money rather than merely leave litter.
 10. **`wp_pc_room_queues` has one entry per (room, user)** and is pruned on read, not
     by cron.
 11. **Nothing that carries evidence is hard-deleted** — chat rows flip `status`,

@@ -33,6 +33,33 @@ The two SPAs have drifted apart on patch/minor versions (Vue 3.5.21 vs 3.5.34, A
 1.12 vs 1.16, Prettier 3.6 vs 3.8). Nothing depends on them matching today; it is
 recorded here so nobody assumes they do.
 
+### Ably free tier — what actually spends it
+
+Written down at the end of `realtime` Sprint 2 (Step 5) so Sprint 3 has a number to
+plan against. The tier is **6M messages/month, 200 concurrent connections, 200
+channels** (`DECISIONS.md` 2026-09-15).
+
+**Observed peak: none. Nothing has ever connected.** No Ably account exists, no
+`PC_ABLY_KEY` is set on any install, and no dashboard has been opened — through
+Sprint 2's four steps the publisher has only ever been exercised against a stub. The
+first real number comes from Ably's dashboard after the key is set on the host, on a
+day the venue is open; until then what follows is arithmetic, not measurement, and
+should be read as an upper bound on what the design can spend rather than as what it
+does spend.
+
+| Ceiling | What spends one | Reached at |
+|---|---|---|
+| 200 concurrent connections | One per **signed-in player with a room open**. One connection serves every listener in that browser — the queue and the chat share it (S2.4) — so it is one per browser tab, not one per store. Guests spend none: they have no pass and keep the 3-second chat poll (`DECISIONS.md` 2026-09-21). The admin SPA spends none: `admin/src/services/realtime.js` is still unbuilt. | **200 simultaneous signed-in room viewers** — not 200 players, not 200 rooms |
+| 200 channels | One per room, plus one for the machine. Never one per viewer (S2.1). | 199 rooms |
+| 6M messages/month | `queue` on every join / leave / toss, `credit` on every payout, `relay` only on a real transition (at most one per 60-second poll pass), `chat` and `moderation` per message. **Chat is the highest-volume of these by some distance** and is the one to watch as rooms fill. | — |
+
+The connection ceiling is the binding one, and it binds on *simultaneous signed-in
+viewers of a room*. Two things already lean on that being the number: guests were left
+on the poll rather than given a pass, precisely so a read-only viewer does not spend a
+connection; and one connection is shared across a tab's listeners rather than one per
+store. Both decisions get cheaper to revisit once a real peak exists, and neither
+should be revisited before then.
+
 ## Check command
 
 One committed script each in `backend/` and `frontend/`; each stops at the first failure

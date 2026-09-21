@@ -45,7 +45,7 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
   `admin/src/services/realtime.js`, a code path above, is the Roadmap's "left for later".
 - **`BACKEND-REVIEW.md` items:** §12 (two rooms, one machine) → S1.3, named; its citation
   `machine-service.php:38` is now `power_on()` — the attribution site is `queue-service.php:435`.
-  §15 (duplicate sessions) → S2.5, named. §10, bullet by bullet: a database error reported as a
+  §15 (duplicate sessions) → S2.5, **settled**. §10, bullet by bullet: a database error reported as a
   duplicate (`machine-events.php:85`) → S1.4 depends on it, does not name it; a failed refund
   loses the coin (`RoomQueueController.php:187`) → **unassigned**; the 2-s timeout makes a slow
   toss free (`machine-service.php:30`) → **unassigned**. Purpose & scope puts all of §10 here, so
@@ -56,7 +56,7 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
   - Backend, `backend/wp-content/themes/pc/`:
     - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
     - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart.
-    - `app/utils/queue-service.php` — attribution. `room_id_for_machine:435` takes the first `publish`/`draft` room with the machine id, ignoring `available` (S1.3). `resolve_player_for_machine:386` runs `sync_turn` before answering, and a last declared coin closes the turn on the spot (`consume_coin:237-240`), so a payout landing after it goes to the **next** head, or to nobody. `sync_turn:253` is the §15 race (S2.5); hooks `:496-497`.
+    - `app/utils/queue-service.php` — attribution. `room_id_for_machine:435` takes the first `publish`/`draft` room with the machine id, ignoring `available` (S1.3). `resolve_player_for_machine:386` runs `sync_turn` before answering, and a last declared coin closes the turn on the spot (`consume_coin:237-240`), so a payout landing after it goes to the **next** head, or to nobody. `sync_turn` was the §15 race; **settled S2.5** — `open_room_id` under `UNIQUE KEY open_room` makes the database refuse a second open session and a lost race adopt the winner's. Hooks `:496-497`.
     - `app/utils/machine-service.php` — sensor reads. `get_coin_count:61` documented cumulative; `get_relay_closed:76` reads `sensor.relay_on` via `normalise_truthy:248`, which takes the idle `1` as "closed"; `HTTP_TIMEOUT:30`; `is_online:115`. S1.2 settles the model; S1.4, S2.3, S3.1.
     - `app/utils/cli/machine-ingest.php` — today's only producer; calls all three ingest methods (`:50-58`), so S1.4's change to `ingest_coins_dropped` reaches it.
     - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:155`. S2.3, S3.2.
@@ -76,7 +76,7 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
     - `components/RoomQueue.vue`, `components/RoomChat.vue` — render the stores; no step changes them.
 - **Conflicts with the siblings' invariants:**
   - `core` 2 / root invariant 8 (`Machine_Service` is the only caller of Home Assistant): S1.5's WebSocket-worker option would be a second client outside WordPress; the HA-automation option (HA calls WordPress) is not. S1.2's entry answers it if it picks the worker.
-  - `core` 3 (one open session per room makes a payout attributable): asserted, not enforced (`queue-service.php:253`, S2.5). And the last-coin handover above sends a late payout to the next player, against the Sprint 1 goal "the player who holds the turn". **No step names it**; S1.2's latency says how often it bites.
+  - `core` 3 (one open session per room makes a payout attributable): **enforced since S2.5** — `wp_pc_bet_sessions.open_room_id` under `UNIQUE KEY open_room`, plus a one-off cleanup of the sessions the race left open and `wp pc queue-sessions` to see the state of it. The head's `session_id` and the room's open session are now kept identical, which is the half that made the race cost money. Still true: the last-coin handover above sends a late payout to the next player, against the Sprint 1 goal "the player who holds the turn". **No step names it**; S1.2's latency says how often it bites.
   - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`). `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
 
 ## Data
