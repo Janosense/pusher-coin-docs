@@ -68,7 +68,7 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
     - `app/utils/support-service.php` — `notify_support:271` mails `pc_support_email` but is **private**; S3.1 reusing it changes shared code.
     - `functions.php` — the entry line (above).
   - Player SPA, `frontend/src/`:
-    - `stores/queue.js` — the 3-s poll (`:19`, `:78`) that is also the heartbeat; winnings are the open session's `coinsWon` (`:49-51`). S2.2.
+    - `stores/queue.js` — **rewritten S2.2**: subscribes to the room channel, re-reads on a version it has not seen, heartbeats at a third of the idle timeout, falls back to the 3-s poll only when the channel cannot be established. Winnings are still the open session's `coinsWon`, now also incremented optimistically from a pushed `credit` and reconciled by the next read.
     - `stores/wallet.js` — the balance. The Room screen fetches it on entry (`views/RoomView.vue:54`) and sets it after a toss (`stores/queue.js:113`), never on a poll: a machine credit shows at once as winnings, but in the balance only after the next toss or a reload. Bears on S1.5's check and S2.2.
     - `stores/chat.js` — 3-s poll on the `after` cursor (`:22`, `:82`), started from `components/RoomChat.vue:64,74`. S2.4.
     - `components/PlaceBet.vue` — the toss button (`:176-182`), the 423 message (`:31`). S2.3.
@@ -152,6 +152,13 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `rest_do_request()`. Driven by the WP-Cron event `pc_realtime_poll` and by
   `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
   nothing, which is how it is pointed at a live machine safely.
+- **The room channel's messages** (S2.2): `queue` carries `{room_id, version}` and
+  **nothing else** — the channel is readable by any signed-in account while
+  `GET /rooms/{id}/queue` is play-ready gated, so a client answers a new version by
+  re-reading through that gate. `credit` carries `{room_id, user_id, coins, event_id,
+  at}` and no money. Widening either is a permission decision, not a convenience.
+- `POST /pc/v1/rooms/{id}/queue/heartbeat` (S2.2) — what is left of the 3-s poll: a
+  cheap write, gated exactly as the queue read is, answering a version and no state.
 - `GET /pc/v1/realtime/token` — the scoped pass a signed-in SPA needs (shipped S2.1).
   It answers an Ably **token request** signed with `PC_ABLY_KEY`, never the key:
   `subscribe` on `{prefix}:room:*` for anyone signed in (rooms are public), plus
