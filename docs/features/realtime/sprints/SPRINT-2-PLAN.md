@@ -4,7 +4,7 @@
      awaiting approval → approved, in progress → implemented, awaiting close →
      closed. Never edit another step's section. -->
 
-## Plan — Sprint 2, Step 1: Publish to Ably, and hand the SPA a token   (status: approved, in progress)
+## Plan — Sprint 2, Step 1: Publish to Ably, and hand the SPA a token   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-2-channel` ← `realtime/sprint-2` ← `main`
@@ -107,3 +107,20 @@ only the file under test so the failure is the behaviour and not a missing class
    - **(b) Build the relay trigger here too.** Task 3 would additionally extend `Machine_Poller` to read `sensor.relay_on`'s history and fire transitions, and the checks would grow a relay half. That duplicates Step 3's first task, imports the relay's unresolved semantics into a step whose verification is about Ably, and still produces no visible behaviour until Step 3 ships the button.
    - Recommendation **(a)**: the spike already recorded that the relay has no signal behind it, Step 3 is where that is confronted, and (b) would have this step build something no one can see working.
    - **Resolved: approved as recommended — (a).** The publisher carries any message on any channel and this step wires only `pc_machine_event_credited`; the relay trigger belongs to Step 3, with the button it exists for.
+
+### Execution notes (Step 1)
+- **Branch:** `realtime/sprint-2-channel` ← `realtime/sprint-2` (cut fresh from `main`, which carries Sprint 1) in both repositories. Backend `a6355141` `09c26513` `6215f446` `73da9d01` `071f07ef`; docs `f5972d8` `8678e90` `c0bcbb1` `3f9acc1`.
+- **Question 1 resolved as recommended (a).** The publisher carries any message on any channel; only `pc_machine_event_credited` is wired. No relay trigger was built, and `Machine_Poller` was not touched.
+- **Ably's token request is signed here, not fetched.** `sign()` implements Ably's canonical order (`keyName`, `ttl`, `capability`, `clientId`, `timestamp`, `nonce`, each followed by `\n`), HMAC-SHA256, base64 of the raw digest. The check recomputes it independently rather than asserting the field is non-empty.
+- **Before/after proofs**, each reverting only the behaviour under test (`LEARNINGS.md` 2026-09-21):
+  - a publisher that lets a transport failure escape → the run dies mid-check; in production it would have thrown *after* the wallet moved, inside a poller pass. This is the whole reason invariant #2 exists.
+  - `unit_price` added to the room payload → exactly the check that forbids money on a room channel fails.
+  - the key placed in the token response → both checks that hunt for it fail.
+  - the machine channel granted to everyone → exactly the check that forbids it fails.
+  - signing with the wrong secret → the independent signature verification fails, and nothing else does.
+- **A test bug, and the same trap as last step.** `null === ( $body['channels']['machine'] ?? 'x' )` can never pass: `??` treats the very `null` being asserted as absent (`LEARNINGS.md` 2026-09-21). The endpoint was correct; the check was not. Read once, then `array_key_exists`.
+- **Test hygiene, and the same lesson as last step.** The cleanup deleted `machine_id = $machine_id`, but the orphan check deliberately credits `…-nobody`, so 15 rows survived in `wp_pc_machine_events`. Now a LIKE on the run prefix; the 15 were purged from the local install. Both leftovers-checks (`rc-%` users, `Channel test%` rooms) return nothing.
+- **A Sprint 1 Step 5 omission, corrected here.** Neither `ARCHITECTURE.md`'s nor `PROJECT-TREE.md`'s directory map listed `machine-poller.php`, `machine-poll-command.php` or `machine-poll.php`: that step's tree edit matched a pattern the file did not contain and silently applied nothing. Both maps were wrong from Step 5's merge until this commit. `PROJECT-TREE.md` was not in this step's approved docs list — it is edited because this step adds files to the same map (core rule 5), and both corrections are disclosed rather than folded in quietly.
+- **`pc_db_version` 1.11.0 → 1.12.0** ran on the local install; `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` are seeded there.
+- **Not done, deliberately:** no Ably account exists, so nothing was published to a real channel and no dashboard was seen. Every check answers Ably through `pre_http_request`; the token half makes no HTTP call at all. No SPA was opened signed in.
+- **Gate:** `backend/bin/check` exit 0 before every commit (62 php files; stage 2 executed, `realtime-channel.php` among them) and `frontend/bin/check` exit 0 at the end — `lint: OK`, `build: OK`.
