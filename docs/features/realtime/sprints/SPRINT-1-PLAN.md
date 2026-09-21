@@ -1148,3 +1148,128 @@ tree (two new files), `docs/features/realtime/FEATURE.md` (Interfaces, Data, Inv
 - **Gate.** `backend/bin/check` exit 0 (55 php files; stage 2 executed,
   `machine-ingest.php` included) and `frontend/bin/check` exit 0, before each commit and
   again after the last one.
+
+---
+
+## Plan — Sprint 1, Step 5: The transport   (status: approved, in progress)
+
+### Branch
+`realtime/sprint-1-transport` ← `realtime/sprint-1`
+(git model in root `CLAUDE.md`; the same branch name in `backend/` and in the docs
+repository — the only two this step touches. `frontend/` and `admin/` are not edited.)
+
+### What the spike fixed, and what this step therefore builds
+`DECISIONS.md` 2026-09-18 chose **WordPress polls Home Assistant's history** and left
+nothing about the transport open. Everything below is that entry made concrete; no task
+reopens it:
+
+- the call is `GET /api/history/period/{cursor}?end_time={now}&filter_entity_id=sensor.coin&significant_changes_only=0`, **through `Machine_Service`** (root invariant 8 / ANTI-PATTERNS: nothing else talks to Home Assistant);
+- `event_key` = `ha:{entity_id}:{last_updated}`, `last_updated` verbatim from the row;
+- coins per row: consecutive numeric rows, `unavailable` / `unknown` skipped; the value **rose** → credit `new − previous`; the value **fell** → a toss reset the counter → credit `new` (normally 0, which is no event);
+- 60-s schedule, an option so a shorter interval lowers the promised 65 s;
+- only `sensor.coin` may be credited from — never `sensor.lc01_12`, never the relay.
+
+**How an event reaches the wallet: the poller POSTs to `POST /pc/v1/machine/events`,
+the endpoint Step 4 shipped, dispatched in-process with `rest_do_request()`.** Not a
+direct `Machine_Ingest_Service` call: the sprint's own verification for this step says
+the ingest secret must exist in production "or the first real event is lost", and Step
+4's controller already describes this transport as a caller that the rate limit may
+throttle. So the transport is a client of the endpoint like any other, and it presents
+the secret. In-process rather than over loopback HTTP because a loopback POST on shared
+hosting is a failure mode that has nothing to do with the machine; `rest_do_request()`
+runs the identical route — permission callback, rate limit, secret compare, validation,
+audit row and `event_key` idempotency all included.
+
+### Tasks (ordered)
+- [x] **1. `Machine_Service` learns to read history.** `get_state_history( string $entity_id, string $since_iso, string $until_iso )` returns the entity's history rows as `[ [ 'state' => string, 'last_updated' => string ], … ]` in the order Home Assistant returned them, or the file's existing typed `WP_Error`s (`machine_not_configured`, `machine_offline`, `machine_unauthorized`, `machine_call_failed`). It gets its own `HISTORY_TIMEOUT = 10`; the shared `HTTP_TIMEOUT = 2` is **not** touched, because the slow-toss bullet that timeout belongs to is an unassigned `BACKEND-REVIEW.md` §10 item and not this step's. First checks of `tests/machine-poll.php` (the read and its four failure shapes, HTTP stubbed) ship here, and `ARCHITECTURE.md`'s Home Assistant row gains the history read. → `feat(realtime): Machine_Service reads Home Assistant history` — **touches shared code (`core`) — may affect other features** (`core` owns `app/utils/machine-service.php`; the change is additive, no existing method or constant changes)
+- [ ] **2. The poller's configuration.** Three defaults in `Install_Schema::install_default_options()` — `pc_realtime_poll_interval_seconds` (60), `pc_realtime_poll_machine_id` (`''`), `pc_realtime_poll_backfill_seconds` (3600) — and `DB_VERSION` 1.10.0 → 1.11.0, which is what makes them seed. No table changes. `DATA-MODEL.md` and `FEATURE.md` → Data in the same commit. → `feat(realtime): poll interval, machine id and backfill options` — **touches shared code (`core`) — may affect other features** (`app/utils/install-schema.php`; additive only)
+- [ ] **3. The poller.** `app/realtime/machine-poller.php`, feature-owned. `Machine_Poller::run(): array` does one pass and reports what it did; the rules it obeys are listed under "How the poller behaves" below. Its own checks ship in this commit: the delta arithmetic, replay, recovery, the three explicit gaps, the rate-limit stop and the end-to-end credit through a real turn. → `feat(realtime): the Home Assistant history poller`
+- [ ] **4. Scheduling, and a command to drive it by hand.** `app/realtime/machine-poll-command.php` registers `wp pc machine-poll [--dry-run] [--format=table|json]`; `bootstrap.php` requires both new files, adds the `pc_realtime_poll` interval through `cron_schedules`, schedules the event when it is missing or when the interval option has changed since it was scheduled, and clears it on `switch_theme`. Both paths call the same `run()`, so a host with a real cron and a host on WP-Cron behave identically. Scheduling checks ship in this commit. → `feat(realtime): schedule the poller and expose wp pc machine-poll`
+- [ ] **5. The operator-side documentation.** The crontab line and the `DISABLE_WP_CRON` note in `ARCHITECTURE.md` → Environments & deploy, `TECH-STACK.md`'s check-command list gains `machine-poll.php`, and `ROADMAP.md` Phase 5 §3 *Crediting* moves `[partial]` → `[done]` with its matrix row; §7 keeps `[todo]` (the browser channel is Sprint 2) and gains one line saying the inbound half now exists. → `docs(realtime): the transport's cron line, check list and roadmap tags`
+
+### How the poller behaves
+One pass, in this order. Every "holds the cursor" below means the next pass re-reads the
+same window; `event_key` makes that free, which is why holding is always safe and
+losing is never necessary.
+
+1. **One at a time.** A `pc_realtime_poll_lock` transient (TTL = the interval) makes two overlapping runs impossible, so one real machine event cannot produce two ingest calls even when a real cron and WP-Cron both fire.
+2. **Configured, or it does not run.** The secret (`PC_MACHINE_INGEST_SECRET`, wp-config) and `pc_realtime_poll_machine_id` are both required. Either missing: the run records `machine_poll_unconfigured` in the audit log, **holds the cursor and credits nothing**. The machine id is an option and not a constant because `TECH-STACK.md` → ANTI-PATTERNS puts operator-tunable machine values in options; it has no useful default, and an events-with-no-machine-id fallback would silently log every real payout `unattributed`. Held rather than skipped, so that the moment the operator sets either one, everything still inside Home Assistant's ten-day retention replays and pays.
+3. **The cursor.** `pc_realtime_cursor_sensor_coin` (transient, the name `FEATURE.md` → Data reserves), holding the `last_updated` of the last row this poller delivered. Missing — first run ever, or an evicted object cache — the window starts `pc_realtime_poll_backfill_seconds` ago and the run records `machine_poll_cursor_missing`, so a lost cursor is an explicit gap in the audit log rather than a silent one. A cursor older than the backfill window is clamped to it and recorded the same way.
+4. **The read.** `Machine_Service::get_state_history( pc_machine_coin_sensor_entity, cursor, now )`. A `WP_Error` records `machine_poll_read_failed` with the code and **holds the cursor**.
+5. **The arithmetic.** Exactly the spike's rule (above). The first row of the window is the baseline only; any row whose `last_updated` is at or before the cursor is baseline only. Non-numeric states are skipped without breaking the pair around them.
+6. **The delivery.** One `POST /pc/v1/machine/events` per row that owes coins — `type: coins_dropped`, `coins`, `event_key: ha:{entity}:{last_updated}`, `machine_id` — through `rest_do_request()` with the secret header. A row owing 0 coins is not delivered at all and is not an event.
+7. **Advancing.** The cursor moves to a row's `last_updated` only after the endpoint has answered 200 for it (`credited`, `already_recorded`, `unattributed`, `recorded` or `failed` — all of them are decided outcomes). A 401, a 429 or a 500 stops the pass there, leaves the cursor on the last accepted row, and records `machine_poll_delivery_stopped` with the code. Rows that were never read are simply read again next pass.
+8. **A record of the pass.** `pc_realtime_poll_last_run` (option, written at runtime) holds the finish time, the row and delivery counts and the stop reason if any — so whether the schedule is ticking can be answered on a host where nobody has a shell.
+
+### Files to create/change
+**`backend/` (repository `backend`)**
+- `wp-content/themes/pc/app/utils/machine-service.php` — **shared (`core`)**: `get_state_history()`, `HISTORY_TIMEOUT`. Additive.
+- `wp-content/themes/pc/app/utils/install-schema.php` — **shared (`core`)**: three `add_option()` lines, `DB_VERSION` → `'1.11.0'`. Additive.
+- `wp-content/themes/pc/app/realtime/machine-poller.php` — **new**, feature-owned.
+- `wp-content/themes/pc/app/realtime/machine-poll-command.php` — **new**, feature-owned.
+- `wp-content/themes/pc/app/realtime/bootstrap.php` — two `require_once` lines, the `cron_schedules` filter, the schedule/reschedule/clear wiring.
+- `wp-content/themes/pc/tests/machine-poll.php` — **new**.
+
+**Docs repository**
+- `docs/ARCHITECTURE.md`, `docs/DATA-MODEL.md`, `docs/TECH-STACK.md`, `docs/ROADMAP.md`, `docs/features/realtime/FEATURE.md`.
+
+**Not touched:** `frontend/`, `admin/`, `functions.php` (the bootstrap line is already there),
+`app/realtime/MachineIngestController.php`, `app/utils/machine-ingest-service.php`,
+`app/utils/machine-events.php`, `app/utils/queue-service.php`, `wp-config-*`.
+
+### Tests to write
+All in `backend/wp-content/themes/pc/tests/machine-poll.php`, the WP-CLI `eval-file`
+shape `DECISIONS.md` 2026-09-15 fixed: the WP-CLI + DDEV guard, a per-run key prefix, a
+throwaway player / room / queue turn, and a `finally` that removes every fixture,
+option, transient and filter it touched. Home Assistant is never called: a
+`pre_http_request` filter answers with canned history, which is also why these checks
+run on a machine that has no token. Money zone, so they ship with the code, not after.
+
+1. **The read (task 1).** A stubbed history body parses to ordered `state` / `last_updated` rows; HTTP 401 → `machine_unauthorized`; a transport-level failure → `machine_offline`; a body that is not the expected shape → `machine_call_failed`; an unconfigured `Machine_Service` → `machine_not_configured` without any HTTP call.
+2. **The arithmetic (task 3).** A rise 3 → 6 credits 3. A fall 5 → 0 credits nothing. A fall 5 → 2 credits 2 (the toss reset it underneath). `unavailable` between two numeric rows is skipped and the pair still computes. A row at or before the cursor is baseline only and is never credited.
+3. **Replay, which is the restart check (task 3).** Two consecutive `run()`s over the same stubbed window: the first credits, the second delivers the same `event_key`s and credits nothing. The wallet moved exactly once and `wp_pc_machine_events` holds one row per key.
+4. **Recovery (task 3).** A cursor ten minutes behind, with several rises in between, credits every one of them in a single pass, in order.
+5. **The explicit gaps (task 3).** No secret → nothing credited, cursor unchanged, `machine_poll_unconfigured` in `wp_pc_auth_audit_log`. No `pc_realtime_poll_machine_id` → the same. A missing cursor → the window starts at the backfill and `machine_poll_cursor_missing` is written. An HA `WP_Error` → cursor unchanged and `machine_poll_read_failed` written. In every one of the four the cursor is still exactly what it was.
+6. **The rate-limit stop (task 3).** With `pc_realtime_ingest_rate_max` set to 1 and three payable rows in the window, the run delivers one, stops, records `machine_poll_delivery_stopped`, and leaves the cursor on the delivered row; clearing the limiter and running again credits the remaining two, once each.
+7. **Attribution end to end (task 3).** A player holding the turn in a room whose `pc_room_machine_id` equals `pc_realtime_poll_machine_id` is credited exactly the delta's coins at their FIFO-head unit price; `wp_pc_transactions` gains **no** row (root invariant 6 / ANTI-PATTERNS); the event row reads `credited` and names the player. With no turn open, the same event lands `unattributed`, moves no wallet, and the cursor still advances.
+8. **Scheduling (task 4).** After bootstrap the `pc_realtime_poll` event is scheduled at the option's interval; changing `pc_realtime_poll_interval_seconds` and re-running the wiring reschedules it rather than stacking a second one; the `switch_theme` handler clears it.
+9. **The command (task 4).** `Machine_Poller::run()` reached through the command's own entry point reports the same counts; `--dry-run` reads and computes but delivers nothing — no wallet movement, no event row, and the cursor unchanged.
+
+Each new behaviour's checks must **fail on the pre-step code** and pass after; the
+before/after proof is recorded in the execution notes, reverting only the file under
+test so the failure is the behaviour and not a missing method (`LEARNINGS.md`
+2026-09-21's neighbouring lesson from Step 4).
+
+### Docs to update
+- `docs/ARCHITECTURE.md` — the Home Assistant integration row gains the history read and its own timeout; the ingest data flow stops saying nothing pushes events in and names the poller → endpoint → `Machine_Ingest_Service` path; Environments & deploy gains the crontab line and the `DISABLE_WP_CRON` note.
+- `docs/DATA-MODEL.md` — the three new options with their defaults, the `pc_realtime_cursor_sensor_coin` transient, the `pc_realtime_poll_last_run` runtime option, and `pc_db_version` 1.10.0 → 1.11.0.
+- `docs/TECH-STACK.md` — the check-command eval-script list gains `machine-poll.php`; the cron line and WP-Cron note recorded as the transport's host-side artefact. No dependency is added, so nothing else in the file changes.
+- `docs/features/realtime/FEATURE.md` — Data (the concrete option and transient names), Interfaces (the transport that calls the endpoint), Invariants (a new one: the cursor never advances past an event the endpoint did not accept, and every gap is written to the audit log).
+- `docs/ROADMAP.md` — Phase 5 §3 *Crediting* `[partial]` → `[done]` and its tracking-matrix row; §7 keeps `[todo]` with a line pointing at the inbound half.
+- `docs/CONTRACTS.md` — **no change**: no endpoint, payload or error code moves in this step.
+- At close, by `/close-step`: `docs/DECISIONS.md` (one entry recording the delivery route, the WP-Cron-plus-CLI pair, the required machine id and the hold-the-cursor rule — none of which contradicts the spike), `docs/WORKLOG.md`, `docs/features/realtime/verification/sprint-1-step-5.md`.
+
+### Checks
+- **ANTI-PATTERNS: none violated.** Four are close enough to name:
+  - *"Do not add a cron job for queue housekeeping."* That line is about queue pruning, which stays on-read; this schedule is the inbound transport `DECISIONS.md` 2026-09-18 chose, and it prunes nothing.
+  - *"Do not call Home Assistant from anywhere but `Machine_Service`."* The history read is added **to** `Machine_Service`; the poller never calls Home Assistant itself.
+  - *"Do not hardcode an operator-tunable value."* The interval, the machine id and the backfill are options with defaults in `Install_Schema`; the sensor entity is the existing `pc_machine_coin_sensor_entity`.
+  - *"Do not put a secret in a WP option or in the repository."* The poller reads `PC_MACHINE_INGEST_SECRET` from wp-config at call time and never logs it; the audit rows record outcomes, never the header.
+  Also holding: no `ENUM`, no money column outside `Wallet_Service` (the poller never credits directly — the endpoint does, through `Machine_Ingest_Service`), no ledger row for a payout, no float, no meta-key literal, and no REST route added at all.
+- **Docs vs reality:**
+  - `Machine_Service` has **no** history method today — the spike's chosen transport cannot be built without adding one. Task 1, and the reason this step edits shared `core` code.
+  - `ARCHITECTURE.md`'s Home Assistant row lists only power, toss, sensor reads, relay, snapshot and `is_online()`; the history read is new and the row is stale until task 1 updates it.
+  - **The sprint's verification for this step says the player's *balance* moves on the Room screen. The shipped SPA does not do that**: `stores/wallet.js` is fetched on room entry and after a toss, never on the 3-s poll (`FEATURE.md` → Shared code). What moves live is the turn's **winnings** counter, which `Queue_Service::record_win()` banks on `pc_machine_event_credited` and the queue poll returns. Resolved in favour of the shipped code: the verification guide will say winnings move within the promised latency and the balance number follows on the next reload or toss. No task changes — the push that fixes it is Sprint 2, and no step names a frontend file here.
+  - **WP-Cron is traffic-driven, so the promised 65 s holds while the site sees traffic.** It does exactly when it matters: a player holding a turn has the Room screen polling the queue every 3 s. With nobody on the site the poll is late, and the events it then finds are unattributed anyway. Recorded, not a task.
+  - `TECH-STACK.md`'s eval-script list is stale from earlier steps (carried `/adhoc` item). Task 5 adds this step's own row and leaves the rest alone.
+  - `ROADMAP.md` Phase 5 §7 is the *browser* channel (Sprint 2), although this step's "Docs to update" names it. It keeps `[todo]`; only the pointer line is added.
+- **Design: n/a** — no screen, no token, no component. `FEATURE.md` → UI introduces nothing and `design/` stays empty (`DECISIONS.md` 2026-09-15).
+- **Check command:** `backend/bin/check` (`docs/TECH-STACK.md` → Check command) before every commit, with DDEV up so stage 2 actually executes — a boxed `SKIPPED` means the money checks did not run and is not a green run for this step. `frontend/bin/check` is run once at the end to confirm the untouched SPA still exits 0, as the sprint goal asks.
+- **Not locally verifiable:**
+  - **The crontab line on production** — documentation, not code; the one real run that proves it is the operator adding it on the host (or the host proving it has no cron, in which case WP-Cron is what runs). `pc_realtime_poll_last_run` is what shows which of the two happened.
+  - **`PC_MACHINE_INGEST_SECRET` in production `wp-config.php`** — carried from Step 4, no deploy writes that file, and the poller will not deliver without it. Proven by the next deploy from `main` plus the operator's edit.
+  - **A real payout to a real player during venue hours** — the step's own manual verification, and the only thing that proves the end-to-end latency. Nothing here presses a machine button or switches power.
+  - **The read against the real Home Assistant** is *not* on this list: it is read-only and the user holds the token, so the verification guide will include a `wp pc machine-poll --dry-run` against the live instance, which touches nothing and credits nothing.
+
+### Questions / ambiguities
+none
