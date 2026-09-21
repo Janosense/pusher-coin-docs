@@ -90,13 +90,17 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (S1.4); `pc_realtime_poll_interval_seconds` (60),
   `pc_realtime_poll_machine_id` (`''`, **required** — the poller holds its cursor
   until it is set) and `pc_realtime_poll_backfill_seconds` (3600), the transport
-  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded.
+  (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded;
+  and `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
+  (3600), the push channel (S2.1).
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
   `pc_realtime_poll_lock` keeps two passes from overlapping.
-- wp-config constants `PC_ABLY_KEY` and `PC_MACHINE_INGEST_SECRET` (the ingest
-  shared secret, shipped S1.4). Never options, never logged.
+- wp-config constants `PC_MACHINE_INGEST_SECRET` (the ingest shared secret, S1.4)
+  and `PC_ABLY_KEY` (the push-channel app key in Ably's `name:secret` form, S2.1).
+  Never options, never logged, and never sent to a SPA — the token endpoint signs
+  *with* the Ably key and does not contain it.
 
 ## Invariants
 1. **Every accepted inbound event carries an `event_key`.** A transport that
@@ -148,9 +152,22 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `rest_do_request()`. Driven by the WP-Cron event `pc_realtime_poll` and by
   `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
   nothing, which is how it is pointed at a live machine safely.
-- `GET /pc/v1/realtime/token` — scoped channel token for a signed-in SPA.
-- The channel naming convention — one per room, one for the machine — which the
-  admin SPA reads too; changing it is "touches shared surface".
+- `GET /pc/v1/realtime/token` — the scoped pass a signed-in SPA needs (shipped S2.1).
+  It answers an Ably **token request** signed with `PC_ABLY_KEY`, never the key:
+  `subscribe` on `{prefix}:room:*` for anyone signed in (rooms are public), plus
+  `{prefix}:machine` for `manage_options` only, and `publish` on nothing. It names the
+  resolved channels so neither SPA hardcodes them, and answers
+  `realtime_not_configured` 503 where the key is absent. Full shape in
+  `docs/CONTRACTS.md`.
+- **The channel naming convention** (fixed S2.1, `app/realtime/channels.php` is the
+  only place it is built): `{prefix}:room:{id}` for a room, `{prefix}:machine` for the
+  operator channel, `{prefix}:room:*` as the capability pattern — `prefix` from
+  `pc_realtime_channel_prefix`, so one Ably app can host staging and production
+  without them hearing each other. **One channel per room, one for the machine, never
+  one per viewer:** the free tier caps an app at 200 channels, which a per-viewer
+  channel would pass at the 201st player. Neither SPA hardcodes a name — the token
+  endpoint returns the resolved ones — but the admin SPA reads the same channels, so
+  changing the shape is still "touches shared surface".
 - It consumes, and does not change, `core`'s `pc_machine_event_player` filter and
   `pc_machine_event_credited` action.
 

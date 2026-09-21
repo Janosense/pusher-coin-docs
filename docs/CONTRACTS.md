@@ -964,6 +964,55 @@ Machine payouts credit coin lots and never write `wp_pc_transactions`
 (root `CLAUDE.md` invariant 6), so nothing here shows on the player's
 **History** screen.
 
+### `GET /pc/v1/realtime/token`
+
+The scoped pass a browser needs to listen on the push channel.
+`Permissions::require_logged_in` — an anonymous caller gets 401 and is
+told nothing.
+
+**It never returns `PC_ABLY_KEY`.** What it returns is an Ably *token
+request*: the fields below, signed with an HMAC-SHA256 keyed by the
+secret half of the app key. The SPA hands it to Ably, Ably verifies the
+signature and issues the real token. Signing here rather than fetching a
+token means no outbound call on a request a player is waiting for.
+
+```json
+{
+  "token_request": {
+    "keyName":    "xxxxxx.yyyyyy",
+    "ttl":        3600000,
+    "capability": "{\"pc:room:*\":[\"subscribe\"]}",
+    "clientId":   "42",
+    "timestamp":  1789980000000,
+    "nonce":      "…32 chars…",
+    "mac":        "…base64…"
+  },
+  "channels": { "room_pattern": "pc:room:*", "machine": null }
+}
+```
+
+| Field | Notes |
+|---|---|
+| `keyName` | The **public** half of the app key. Ably requires it; it is not a secret. |
+| `ttl` | Milliseconds, from `pc_realtime_token_ttl_seconds`. Floored at 60 s and capped at 24 h, Ably's own limit. |
+| `capability` | A JSON **string** (Ably signs it as one). `subscribe` only — the browser is untrusted and everything on these channels originates on the server. |
+| `clientId` | The caller's WordPress user id. |
+| `mac` | Base64 HMAC-SHA256 over `keyName`, `ttl`, `capability`, `clientId`, `timestamp`, `nonce`, each followed by `\n`. |
+| `channels` | The resolved names, so neither SPA hardcodes the convention. `machine` is `null` for a non-admin. |
+
+**What a pass allows.** Every signed-in caller gets `subscribe` on
+`{prefix}:room:*` — rooms are public (`DOMAIN.md`), so granting the
+pattern lets a player move between rooms without a new pass and reveals
+nothing they could not already see. `{prefix}:machine` is operator
+detail and is added **only** for `manage_options`. Nothing is ever
+granted `publish`.
+
+Errors:
+- `realtime_not_configured` 503 — no `PC_ABLY_KEY` on this server. The
+  same shape as `stripe_not_configured`: a server condition, not the
+  caller's fault. Publishing is a silent no-op in the same state, so
+  payouts still credit normally; they are simply not pushed.
+
 ### `GET /pc/v1/admin/me`
 
 Probe used by the admin SPA to verify the current session is both
@@ -1634,8 +1683,14 @@ planned:
   credential-check + `event_key` wrapper over `Machine_Ingest_Service`
   this bullet expected, and the transport that calls it shipped in
   Sprint 1 Step 5 — so this bullet is fully closed.
-- `POST /pc/v1/realtime/auth` — private-channel subscription auth for
-  the Step 7 push channel (provider unpicked: Pusher / Ably / Soketi).
+- ~~`POST /pc/v1/realtime/auth`~~ — shipped as
+  **`GET /pc/v1/realtime/token`** in the current section (`realtime`
+  Sprint 2 Step 1), under the name that sprint gives it. The provider is
+  no longer unpicked: Ably, on its free tier (`DECISIONS.md`
+  2026-09-15). A `GET` rather than a `POST` because it creates nothing —
+  the pass is signed from the caller's own identity — and "token"
+  rather than "auth" because what comes back is a token request, not a
+  session.
 
 ### Phase 6 — queue & play
 
@@ -1718,6 +1773,7 @@ One canonical code per failure mode — do not invent variants.
 | `captcha_failed` | 401 | support/tickets (guest path, when a provider is configured) |
 | `stripe_signature_invalid` | 401 | payments/stripe/webhook |
 | `machine_ingest_unauthorized` | 401 | machine/events (wrong secret, missing header, or no secret configured — the answer never says which) |
+| `realtime_not_configured` | 503 | realtime/token (no `PC_ABLY_KEY` on this server; publishing is a silent no-op in the same state) |
 | `email_not_verified` | 403 | google-auth/authentication, support/tickets (logged-in path), play-ready gated endpoints (Permissions::require_play_ready) |
 | `terms_not_accepted` | 403 | sign-up, play / top-up gated endpoints, rooms/{id}/messages POST |
 | `nickname_required` | 403 | gated play endpoints, rooms/{id}/messages POST |
