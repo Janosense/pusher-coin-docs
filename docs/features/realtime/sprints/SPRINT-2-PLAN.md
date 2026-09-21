@@ -258,7 +258,7 @@ not papered over with an invented assertion.
 
 ---
 
-## Plan — Sprint 2, Step 3: The relay lock the player can see   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 3: The relay lock the player can see   (status: closed)
 
 ### Branch
 `realtime/sprint-2-relay` ← `realtime/sprint-2`

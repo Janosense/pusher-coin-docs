@@ -199,7 +199,9 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
 ## UI
 - **Screens:** none of its own. It changes two screens `core` owns, indexed in
   `docs/DESIGN.md` → Screens: **Room** (player SPA) and **Machine** (admin SPA).
-- **Reuses:** `PlaceBet`, `UserControls`, `RoomQueue`, `RoomChat`.
+- **Reuses:** `PlaceBet`, `UserControls`, `RoomQueue`, `RoomChat`. S2.3 gives `PlaceBet`
+  one more disabled state — the machine out of service — indexed in `docs/DESIGN.md`
+  → Components. No new component, no token, no screen.
 - **Introduces:** — (no design; `design/` stays empty — `DECISIONS.md` 2026-09-15).
 
 ## Roadmap

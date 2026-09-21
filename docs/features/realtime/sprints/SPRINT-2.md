@@ -43,7 +43,7 @@
 - **Docs to update:** `docs/ARCHITECTURE.md` (the queue data flow says "polled every 3s" in several places); `docs/features/realtime/FEATURE.md` → Interfaces; `docs/TECH-STACK.md` → ANTI-PATTERNS ("do not add a cron for queue housekeeping" justifies itself with the 3s poll being the heartbeat — the reason changes here, the rule does not); `docs/DECISIONS.md` — a **new** entry superseding 2026-07-30 on what the heartbeat is now, never an edit to the old one.
 - **Depends on:** Step 1
 
-### [ ] Step 3 — The relay lock the player can see
+### [x] Step 3 — The relay lock the player can see
 - **Tasks:**
   - Publish relay open/closed transitions to the room channel, using the relay entity and polarity Sprint 1 Step 2 recorded.
   - `PlaceBet` disables the toss control while the relay is closed, with the reason visible, and re-enables it on the opening transition. **Touches shared code.**
