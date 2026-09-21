@@ -352,7 +352,10 @@ payout pipeline.
 
 **Queue and heartbeat — FIXED.** A player joins a room's queue declaring how many
 coins they intend to play; FIFO order by `joined_at`; the head of the queue holds an
-open bet session (`ended_at IS NULL`, at most one per room).
+open bet session (`ended_at IS NULL`, at most one per room — **enforced by the
+database** since `realtime` Sprint 2 Step 5: `wp_pc_bet_sessions.open_room_id` carries
+the room id while the session is open and `UNIQUE KEY open_room` refuses the second
+row, so two simultaneous requests cannot each open one).
 
 **The SPA no longer polls it.** `join`, `leave` and `play` each announce the room on
 its Ably channel, and the browser re-reads `GET /rooms/{id}/queue` only when it hears
