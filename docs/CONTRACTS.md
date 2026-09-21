@@ -530,7 +530,8 @@ Response (`200`):
     "started_at": "2026-07-28 20:45:00", "ended_at": null,
     "coins_played": 1, "coins_won": 0, "money_won": "0.00"
   },
-  "idle_timeout_seconds": 60
+  "idle_timeout_seconds": 60,
+  "machine_locked": false
 }
 ```
 
@@ -538,6 +539,15 @@ Response (`200`):
 has *left* to play, not what they declared. `online_count` counts queued
 players, not everyone watching the room. `session` is the head's open
 bet session, or `null` for an empty queue.
+
+`machine_locked` is `true` while the machine has been taken out of
+service by hand — the relay opened at the venue (`realtime` Sprint 2
+Step 3). It is the last state the poll pass saw, read from
+`pc_realtime_relay_state`, so this endpoint never calls Home Assistant;
+after first paint the room follows the `relay` channel message instead.
+It greys the toss button out; it does not decide anything, because
+`POST /rooms/{id}/play` reads the relay live and its `relay_open` 423 is
+the authority.
 
 Errors: `room_not_found` 404, `room_unavailable` 409.
 
