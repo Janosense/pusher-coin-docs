@@ -54,7 +54,7 @@
 - **Docs to update:** `docs/ROADMAP.md` (Phase 5 §5 → `[done]`); `docs/DESIGN.md` → Components (`PlaceBet` gains a state).
 - **Depends on:** Step 2
 
-### [ ] Step 4 — Chat on the same channel
+### [x] Step 4 — Chat on the same channel
 - **Tasks:**
   - Publish new messages and moderation events to the room channel; `stores/chat.js` subscribes and drops its 3-second poll. **Touches shared code.**
   - Keep the `after` cursor as the catch-up path for a reconnecting or newly opened client.

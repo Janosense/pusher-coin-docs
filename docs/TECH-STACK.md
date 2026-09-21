@@ -155,7 +155,11 @@ machine) while CI lints on 8.2, so CI stays the authority on syntax an older PHP
   absent, promotes the next player and answers a version rather than the queue. The
   rule is unchanged; only its reason moved.
 - **Do not paginate chat with `LIMIT/OFFSET`.** Reads are cursor-based on `id`
-  (`?after=<last id>`); an offset would re-send or skip messages between two polls.
+  (`?after=<last id>`); an offset would re-send or skip messages. Since `realtime`
+  Sprint 2 Step 4 the gap it protects is no longer "between two polls" but "while a
+  client was disconnected", which is longer and less predictable — the cursor stopped
+  being the transport and became the catch-up. The rule is unchanged; only its reason
+  moved, and it matters more now, not less.
 - **Do not build product UI in `/wp-admin/`,** and do not introduce ACF. Every
   operator surface is a view in the admin SPA against `pc/v1/admin/*`. `/wp-admin/`
   stays available for plugin, theme and emergency DB work only.

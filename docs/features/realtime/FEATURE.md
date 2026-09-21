@@ -159,8 +159,12 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `GET /rooms/{id}/queue` is play-ready gated, so a client answers a new version by
   re-reading through that gate. `credit` carries `{room_id, user_id, coins, event_id,
   at}` and no money. `relay` carries `{room_id, locked, at}` and names neither the
-  sensor nor the machine. Widening any of them is a permission decision, not a
-  convenience.
+  sensor nor the machine. `chat` (S2.4) carries the **whole message**, and `moderation`
+  an id and a state and never a body. Widening any of them is a permission decision,
+  not a convenience — and the rule behind all five is one rule: **what may travel is
+  what the read already gives away.** `GET /rooms/{id}/messages` is public, so a chat
+  body gives nothing away; `GET /rooms/{id}/queue` is play-ready gated, so a queue
+  entry may not travel at all.
 - **`Realtime_Relay_Watch`** (S2.3) — one read of `sensor.relay_on` per pass of the
   poll schedule, through `Machine_Service` like every other Home Assistant call. The
   relay carries no payout signal (`DECISIONS.md` 2026-09-18): it idles **closed** and
@@ -184,6 +188,16 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   resolved channels so neither SPA hardcodes them, and answers
   `realtime_not_configured` 503 where the key is absent. Full shape in
   `docs/CONTRACTS.md`.
+- **One connection, several listeners** (S2.4) — `frontend/src/services/realtime.js`
+  keeps one Ably client and one channel per room and fans every message out to
+  consumers registered by name (`queue`, `chat`). The free tier counts *connections*,
+  not subscriptions, so a second socket per room would spend the 200 ceiling twice as
+  fast; and a room has both stores live at once. A listener that registers while the
+  connection is up is caught up immediately.
+- **Guests do not ride the channel** (S2.4). The room page and the chat read are
+  public, but `GET /realtime/token` requires a signed-in caller, so a guest keeps the
+  3-second chat poll. Widening the pass to anonymous callers would spend one of the 200
+  concurrent connections per guest — a decision for after the ceiling has been measured.
 - **The channel naming convention** (fixed S2.1, `app/realtime/channels.php` is the
   only place it is built): `{prefix}:room:{id}` for a room, `{prefix}:machine` for the
   operator channel, `{prefix}:room:*` as the capability pattern — `prefix` from

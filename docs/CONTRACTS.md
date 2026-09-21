@@ -659,10 +659,18 @@ Errors: `not_player_turn` 403, `relay_open` 423,
 guests watch the broadcast there, so they read the conversation too —
 `RoomChat.vue` has rendered it read-only to guests since Phase 3.
 
+**No longer polled by a signed-in client** (`realtime` Sprint 2 Step 4).
+A posted message and a moderation arrive on the room's push channel, and
+this read is the catch-up: a client calls it once when it opens the room
+and again on every reconnect. **A guest still polls it** every 3 seconds
+— the room and this read are public, but an Ably pass requires a
+signed-in caller.
+
 Cursor-based, not offset-based: pass the highest `id` you already hold
-as `after` and you get back only what is newer. A conversation that
-gains rows between two polls would re-send or skip messages under
-`LIMIT/OFFSET`.
+as `after` and you get back only what is newer. Under `LIMIT/OFFSET` a
+conversation that gained rows in between would re-send or skip messages
+— and the gap to cover is now "while the client was disconnected"
+rather than "between two polls", which is longer and less predictable.
 
 Query: `?after=0&limit=50`. `after=0` (the default) is a cold open and
 returns the **newest** `limit` messages, oldest-first; `after=N` returns
@@ -1071,6 +1079,17 @@ and widening either message is a permission decision, not a convenience.
 | `queue` | `{room_id, version}` — **and nothing else**: no entries, no nicknames, no coin counts, no turn holder | after a successful `join`, `leave` or `play` |
 | `credit` | `{room_id, user_id, coins, event_id, at}` — **no money**: no unit price, no balance | after a machine payout credits a player (`pc_machine_event_credited`) |
 | `relay` | `{room_id, locked, at}` — **and nothing else**: no entity id, no sensor value, no machine id | when the relay's state changes between two poll passes: `locked: true` when an operator has opened it and taken the machine out of service, `false` when they restore it |
+| `chat` | the whole message — `{id, room_id, user_id, nickname, body, created_at}`, byte for byte what `GET /rooms/{id}/messages` returns | after a message is accepted by `POST /rooms/{id}/messages`. A refused body, a muted author and a rate-limited caller publish nothing |
+| `moderation` | `{room_id, message_id, status}` — an id and a state, **never a body** | after `PATCH /admin/chat/messages/{id}` hides or restores a message. A hidden message leaves the public read at the same moment |
+
+**`chat` is the one message that carries its own content, and the reason
+is the rule, not an exception to it: what may travel is what the read
+already gives away.** `GET /rooms/{id}/messages` is **public** — the room
+page is public and guests read the conversation there — so a body and a
+nickname on this channel reveal nothing the API does not already serve to
+anybody at all. The `queue` message is the same rule applied to a
+play-ready-gated read, which is why it carries a version and no queue.
+Widening either is a permission decision; so is narrowing the read.
 
 A `relay` message is a courtesy, not a gate: it is what greys the toss
 button out *before* the player tries. The live read inside

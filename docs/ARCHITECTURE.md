@@ -77,7 +77,7 @@ parse or trust the JWT payload (the token is opaque to it).
 | `router/index.js` | Route table and `beforeEach` guard. Routes carry `meta.requiresAuth` / `meta.requiresGuest` / `meta.allowsBeforeGate`; the guard awaits `authStore.initializeAuth()` before deciding. |
 | `views/` | Page-level components mapped 1:1 to routes: `RoomsView` (`/`), `RoomView` (`/room/:id`, public), `SignInView`, `SignUpView`, `AccountView`, `HistoryView`, `SupportView` (public), and the three gate / landing views `AcceptTermsView`, `ChooseNicknameView`, `ConfirmEmailView`. `AboutView` exists but is not in the route table. |
 | `components/` | Reusable building blocks. Room page: `LiveStream`, `RoomChat` (live, 3s poll, owns its poll lifecycle), `RoomQueue`, `PlaceBet`, `UserControls`, `RoomStatusBadge`, `NextBroadcastCountdown`. Lists / shell: `RoomList`, `AppNavigation`, `NavigationToggle`, `LanguageSwitcher`, `ModalOverlay`, `LogoutConfirmModal`. Account / money: `FacelessAvatar`, `ReplenishmentBalance`, `WithdrawalRequest`. Auth: `SignInForm`, `SignUpForm`, `GoogleSignInButton` (hidden while parked), `AppleSignInButton` (hidden until configured). Plus an `icons/` set of single-purpose SVG components. `HelloWorld.vue` is Vite scaffold with no importers. |
-| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue: subscribes to the room's Ably channel, re-reads on a version change, heartbeats every 20s, falls back to a 3s poll if the channel is unavailable; also holds whether the machine is out of service, from the envelope, the `relay` message and the server's refusal of a toss), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — 3s poll with an `after` cursor), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
+| `stores/` | Pinia stores. `authentication.js` is the central one (token + user, persisted to `localStorage`, with Google 2FA state). `wallet.js` (balance, lots, pricing, top-up), `queue.js` (room queue: subscribes to the room's Ably channel, re-reads on a version change, heartbeats every 20s, falls back to a 3s poll if the channel is unavailable; also holds whether the machine is out of service, from the envelope, the `relay` message and the server's refusal of a toss), `rooms.js` (room list, 30s cache), `navigation.js`, `chat.js` (panel open/closed state *plus* the conversation itself — subscribes to the room's Ably channel, appends a pushed message, drops a hidden one, re-opens the conversation on a restore, catches up through the `after` cursor on every connect, and falls back to the 3s poll for a guest or an unavailable channel), and `themeSong.js` (per-room theme song; owns the `Audio` element because the toggle lives in `UserControls` while the URL arrives with the room in `RoomView`). `counter.js` and `user.js` are unused scaffold. |
 | `services/` | API layer. `api.js` is a configured Axios instance with request/response interceptors (auto-attaches the JWT; refreshes once on 401). Endpoint wrappers: `authService`, `accountService`, `userService`, `googleAuthService`, `appleAuthService`, `roomsService`, `queueService`, `chatService`, `walletService`, `historyService`, `supportService`; `sessionService.js` is the inactivity timer. The top-up hand-off needs no service of its own — `ReplenishmentBalance.vue` navigates to the `checkout_url` that `walletService.topup()` returns. |
 | `assets/` | Global CSS (`main.css`, `styles/colors.css`, block-scoped CSS in `styles/blocks/`), images, the brand SVG logo. |
 | `public/` | Static files served verbatim by Vite (`favicon.ico`). |
@@ -450,8 +450,15 @@ fire-and-forget in the strict sense: it runs after the credit, and every failure
 logged and swallowed rather than returned (`FEATURE.md` → Invariants #2).
 
 **Chat.** Reads are public and cursor-based — `GET /rooms/{id}/messages?after=<last
-id>`, polled every 3s by the same store that owns the chat panel's open/closed
-state — so a guest watching a broadcast sees the conversation read-only. Writes go
+id>` — so a guest watching a broadcast sees the conversation read-only. **A signed-in
+client no longer polls it.** A posted message is published on the room's channel
+carrying the whole message, and moderation is published as an id and a state; the
+cursor stopped being the transport and became the catch-up, run on every connect and
+reconnect (`realtime` Sprint 2 Step 4). A chat body may travel where a queue entry may
+not, and it is the same rule in both directions — what may travel is what the read
+already gives away, and this read is public. Two cases still poll on the 3-second
+interval, both deliberate: a **guest**, who has no Ably pass because the token endpoint
+requires signing in, and any client whose channel cannot be established. Writes go
 through `require_chat_ready`, are capped at 500 sanitised plain-text characters, and
 are rate-limited to 10 per minute per account. Chat deliberately does not require the
 room to be `available` the way the queue does: a room in maintenance is where players
