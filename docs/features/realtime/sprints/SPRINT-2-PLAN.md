@@ -258,7 +258,7 @@ not papered over with an invented assertion.
 
 ---
 
-## Plan — Sprint 2, Step 3: The relay lock the player can see   (status: approved, in progress)
+## Plan — Sprint 2, Step 3: The relay lock the player can see   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-2-relay` ← `realtime/sprint-2`
@@ -293,6 +293,13 @@ so in every artefact it touches. Question 1 is where that reading can be refused
 - [x] **3. The room knows the state before anything is published.** `Queue_Service::state()` carries `machine_locked` (bool) read from the cached option — no Home Assistant call on a queue read, ever. This is what makes the button correct at first paint rather than only after the next transition. **Touches shared code — may affect other features** (`core`: `app/utils/queue-service.php`; consumers are `GET /rooms/{id}/queue`, join, leave and play, all of which return this envelope). `docs/CONTRACTS.md` queue envelope updated in the same commit. → `feat(realtime): the queue envelope carries the machine lock`
 - [x] **4. The browser listens for it.** `frontend/src/services/realtime.js` subscribes to `relay` and exposes `onRelay`; `frontend/src/services/queueService.js` maps `machine_locked`; `frontend/src/stores/queue.js` gains a `machineLocked` ref set from every envelope, from a pushed `relay` message, and — because the server is the authority — set to `true` when `play()` is refused with `relay_open` and to `false` on a successful toss. **Touches shared code — may affect other features** (`core`: `stores/queue.js`, `services/queueService.js`). → `feat(realtime): the room follows the relay lock`
 - [x] **5. The button greys out, with the reason.** `frontend/src/components/PlaceBet.vue`: the toss button is disabled while `machineLocked`, with a visible line under it ("The machine is out of service — you can't toss right now."), and `PLAY_ERRORS` gains `relay_open` and drops `relay_closed`. The join and leave controls are untouched: a player may still queue for a machine that is being serviced. `docs/DESIGN.md` → Components (the `Place bet` row's state list) and `docs/ROADMAP.md` Phase 5 §5 → `[done]` in the same commit. **Touches shared code — may affect other features** (`core`: `components/PlaceBet.vue`). → `feat(realtime): the toss button shows the relay lock`
+
+### Execution notes
+- **Tasks 1–5 ran as written**, one commit each in `backend/` or `frontend/` plus its docs commit. One thing was added inside task 2's scope rather than beyond it: the relay watch's outcome also goes into `pc_realtime_poll_last_run`, because the plan promised `wp pc machine-poll --status` would show it and `--status` reads that option rather than a live pass.
+- **The bug the checks name.** Ten of the first sixteen checks fail on the pre-step code, including "a closed relay is the machine working — the toss goes through". That is the production defect `DECISIONS.md` 2026-09-18 recorded: every toss refused with 423 while the machine is on.
+- **Found while writing the tests, and fixed in place:** two audit-log checks first counted rows in the whole table, so they would have passed on debris from an earlier run. They now count only rows above a floor taken at start-up, and the cleanup deletes exactly those.
+- **Out of scope, found and reported, not fixed:** the local install still carries orphaned rows from earlier steps' scripts (90 wallets, 276 coin lots, 2 queue rows, 4 sessions) — the `/adhoc` item `LEARNINGS.md` 2026-09-21 already names. This step's own script was measured before and after a run and leaves nothing: every table count was identical. `PROJECT-TREE.md` was also missing `realtime-queue.php` from S2.2; one line, added with this step's own.
+- **Gate:** `backend/bin/check` exit 0 before every backend commit (65 php files; `realtime-relay.php` in the executed list) and `frontend/bin/check` exit 0 before every frontend commit — `lint: OK`, `build: OK`.
 
 ### Files to create/change
 **`backend/` (theme `pc`)**
