@@ -520,7 +520,7 @@ actually use.
 
 ---
 
-## Plan — Sprint 2, Step 5: The duplicate-session race   (status: implemented, awaiting close)
+## Plan — Sprint 2, Step 5: The duplicate-session race   (status: closed)
 
 ### Branch
 `realtime/sprint-2-sessions` ← `realtime/sprint-2`

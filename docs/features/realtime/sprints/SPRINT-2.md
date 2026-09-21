@@ -64,7 +64,7 @@
 - **Docs to update:** `docs/ARCHITECTURE.md` (the chat data flow); `docs/DECISIONS.md` if the cursor's role changed.
 - **Depends on:** Step 2
 
-### [ ] Step 5 — The duplicate-session race
+### [x] Step 5 — The duplicate-session race
 - **Tasks:**
   - `BACKEND-REVIEW.md` §15: simultaneous queue requests can open two bet sessions for one room that never close. Removing the polls reduces the traffic that caused it; it does not remove the race.
   - Make "open a session for the head of the queue" atomic, so the `ended_at IS NULL` invariant — at most one open session per room — holds under concurrency.

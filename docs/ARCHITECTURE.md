@@ -228,6 +228,9 @@ themes/pc/
 │   ├── realtime-relay.php   # `ddev wp eval-file` check: the toss lock, the relay watch and what it may publish (DDEV only)
 │   ├── realtime-channel.php # `ddev wp eval-file` check: the push channel — a broken publish cannot touch a payout; the token never carries the key (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
+│   ├── realtime-queue.php   # `ddev wp eval-file` check: the queue rides the channel; the heartbeat holds a place and answers a version (DDEV only)
+│   ├── realtime-chat.php    # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
+│   ├── queue-sessions.php   # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
@@ -240,6 +243,7 @@ themes/pc/
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
     │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
+    │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
     │   ├── channels.php              # Realtime_Channels: the one place channel names are built
     │   ├── publisher.php             # Realtime_Publisher: pushes credits to Ably, fire-and-forget
     │   ├── RealtimeTokenController.php # GET /realtime/token — the scoped pass a browser gets instead of the key
