@@ -59,6 +59,7 @@ same commit as this file. History:
 | 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
 | 1.12.0 | `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` (the push channel) — no table change, same reason |
 | 1.13.0 | `open_room_id` + `UNIQUE KEY open_room` on `wp_pc_bet_sessions`, and the one-off migration that closes the sessions the duplicate-session race left open |
+| 1.14.0 | `pc_realtime_alert_email` and `pc_realtime_outage_grace_seconds` (operator alerts) — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -191,9 +192,18 @@ Event types written today, by owning area:
 | machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
 | chat | `chat_message_moderated`, `chat_user_muted` |
 | support | `support_ticket_created`, `support_ticket_updated`, `support_subjects_updated`, `support_captcha_updated` |
+| realtime — the transport | `machine_poll_unconfigured`, `machine_poll_cursor_missing`, `machine_poll_cursor_unreadable`, `machine_poll_cursor_clamped`, `machine_poll_read_failed`, `machine_poll_delivery_stopped` |
+| realtime — the machine's state | `machine_relay_read_failed`, `machine_outage_started`, `machine_outage_notified`, `machine_outage_recovered` |
+| realtime — the push channel | `realtime_publish_failed` |
+| realtime — operator alerts | `operator_alert_sent`, `operator_alert_failed` |
+| queue | `queue_session_orphan_closed`, `queue_session_index_missing`, `queue_session_migration_failed` |
 
 Machine *events* (tosses, drops, bonuses) do not go here — they have their own table.
 Adding an event type is a code change in the owning controller plus a row above.
+The five rows below `support` were added at once by `realtime` Sprint 3 Step 1: the
+transport (S1.5), the relay watch (S2.3) and the session cleanup (S2.5) had all been
+writing undocumented types, because nothing in the close checklist owns this table
+(`LEARNINGS.md` 2026-09-21).
 
 ### `wp_pc_room_schedules`
 
@@ -517,7 +527,20 @@ at `pc_db_version` `1.11.0`. WordPress polls Home Assistant's history for what
 | `pc_realtime_poll_machine_id` | string | `''` | Which machine the polled events carry, matched against rooms' `pc_room_machine_id` to find the player holding the turn. **Required:** while it is empty the poller records `machine_poll_unconfigured`, holds its cursor and credits nothing, rather than logging every real payout as belonging to nobody. |
 | `pc_realtime_poll_backfill_seconds` | int | `3600` | How far back a poller with no cursor looks — the first run ever, or after an evicted object cache. Bounded on purpose: a cursorless read of the whole ten-day retention would spend the ingest rate limit re-delivering events credited long ago (they would all answer `already_recorded`, but the window would be gone). Floors at 60. |
 | `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts, stop reason and what the relay watch saw — how "is the schedule actually ticking?" and "is the machine in service?" get answered on a host where nobody has a shell. |
+| `pc_realtime_outage_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'down_since' => ISO, 'failures' => int, 'incident_at' => ?ISO, 'notified' => bool, 'code' => ?string ]` — the machine's current outage, or absent when it is answering. Written only while something is wrong and **deleted** on recovery, so a working machine costs no write per pass. `incident_at` is set once the outage outlives `pc_realtime_outage_grace_seconds`; `notified` is a separate fact from `incident_at`, because an outage that starts outside a broadcast window and is still there when one opens is alerted then, not when it began. |
 | `pc_realtime_relay_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'locked' => bool, 'at' => ISO-8601 ]` — the last known state of `sensor.relay_on`, written only when it *changes*, so a machine that is simply working costs no write per pass. It is what `GET /rooms/{id}/queue` answers `machine_locked` from, so the room screen needs no Home Assistant call. Rebuildable by definition (the next pass re-reads the machine) and **never the authority for a toss**, which reads Home Assistant itself. Unset means unlocked. |
+
+**Realtime — operator alerts.** Owned by `realtime`; seeded by `Install_Schema` at
+`pc_db_version` `1.14.0`. One channel for every alarm the feature raises, decided once
+(`DECISIONS.md` 2026-09-21): plain-text email through `Realtime_Alerts::send()`. The
+`pc_realtime_*` prefix rather than a new `pc_alert_*` namespace because `realtime` owns
+the sender, even where the thing it reports on (Sprint 3 Step 3's withdrawals) belongs
+to `core`.
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_alert_email` | string | `''` | Where operator alerts go. Empty falls back to `pc_support_email`, then to `admin_email`, then to nothing at all — a fresh install still reaches somebody, and an operator who does not read the support inbox can point alerts elsewhere without redirecting support mail with them. An address that is not a valid email is skipped rather than attempted. |
+| `pc_realtime_outage_grace_seconds` | int | `300` | How long the machine must stay unreachable before it is an incident rather than a blip — five passes of the 60-second poll. Below it, a failed probe is remembered and nothing else happens. Floors at 0, which makes the first failed pass an incident (what the checks use). A desk guess, to be tuned after a week of real traffic. |
 
 **Realtime — the push channel out to the browsers.** Owned by `realtime`; seeded by
 `Install_Schema` at `pc_db_version` `1.12.0`. WordPress publishes machine events to
