@@ -785,7 +785,7 @@ registry), `docs/features/realtime/FEATURE.md` → Invariants #5, and `docs/BACK
 
 ---
 
-## Plan — Sprint 1, Step 4: The ingest endpoint   (status: implemented, awaiting close)
+## Plan — Sprint 1, Step 4: The ingest endpoint   (status: closed)
 
 ### Branch
 `realtime/sprint-1-ingest-endpoint` ← `realtime/sprint-1`, in **two** repositories:

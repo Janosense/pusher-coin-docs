@@ -56,7 +56,7 @@
 - **Docs to update:** `docs/CONTRACTS.md` (error code); `docs/features/realtime/FEATURE.md` → Invariants; `docs/BACKEND-REVIEW.md` (§12 settled).
 - **Depends on:** Step 1
 
-### [ ] Step 4 — The ingest endpoint
+### [x] Step 4 — The ingest endpoint
 - **Tasks:**
   - `POST /pc/v1/machine/events` in `app/realtime/`, registered from `app/realtime/bootstrap.php`. Shared-secret authentication with a constant-time compare, rate-limited, every call audited. The secret is a wp-config constant.
   - Dispatch to `Machine_Ingest_Service::ingest_bonus` / `ingest_relay_closed` / `ingest_coins_dropped`. `event_key` is required; a request without one is rejected.
