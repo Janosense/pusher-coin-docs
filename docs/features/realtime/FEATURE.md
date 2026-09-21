@@ -148,7 +148,13 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   `rest_do_request()`. Driven by the WP-Cron event `pc_realtime_poll` and by
   `wp pc machine-poll`; both are safe on one host. `--dry-run` reads and credits
   nothing, which is how it is pointed at a live machine safely.
-- `GET /pc/v1/realtime/token` — scoped channel token for a signed-in SPA.
+- `GET /pc/v1/realtime/token` — the scoped pass a signed-in SPA needs (shipped S2.1).
+  It answers an Ably **token request** signed with `PC_ABLY_KEY`, never the key:
+  `subscribe` on `{prefix}:room:*` for anyone signed in (rooms are public), plus
+  `{prefix}:machine` for `manage_options` only, and `publish` on nothing. It names the
+  resolved channels so neither SPA hardcodes them, and answers
+  `realtime_not_configured` 503 where the key is absent. Full shape in
+  `docs/CONTRACTS.md`.
 - **The channel naming convention** (fixed S2.1, `app/realtime/channels.php` is the
   only place it is built): `{prefix}:room:{id}` for a room, `{prefix}:machine` for the
   operator channel, `{prefix}:room:*` as the capability pattern — `prefix` from
