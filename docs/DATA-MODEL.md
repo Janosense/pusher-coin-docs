@@ -56,6 +56,7 @@ same commit as this file. History:
 | 1.8.0 | `wp_pc_room_messages` |
 | 1.9.0 | LiqPay options retired (`remove_retired_options()`) |
 | 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
+| 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -424,7 +425,7 @@ so an old ticket still resolves its label.
 
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
-| `pc_db_version` | string | `'1.9.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
+| `pc_db_version` | string | `'1.11.0'` | Installed schema version; read/written by `Install_Schema::maybe_install`. |
 | `pc_terms_current_version` | string | `'2026-05'` | Bump when T&Cs change to force re-acceptance. |
 | `pc_access_token_ttl_seconds` | int | `900` | Read by `AuthController::issue_access_token` and the `jwt_auth_expire` filter. |
 | `pc_refresh_token_ttl_seconds` | int | `604800` | 7 days. Read by `Refresh_Tokens`. |
@@ -487,6 +488,26 @@ the admin UI and `wp db export`. Rotation is a wp-config edit.
 | --- | --- | --- | --- |
 | `pc_realtime_ingest_rate_max` | int | `120` | Calls `POST /pc/v1/machine/events` accepts per window, counted across all callers rather than per IP — `Rate_Limiter::client_ip()` trusts `X-Forwarded-For` (review item 5), so an IP-keyed ceiling is no ceiling. Floors at 1. |
 | `pc_realtime_ingest_rate_window_seconds` | int | `60` | The window that ceiling is spent in. Floors at 1. |
+
+**Realtime — the inbound transport.** Owned by `realtime`; seeded by `Install_Schema`
+at `pc_db_version` `1.11.0`. WordPress polls Home Assistant's history for what
+`sensor.coin` did since its own cursor and delivers each change to the ingest endpoint
+(`DECISIONS.md` 2026-09-18). The sensor it reads is the existing
+`pc_machine_coin_sensor_entity`.
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_poll_interval_seconds` | int | `60` | The schedule, in both the WP-Cron event and the `cron_schedules` entry behind it. The spike's promised 65 s latency is this plus the machine's ~2 s Modbus cycle and the history call; shortening it shortens that. Floors at 30 — below that a traffic-driven WP-Cron cannot keep up and a real cron gains nothing, because Home Assistant's own history is what protects against a late poll. Changing it reschedules the event. |
+| `pc_realtime_poll_machine_id` | string | `''` | Which machine the polled events carry, matched against rooms' `pc_room_machine_id` to find the player holding the turn. **Required:** while it is empty the poller records `machine_poll_unconfigured`, holds its cursor and credits nothing, rather than logging every real payout as belonging to nobody. |
+| `pc_realtime_poll_backfill_seconds` | int | `3600` | How far back a poller with no cursor looks — the first run ever, or after an evicted object cache. Bounded on purpose: a cursorless read of the whole ten-day retention would spend the ingest rate limit re-delivering events credited long ago (they would all answer `already_recorded`, but the window would be gone). Floors at 60. |
+| `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts and stop reason — how "is the schedule actually ticking?" gets answered on a host where nobody has a shell. |
+
+**The cursor is a transient,** `pc_realtime_cursor_sensor_coin`: the `last_updated` of
+the last history row the poller delivered successfully. Rebuildable and never a source
+of truth for money — `event_key` is what prevents a double credit, so re-reading a
+window is always safe. It is written only after the endpoint has answered, so a
+failure re-reads rather than skips; losing it costs a bounded backfill and an audit
+row, never a silent gap.
 
 The ingest **shared secret is not stored in the database** — `PC_MACHINE_INGEST_SECRET`
 in wp-config, read by the ingest controller only. It is not `PC_MACHINE_TOKEN`: that is

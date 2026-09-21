@@ -894,9 +894,15 @@ all is well).
 
 The machine-event ingest. **Public route; a shared secret is the
 credential** — `X-PC-Machine-Secret`, compared to
-`PC_MACHINE_INGEST_SECRET` with a constant-time compare. Whatever
-transport carries events out of Home Assistant posts them here; nothing
-else writes `wp_pc_machine_events` on the crediting path.
+`PC_MACHINE_INGEST_SECRET` with a constant-time compare. Nothing else
+writes `wp_pc_machine_events` on the crediting path.
+
+**Its caller in production is `Machine_Poller`** (`realtime` Sprint 1
+Step 5), which polls Home Assistant's history on a schedule and posts
+here with `rest_do_request()` — an in-process dispatch of this same
+route, secret header included, so the transport is a client of the door
+rather than a way around it. The route stays public and credentialled
+because the transport is not required to stay in-process.
 
 Request:
 ```json
@@ -1626,7 +1632,8 @@ planned:
   the credential is a shared secret rather than an HMAC over a payload
   Home Assistant cannot send. The endpoint is the thin
   credential-check + `event_key` wrapper over `Machine_Ingest_Service`
-  this bullet expected; the transport that calls it is Sprint 1 Step 5.
+  this bullet expected, and the transport that calls it shipped in
+  Sprint 1 Step 5 — so this bullet is fully closed.
 - `POST /pc/v1/realtime/auth` — private-channel subscription auth for
   the Step 7 push channel (provider unpicked: Pusher / Ably / Soketi).
 
