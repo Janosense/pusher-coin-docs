@@ -84,7 +84,8 @@ pusher-coin/
 │   │       │   │   ├── realtime/          # Feature `realtime`: reached only through bootstrap.php
 │   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
 │   │       │   │   │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
-│   │       │   │   │   └── machine-rooms.php # Machine_Rooms: which rooms claim a machine (one machine, one available room)
+│   │       │   │   │   ├── machine-rooms.php # Machine_Rooms: which rooms claim a machine (one machine, one available room)
+│   │       │   │   │   └── MachineIngestController.php # POST /pc/v1/machine/events — shared-secret ingest of machine events
 │   │       │   │   ├── stripe/            # Feature `stripe`: reached only through bootstrap.php
 │   │       │   │   │   ├── AdminTopupController.php # GET /admin/topups (read-only list) + GET /admin/stripe/status (configured, mode)
 │   │       │   │   │   ├── bootstrap.php  # The single entry point; one require_once in functions.php
@@ -119,6 +120,7 @@ pusher-coin/
 │   │       │   ├── index.php
 │   │       │   ├── style.css
 │   │       │   └── tests/
+│   │       │       ├── machine-ingest.php    # `ddev wp eval-file` check: the ingest endpoint and its idempotency (DDEV only)
 │   │       │       ├── machine-rooms.php     # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   │       │       ├── stripe-client.php     # `ddev wp eval-file` check: kopiyka conversion, mode/config, webhook signature scheme (DDEV only)
 │   │       │       ├── stripe-webhook.php    # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)

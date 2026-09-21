@@ -54,6 +54,8 @@ same commit as this file. History:
 | 1.6.0 | `wp_pc_support_tickets` |
 | 1.7.0 | `wp_pc_bet_sessions`, `wp_pc_room_queues` |
 | 1.8.0 | `wp_pc_room_messages` |
+| 1.9.0 | LiqPay options retired (`remove_retired_options()`) |
+| 1.10.0 | `pc_realtime_ingest_*` option defaults — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -294,6 +296,13 @@ created_at     DATETIME(6)        -- microsecond precision for ordering
   permitted (MySQL allows repeated NULLs in a unique index) so keyless events still
   log — but a transport that omits the key gets at-least-once delivery, which for a
   payout means double credits. **Transports must supply one.**
+- **A collision and a failed write are different answers.** `Machine_Event_Log::record_result()`
+  reports `inserted`, `duplicate` or `failed`: a key already on file is permanent and must
+  never be credited again, while a row that could not be written decides nothing and the
+  caller is expected to try again. The crediting path turns `failed` into
+  `machine_event_write_failed` (500); the audit-only path (`log_event()`) reports it as a
+  flag, because its caller has already tossed a real coin by then. `record()` still returns
+  0 for both and stays for callers that do not care which.
 - **Machine credits do not write `wp_pc_transactions`.** They insert a coin lot and
   move `balance_coins`; this table is their audit trail. The ledger stays the money
   trail, which is what the player's history view shows. Payouts are priced at the
@@ -452,7 +461,7 @@ so changing a default in that class changes every environment that never set the
 | `pc_machine_endpoint` | string (URL) | `https://developer-it.com/api` | Home Assistant base URL. |
 | `pc_machine_power_switch_entity` | string | `switch.s60tpf` | Wall switch. Renamed in HA; the old `switch.sonoff_10024fb618` 404s (verified 2026-09-16). |
 | `pc_machine_toss_button_entity` | string | `input_button.toss_a_coin` | Fires a coin toss. |
-| `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Cumulative coin counter. |
+| `pc_machine_coin_sensor_entity` | string | `sensor.coin` | Coin counter. **Not cumulative:** it counts the coins paid out since the last toss, and a toss resets it to 0 (observed 2026-09-18, `DECISIONS.md`). |
 | `pc_machine_bonus_sensor_entity` | string | `sensor.lc01_12` | Bonus wheel value 1–12. |
 | `pc_machine_light_sensor_entity` | string | `sensor.light_b_t` | Status-light bitfield. |
 | `pc_machine_relay_sensor_entity` | string | `sensor.relay_on` | Relay-contact state read. |
@@ -470,6 +479,19 @@ the admin UI and `wp db export`. Rotation is a wp-config edit.
 | Option key | Type | Default | Notes |
 | --- | --- | --- | --- |
 | `pc_queue_idle_timeout_seconds` | int | `60` | How long a queue entry survives without a heartbeat; the SPA's 3s queue poll is the heartbeat. `Queue_Service::idle_timeout` floors it at 10. Not exposed in the admin SPA yet. |
+
+**Realtime — the machine-event ingest.** Owned by the feature `realtime`; seeded by
+`Install_Schema` at `pc_db_version` `1.10.0`.
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_ingest_rate_max` | int | `120` | Calls `POST /pc/v1/machine/events` accepts per window, counted across all callers rather than per IP — `Rate_Limiter::client_ip()` trusts `X-Forwarded-For` (review item 5), so an IP-keyed ceiling is no ceiling. Floors at 1. |
+| `pc_realtime_ingest_rate_window_seconds` | int | `60` | The window that ceiling is spent in. Floors at 1. |
+
+The ingest **shared secret is not stored in the database** — `PC_MACHINE_INGEST_SECRET`
+in wp-config, read by the ingest controller only. It is not `PC_MACHINE_TOKEN`: that is
+the bearer token WordPress sends *to* Home Assistant, this is what the transport sends
+*in*. Rotation is a wp-config edit, and while it is unset every call answers 401.
 
 **Support & captcha**
 
@@ -550,6 +572,7 @@ wp_pc_machine_events ──  pc_room   via machine_id = pc_room_machine_id post 
     string is a defect.
 13. **Secrets never reach the database**: `JWT_AUTH_SECRET_KEY`,
     `PC_STRIPE_SECRET_KEY`, `PC_STRIPE_WEBHOOK_SECRET`, `PC_MACHINE_TOKEN`,
+    `PC_MACHINE_INGEST_SECRET`,
     `PC_CAPTCHA_SECRET`, `GOOGLE_CLIENT_ID`, `APPLE_*` are wp-config constants.
     Only their public counterparts are options — and the top-up provider now has
     none: Stripe's keys are **both** constants, and the SPAs are told only

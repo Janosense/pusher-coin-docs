@@ -85,19 +85,29 @@ Owns no table. It writes `wp_pc_machine_events` **only through
 to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes them:
 - WP options `pc_realtime_*` — channel name, alert thresholds and windows, any
   transport setting the spike's choice needs. Defaults seeded by `Install_Schema`.
+  Shipped so far: `pc_realtime_ingest_rate_max` (120) and
+  `pc_realtime_ingest_rate_window_seconds` (60), the ingest endpoint's ceiling.
 - Transients `pc_realtime_cursor_*` — last-seen sensor state, only if the spike
   picks polling. Rebuildable; never a source of truth for money.
-- wp-config constants `PC_ABLY_KEY` and the ingest shared secret. Never options,
-  never logged.
+- wp-config constants `PC_ABLY_KEY` and `PC_MACHINE_INGEST_SECRET` (the ingest
+  shared secret, shipped S1.4). Never options, never logged.
 
 ## Invariants
 1. **Every accepted inbound event carries an `event_key`.** A transport that
-   cannot produce a stable one is not accepted.
+   cannot produce a stable one is not accepted: `POST /machine/events` refuses a body
+   without one (`missing_event_key`), and a key already on file answers
+   `already_recorded` and credits nothing. A row that could not be written is a 500,
+   never a duplicate — the two are opposite instructions to a transport.
 2. **Publishing and alerting are fire-and-forget.** A failure is logged and
    swallowed; it never fails, rolls back or delays the money path that triggered it.
 3. **The SPA never sees the Ably key** — it asks for a scoped token.
-4. **The ingest endpoint is not public.** Shared secret, rate-limited, audited; a
-   bad secret is a 401 that says nothing about why.
+4. **The ingest endpoint is not public.** Shared secret
+   (`PC_MACHINE_INGEST_SECRET`, `hash_equals`), rate-limited on one ceiling across
+   all callers — never per IP, which `Rate_Limiter::client_ip()` takes from a
+   spoofable header — and audited on every call. A bad secret, a missing header and
+   an unconfigured server are one 401 that says nothing about why; the audit log
+   tells them apart. The limit is checked before the secret, so an unauthenticated
+   flood cannot fill the audit log.
 5. **A machine id is carried by at most one available room.** The admin API
    refuses a second (`machine_already_in_use`), a queue join into a room caught in
    such a pair (old data) is refused with the same code, and `wp pc machine-rooms`
@@ -111,6 +121,12 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
 
 ## Interfaces
 - `POST /pc/v1/machine/events` — the ingest endpoint, whatever transport calls it.
+  Shipped S1.4: `type` (`coins_dropped` | `bonus` | `relay_closed`), `event_key`,
+  `machine_id`, plus `coins` or `bonus_number`; answers 200 with a `status`
+  (`credited` / `recorded` / `unattributed` / `already_recorded` / `failed`) for
+  everything a retry cannot fix. Full shape in `docs/CONTRACTS.md`. What a transport
+  may *send* is narrower than what the endpoint accepts — only `sensor.coin`
+  increments have a payout behind them (`DECISIONS.md` 2026-09-18).
 - `GET /pc/v1/realtime/token` — scoped channel token for a signed-in SPA.
 - The channel naming convention — one per room, one for the machine — which the
   admin SPA reads too; changing it is "touches shared surface".

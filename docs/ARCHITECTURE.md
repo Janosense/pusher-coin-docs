@@ -175,7 +175,9 @@ Routes grouped by the permission callback that gates them:
   `POST /support/tickets` (rate-limited, captcha-checked for guests when
   configured); `GET /rooms/{id}/messages` (chat is readable by guests, like the
   room page it sits on); `POST /payments/stripe/webhook` (the `Stripe-Signature`
-  over the raw body is verified in the handler).
+  over the raw body is verified in the handler); `POST /machine/events` (a shared
+  secret in `X-PC-Machine-Secret` is verified in the handler, behind a rate limit
+  counted across all callers).
 - **Public, `UserController::check_permission`** — `POST /user/sign-up`,
   `/user/request-verification`, `/user/verify-code`. These rely on `Rate_Limiter`
   and the email code rather than a capability.
@@ -220,6 +222,7 @@ themes/pc/
 ├── GOOGLE_AUTH_SETUP.md     # Operator notes for Google OAuth (parked)
 ├── CAPTCHA_SETUP.md         # Operator notes for Turnstile / hCaptcha keys + rotation
 ├── tests/
+│   ├── machine-ingest.php   # `ddev wp eval-file` check: the ingest endpoint, idempotency and crediting (DDEV only)
 │   ├── machine-rooms.php    # `ddev wp eval-file` check: one machine, one available room (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
@@ -229,7 +232,8 @@ themes/pc/
     ├── realtime/            # Feature `realtime` — machine events into WordPress, and the rooms that claim a machine
     │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
     │   ├── machine-rooms.php         # Machine_Rooms: which rooms claim a machine
-    │   └── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
+    │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
+    │   └── MachineIngestController.php # POST /machine/events — the shared-secret ingest door
     ├── stripe/              # Feature `stripe` — the ONLY code that talks to Stripe
     │   ├── bootstrap.php    # The feature's single entry point; one require_once in functions.php
     │   └── stripe-client.php # Stripe_Client: Checkout Session creation + webhook signature verification
@@ -349,7 +353,15 @@ spent. In order: refuse if the caller is not at the head; refuse with 423
 `Machine_Service::toss_coin()`; if the machine does not answer 200, re-credit the
 exact lot price. A successful toss increments `coins_played` on the session.
 
-**Machine-event ingest — FIXED in shape, no transport yet.** `Machine_Event_Log`
+**Machine-event ingest — the door is open; the transport is not built yet.**
+`POST /pc/v1/machine/events` (`app/realtime/MachineIngestController.php`) is where
+machine events come in. It is a public route whose credential is a shared secret in
+`X-PC-Machine-Secret` (`PC_MACHINE_INGEST_SECRET` in wp-config), rate-limited on one
+ceiling across all callers rather than per IP, and audited on every call. It requires
+an `event_key`, dispatches to the three `Machine_Ingest_Service` entry points, and
+answers 200 with a `status` for everything a retry could not fix — a replayed key, an
+event nobody can be paid for, a bonus mapped to no coins — so a transport stops
+instead of redelivering forever. `Machine_Event_Log`
 writes `wp_pc_machine_events` (idempotent on `event_key`); `Machine_Ingest_Service`
 turns a bonus / relay-closed / coins-dropped event into a wallet credit, resolving
 the player through the `pc_machine_event_player` filter and announcing the credit
@@ -359,8 +371,10 @@ keeps unique, else the room that carries it → open session → player; then bu
 `money_won` on the session, which `UserControls` shows as per-turn winnings).
 Machine payouts credit coin lots directly at the player's FIFO-head lot price and
 are audited in `wp_pc_machine_events`, never in the ledger — the player's history
-view shows money movements only. Nothing pushes machine events *in* yet: the only
-producer today is the `wp pc machine-ingest` replay command.
+view shows money movements only. **Nothing calls the endpoint yet:** the transport —
+WordPress polling Home Assistant's history on a schedule (`DECISIONS.md`
+2026-09-18) — is `realtime` Sprint 1 Step 5, and until it ships the only producer is
+the `wp pc machine-ingest` replay command.
 
 **Chat.** Reads are public and cursor-based — `GET /rooms/{id}/messages?after=<last
 id>`, polled every 3s by the same store that owns the chat panel's open/closed
