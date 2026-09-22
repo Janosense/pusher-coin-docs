@@ -54,14 +54,15 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
   marked **"touches shared code"**. Delta-audit 2026-09-18 (Sprint 1 Step 1), file:line
   on `main` (backend `5ebe9610`, frontend `7210c59`); "S1.4" = Sprint 1 Step 4.
   - Backend, `backend/wp-content/themes/pc/`:
-    - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
-    - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart.
+    - `app/utils/machine-ingest-service.php` — the only door to `wp_pc_machine_events` and the credit. **S3.2, additive:** `log_event()` passes `correlation_id` through from its context, as `settle()` already does — the column `DATA-MODEL.md` reserves for `wp_pc_bet_sessions.id`, and the toss watch is its first caller. `settle()` reports any failed `record()` as `duplicate: true` (`:137-145`), and writes the row before crediting with no transaction and `mark()` unchecked (`:129-173`): a crash in between leaves a row every replay skips. `ingest_coins_dropped:79` expects a delta. S1.4, S1.5.
+    - `app/utils/machine-events.php` — `record()` returns 0 for a duplicate key *and* for a failed insert (`:82-85`); S1.4's "already recorded" answer has to tell them apart. **S3.2, additive:** `TYPE_TOSS_NO_MOVEMENT` and `since()`, an oldest-first read over a `created_at` range for a watch walking forward from a cursor; both readers now shape a row through one mapper.
     - `app/utils/queue-service.php` — attribution. `room_id_for_machine:435` takes the first `publish`/`draft` room with the machine id, ignoring `available` (S1.3). `resolve_player_for_machine:386` runs `sync_turn` before answering, and a last declared coin closes the turn on the spot (`consume_coin:237-240`), so a payout landing after it goes to the **next** head, or to nobody. `sync_turn` was the §15 race; **settled S2.5** — `open_room_id` under `UNIQUE KEY open_room` makes the database refuse a second open session and a lost race adopt the winner's. Hooks `:496-497`.
     - `app/utils/machine-service.php` — sensor reads. `get_coin_count:61` documented cumulative; `get_relay_closed:76` reads `sensor.relay_on` via `normalise_truthy:248`, which takes the idle `1` as "closed"; `HTTP_TIMEOUT:30`; `is_online:115`. S1.2 settles the model; S1.4, S2.3, S3.1.
     - `app/utils/cli/machine-ingest.php` — today's only producer; calls all three ingest methods (`:50-58`), so S1.4's change to `ingest_coins_dropped` reaches it.
-    - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:155`. S2.3, S3.2.
+    - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:223`. S2.3. **S3.2 does not touch it:** the toss row it already writes carries the player, the room and the session, which is everything the watch needs, so nothing was added to the path a player waits on.
     - `app/rest-api/AdminRoomController.php` — `create_room:105` and `update_room:135` both write status and machine id in `write_room_meta:352`: where S1.3's refusal goes.
-    - `app/utils/install-schema.php` — `DB_VERSION:15` (`1.9.0`), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/install-schema.php` — `DB_VERSION` is `1.16.0` since S3.3 (`1.9.0` at the audit), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/wallet-service.php` — the money tables' only owner. **S3.3, additive:** `pending_withdrawal_summary()`, one read-only aggregate over `type = withdraw AND status = pending` (count, oldest, its age, the total as a decimal string) for the backlog watch — no lock, no write, and the age taken through `current_time( 'mysql' )` on both sides because `created_at:396` is site-local, not UTC. Nothing else here changes: `realtime` still only *calls* `credit_lot:256`.
     - `app/utils/rate-limiter.php` — `check:21`; `client_ip:42` trusts `X-Forwarded-For` (review item 5, open), so S1.4 must not key the ingest limit on the caller's IP alone.
     - `app/utils/audit-log.php` — `record:21` into `wp_pc_auth_audit_log`, insert unchecked. S1.4 audits every call; Sprint 3 reads it.
     - `app/utils/room-schedule-calculator.php` — `compute:43`, site timezone: how S3.1 tells the daily power-off from an outage.
@@ -77,12 +78,13 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
 - **Conflicts with the siblings' invariants:**
   - `core` 2 / root invariant 8 (`Machine_Service` is the only caller of Home Assistant): S1.5's WebSocket-worker option would be a second client outside WordPress; the HA-automation option (HA calls WordPress) is not. S1.2's entry answers it if it picks the worker.
   - `core` 3 (one open session per room makes a payout attributable): **enforced since S2.5** — `wp_pc_bet_sessions.open_room_id` under `UNIQUE KEY open_room`, plus a one-off cleanup of the sessions the race left open and `wp pc queue-sessions` to see the state of it. The head's `session_id` and the room's open session are now kept identical, which is the half that made the race cost money. Still true: the last-coin handover above sends a late payout to the next player, against the Sprint 1 goal "the player who holds the turn". **No step names it**; S1.2's latency says how often it bites.
-  - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`). `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
+  - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`) and, since S3.3, *reads* the withdrawal half of `wp_pc_transactions` through `pending_withdrawal_summary()` — which filters on `type = withdraw`, so `stripe`'s top-ups are outside it. `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
 
 ## Data
 Owns no table. It writes `wp_pc_machine_events` **only through
 `Machine_Ingest_Service`** — the row shape and its `event_key` unique index belong
-to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes them:
+to `core` (`docs/DATA-MODEL.md`). Since S3.2 it writes one type of its own there,
+`toss_no_movement`, through the same door and with no coins on it. Owns these keys, and no other feature writes them:
 - WP options `pc_realtime_*` — channel name, alert thresholds and windows, any
   transport setting the spike's choice needs. Defaults seeded by `Install_Schema`.
   Shipped so far: `pc_realtime_ingest_rate_max` (120) and
@@ -93,8 +95,18 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   (S1.5), plus `pc_realtime_poll_last_run`, written at runtime rather than seeded,
   and `pc_realtime_relay_state` (S2.3), also written at runtime and only when the
   relay actually moves — the last known lock state the room screen paints with;
-  and `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
-  (3600), the push channel (S2.1).
+  `pc_realtime_channel_prefix` (`'pc'`) and `pc_realtime_token_ttl_seconds`
+  (3600), the push channel (S2.1); and `pc_realtime_alert_email` (`''`, falling back
+  to `pc_support_email` then `admin_email`) with `pc_realtime_outage_grace_seconds`
+  (300), operator alerts (S3.1), plus `pc_realtime_outage_state`, written at runtime
+  only while the machine is unreachable and deleted on recovery; and
+  `pc_realtime_toss_window_seconds` (30) with `pc_realtime_toss_max_age_seconds`
+  (604800), the toss watch (S3.2), plus `pc_realtime_toss_cursor`, written at runtime and
+  holding the `created_at` of the last toss judged; and
+  `pc_realtime_withdrawal_alert_count` (10), `pc_realtime_withdrawal_alert_age_seconds`
+  (86400) and `pc_realtime_withdrawal_alert_period_seconds` (86400), the withdrawal backlog
+  (S3.3), plus `pc_realtime_withdrawal_alert_state`, written at runtime only when the backlog
+  crosses or clears — and holding the `last_alert_at` the period is measured from.
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
@@ -139,8 +151,28 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
    backfill and an audit row, never silence. The poller reads Home Assistant only
    through `Machine_Service` and delivers only through `POST /machine/events` — it
    is a client of that door, not a way around it.
+8. **An alert is never raised for a machine that is merely switched off.** Power is a
+   hand at the venue and the machine is off most of the day, so unreachable on its own
+   is not a fault. An outage becomes an **incident** only after it outlives
+   `pc_realtime_outage_grace_seconds`, and an incident is **notified** only while the
+   room carrying that machine is inside a `wp_pc_room_schedules` window; a machine no
+   room claims is recorded and never notified, because without a schedule an evening
+   and a fault are the same reading. And an alert never blocks, delays or fails what
+   raised it — the rule publishing already follows (#2): `Realtime_Alerts::send()`
+   returns a bool on every path including the ones that caught a `Throwable`, and an
+   install with no address is a silent no-op.
+9. **An operator alert fires once per thing, and never faster than its period.** Every
+   alarm this feature raises latches on the fact it reports — an outage incident, a
+   withdrawal backlog — and stays quiet until that fact goes away and comes back; the
+   clearing is audited, and it is what arms the next alert. Where a period also applies
+   (`pc_realtime_withdrawal_alert_period_seconds`) both gates must open, so the quieter
+   rule always wins. A suppressed crossing is **delayed, not dropped**: the watch keeps
+   looking and alerts on the first pass that is allowed to. And the latch records the
+   decision to alert, never the delivery — a mailer that is refusing everything must not
+   become one attempt a minute.
 
 ## Interfaces
+
 - `POST /pc/v1/machine/events` — the ingest endpoint, whatever transport calls it.
   Shipped S1.4: `type` (`coins_dropped` | `bonus` | `relay_closed`), `event_key`,
   `machine_id`, plus `coins` or `bonus_number`; answers 200 with a `status`
@@ -165,6 +197,59 @@ to `core` (`docs/DATA-MODEL.md`). Owns these keys, and no other feature writes t
   what the read already gives away.** `GET /rooms/{id}/messages` is public, so a chat
   body gives nothing away; `GET /rooms/{id}/queue` is play-ready gated, so a queue
   entry may not travel at all.
+- **`Realtime_Outage_Watch`** (S3.1) — the second watch on the same poll pass, and the
+  one that answers "is Home Assistant answering at all?" through
+  `Machine_Service::is_online()`, the 2-second probe `ROADMAP.md` Phase 5 §1 reserved
+  for this. It runs after the relay watch and outside the transport's guards, because
+  an operator most needs to hear about an outage on exactly the passes where the
+  transport cannot run. The typed `machine_offline` a sensor read may have produced is
+  recorded as corroboration, never as the decision — `machine_unavailable_state` means
+  Home Assistant answered and one entity is unhappy. "The absence of expected events"
+  is deliberately unused: a quiet machine is what an idle machine looks like. State
+  lives in `pc_realtime_outage_state`; the audit trail is `machine_outage_started`,
+  `machine_outage_notified` and `machine_outage_recovered`, the last carrying the
+  duration that gives an incident an end.
+- **`Realtime_Toss_Watch`** (S3.2) — the third watch on the same poll pass, and the one
+  that answers "did the machine act on the toss it answered 200 to?". Home Assistant
+  answers 200 to the *button press*, so `POST /rooms/{id}/play` cannot tell a real toss
+  from a swallowed one; this settles it afterwards, out of the player's request. It takes
+  each `toss` row whose `pc_realtime_toss_window_seconds` has elapsed, oldest first from
+  `pc_realtime_toss_cursor`, and reads `sensor.coin`'s history around it through
+  `Machine_Service`. **The evidence is the counter's reset, not the coins** — a pusher
+  pays nothing on most tosses, while the machine zeroes the counter within ~2 s of every
+  toss it accepts (`DECISIONS.md` 2026-09-18). A counter that stood above zero and never
+  moved is the finding: one `toss_no_movement` row naming the player, the turn
+  (`correlation_id`), the toss and the reading on both sides. A counter already at zero
+  cannot be judged at all — the reset re-writes a zero and Home Assistant records only
+  changes — so it is counted `unconfirmed`, never recorded, and a row always means one
+  thing. A failed read holds the cursor (invariant 7's rule); a toss past
+  `pc_realtime_toss_max_age_seconds` is retired `machine_toss_expired`. **It records and
+  does not notify:** the step asks for a record, and `Realtime_Alerts` is one call away
+  when a step asks for more.
+- **`Realtime_Withdrawal_Watch`** (S3.3) — the fourth watch on the same poll pass, and the
+  only one that is not about the machine at all. Money leaves this system only by hand, so a
+  pile of `pending` `withdraw` rows is an operator who has stopped looking, and **nothing
+  anywhere raises an error about it**: no failed call, no unhappy sensor, just players
+  waiting. It reads `Wallet_Service::pending_withdrawal_summary()` — one indexed aggregate,
+  no lock, no write — and alarms on either threshold: more than
+  `pc_realtime_withdrawal_alert_count` waiting, or an oldest older than
+  `pc_realtime_withdrawal_alert_age_seconds`. **Two gates, and an alert needs both:** the
+  latch (one alert per pile-up, cleared and re-armed by the backlog falling back under both
+  thresholds, audited `withdrawal_backlog_cleared`) and the period ceiling
+  (`pc_realtime_withdrawal_alert_period_seconds` since the last alert *sent*, remembered
+  across a clearing). Nothing reminds and nothing escalates; a crossing the ceiling
+  suppresses is delayed, not lost. It is on the poll pass because that is the only schedule
+  this product has on every host — a cron of its own would tick through WP-Cron only, i.e.
+  on exactly the installs that have no real cron.
+- **`Realtime_Alerts`** (S3.1) — the one door an operator notification leaves through,
+  for every alarm this feature raises. Plain-text email to `pc_realtime_alert_email`,
+  falling back to `pc_support_email` then `admin_email` (`DECISIONS.md` 2026-09-21):
+  the sprint text is right that an operator who does not read the support inbox gains
+  nothing from alerts landing in it, so the address is its own setting. One function
+  with one call site per alarm, which is what makes a second channel — Telegram, when
+  an account exists — a task rather than a rewrite. Whether `wp_mail` actually
+  delivers from the FTP shared host is **unproven**, for alerts and for the
+  support-ticket notifications that already depend on it.
 - **`Realtime_Relay_Watch`** (S2.3) — one read of `sensor.relay_on` per pass of the
   poll schedule, through `Machine_Service` like every other Home Assistant call. The
   relay carries no payout signal (`DECISIONS.md` 2026-09-18): it idles **closed** and

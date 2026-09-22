@@ -231,7 +231,11 @@ themes/pc/
 │   ├── realtime-queue.php   # `ddev wp eval-file` check: the queue rides the channel; the heartbeat holds a place and answers a version (DDEV only)
 │   ├── realtime-chat.php    # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
 │   ├── queue-sessions.php   # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
+│   ├── realtime-outage.php  # `ddev wp eval-file` check: the outage incident, its grace period and its window gate (DDEV only)
+│   ├── realtime-toss.php    # `ddev wp eval-file` check: a toss the machine did not act on, and the one it cannot be asked about (DDEV only)
+│   ├── realtime-withdrawals.php # `ddev wp eval-file` check: the backlog reading, its clock, and the two gates on its alert (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
+│   ├── stripe-webhook.php   # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
@@ -242,6 +246,10 @@ themes/pc/
     │   ├── machine-rooms-command.php # `wp pc machine-rooms` — machine ids held by more than one room
     │   ├── machine-poller.php        # Machine_Poller: polls HA history and delivers each payout to the ingest door
     │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
+    │   ├── outage-watch.php          # Realtime_Outage_Watch: is the machine answering? Unreachable inside a broadcast window is an incident
+    │   ├── toss-watch.php            # Realtime_Toss_Watch: did the machine act on the toss it answered 200 to? The counter's reset is the evidence
+    │   ├── withdrawal-watch.php      # Realtime_Withdrawal_Watch: is anybody waiting to be paid? One alert per pile-up, one per period
+    │   ├── alerts.php                # Realtime_Alerts: the one door an operator notification leaves through
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
     │   ├── channels.php              # Realtime_Channels: the one place channel names are built
@@ -443,6 +451,63 @@ or an unreadable history stops that pass and the relay is still watched, and a r
 that cannot be read stops nothing and leaves the cached state alone, because an
 unreadable relay is not a locked one. One extra state read a minute, no second
 schedule, nothing new to deploy.
+
+**The operator hears about a fault before a player does — FIXED, `realtime` Sprint 3
+Step 1.** The same poll pass asks Home Assistant whether it is answering at all
+(`Machine_Service::is_online()`, a 2-second probe of the HA root) and
+`Realtime_Outage_Watch` (`app/realtime/outage-watch.php`) decides what that means. The
+machine is switched off by hand at the venue every day, so unreachable is the normal
+state most of the time: the room's broadcast schedule (`wp_pc_room_schedules` through
+`Room_Schedule_Calculator`) is the gate. Unreachable past
+`pc_realtime_outage_grace_seconds` is an **incident**, recorded once as
+`machine_outage_started`; it is **notified** only while the room is inside a window, so
+the nightly power-off is written down and never sent, and an outage that runs into a
+window alerts when the window opens. Recovery writes `machine_outage_recovered` with the
+duration, which is what gives an incident an end. Delivery is one function,
+`Realtime_Alerts::send()` (`app/realtime/alerts.php`) — plain-text email to
+`pc_realtime_alert_email`, falling back to `pc_support_email` then `admin_email`
+(`DECISIONS.md` 2026-09-21). It runs next to the crediting path, so like publishing it
+is fire-and-forget: every failure is audited and swallowed, and an install with no
+address is a silent no-op. No second cron, no new dependency, no new secret.
+
+**And a toss the machine did not act on is written down — `realtime` Sprint 3 Step 2.**
+Home Assistant answers 200 to the toss *button*, not to the machine acting on it, so
+`POST /rooms/{id}/play` cannot tell a real toss from a swallowed one. The same poll pass
+settles it afterwards: `Realtime_Toss_Watch` (`app/realtime/toss-watch.php`) takes each
+`toss` row of `wp_pc_machine_events` whose `pc_realtime_toss_window_seconds` has elapsed
+and asks Home Assistant's history what `sensor.coin` did around it. The evidence is the
+**counter's reset** — the machine zeroes it within ~2 s of accepting a toss — not the
+coins, because a pusher pays nothing on most tosses. A counter that stood above zero and
+never moved is the machine answering and doing nothing: one `toss_no_movement` row naming
+the player, the session (`correlation_id`), the toss row and the reading on both sides,
+which is what a dispute is settled with. A counter already at zero cannot be judged at
+all — the reset would re-write a zero and Home Assistant records only changes — so it is
+counted, not recorded, and the row keeps meaning one thing. Nothing runs inside the
+player's request; a failed history read holds `pc_realtime_toss_cursor` and the next pass
+re-reads, and a toss older than `pc_realtime_toss_max_age_seconds` is retired
+`machine_toss_expired`. It records and does not notify: the sender above is one call away
+when a step asks for it.
+
+**And the one fault no machine will ever report — `realtime` Sprint 3 Step 3.** Money leaves
+this system only by hand: a player asks for a withdrawal, the coins leave their wallet there
+and then, and the row sits `pending` until somebody at the venue pays out and approves it in
+the admin **Withdrawals** screen. Nothing breaks when nobody looks — no error, no failed
+call, no unhappy sensor — the queue simply grows, and the first anyone hears of it is a
+support ticket from a player who has been waiting three days. `Realtime_Withdrawal_Watch`
+(`app/realtime/withdrawal-watch.php`) is the fourth watch on the same poll pass and reads
+`Wallet_Service::pending_withdrawal_summary()`, one indexed aggregate over the ledger: more
+than `pc_realtime_withdrawal_alert_count` waiting, **or** an oldest older than
+`pc_realtime_withdrawal_alert_age_seconds`, is the alarm. The age goes through
+`current_time( 'mysql' )` on both sides, because `created_at` is written in the site's local
+time and not UTC. **Two gates gate the alert and both must open:** the *latch*, one alert per
+pile-up until the backlog falls under both thresholds (`withdrawal_backlog_cleared`, which
+arms the next one), and the *period ceiling*,
+`pc_realtime_withdrawal_alert_period_seconds` since the last alert actually sent —
+remembered across a clearing, so a backlog hovering on the threshold cannot clear and
+re-cross its way into a stream of mail. Nothing reminds and nothing escalates; a crossing the
+ceiling suppresses is delayed and not lost, exactly as an outage that begins outside a
+broadcast window is. It has no cron of its own for the same reason the others do not, and it
+calls Home Assistant not at all.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`

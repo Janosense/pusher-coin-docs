@@ -59,6 +59,9 @@ same commit as this file. History:
 | 1.11.0 | `pc_realtime_poll_*` option defaults (the inbound transport) — no table change, same reason |
 | 1.12.0 | `pc_realtime_channel_prefix` and `pc_realtime_token_ttl_seconds` (the push channel) — no table change, same reason |
 | 1.13.0 | `open_room_id` + `UNIQUE KEY open_room` on `wp_pc_bet_sessions`, and the one-off migration that closes the sessions the duplicate-session race left open |
+| 1.14.0 | `pc_realtime_alert_email` and `pc_realtime_outage_grace_seconds` (operator alerts) — no table change; the bump is what makes `install_default_options()` run again on an existing install |
+| 1.15.0 | `pc_realtime_toss_window_seconds` and `pc_realtime_toss_max_age_seconds` (the toss watch) — no table change, same reason |
+| 1.16.0 | `pc_realtime_withdrawal_alert_count`, `…_age_seconds` and `…_period_seconds` (the withdrawal backlog watch) — no table change, same reason |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -191,9 +194,19 @@ Event types written today, by owning area:
 | machine (admin actions) | `machine_power_changed`, `machine_bonus_map_updated` |
 | chat | `chat_message_moderated`, `chat_user_muted` |
 | support | `support_ticket_created`, `support_ticket_updated`, `support_subjects_updated`, `support_captcha_updated` |
+| realtime — the transport | `machine_poll_unconfigured`, `machine_poll_cursor_missing`, `machine_poll_cursor_unreadable`, `machine_poll_cursor_clamped`, `machine_poll_read_failed`, `machine_poll_delivery_stopped` |
+| realtime — the machine's state | `machine_relay_read_failed`, `machine_outage_started`, `machine_outage_notified`, `machine_outage_recovered`, `machine_toss_read_failed`, `machine_toss_expired` |
+| realtime — the push channel | `realtime_publish_failed` |
+| realtime — operator alerts | `operator_alert_sent`, `operator_alert_failed` |
+| realtime — the withdrawal backlog | `withdrawal_backlog_alerted`, `withdrawal_backlog_cleared` |
+| queue | `queue_session_orphan_closed`, `queue_session_index_missing`, `queue_session_migration_failed` |
 
 Machine *events* (tosses, drops, bonuses) do not go here — they have their own table.
 Adding an event type is a code change in the owning controller plus a row above.
+The five rows below `support` were added at once by `realtime` Sprint 3 Step 1: the
+transport (S1.5), the relay watch (S2.3) and the session cleanup (S2.5) had all been
+writing undocumented types, because nothing in the close checklist owns this table
+(`LEARNINGS.md` 2026-09-21).
 
 ### `wp_pc_room_schedules`
 
@@ -283,7 +296,7 @@ backend mediates. Written through `Machine_Event_Log`, never directly.
 ```
 id             BIGINT   PK
 machine_id     VARCHAR(64)  NOT NULL DEFAULT ''
-event_type     VARCHAR(32)        -- toss|coins_dropped|bonus|relay_closed|offline
+event_type     VARCHAR(32)        -- toss|coins_dropped|bonus|relay_closed|offline|toss_no_movement
 event_key      VARCHAR(191) NULL  -- UNIQUE; idempotency guard
 user_id        BIGINT   NULL      -- player credited, NULL when unattributed
 coins_credited INT      NOT NULL DEFAULT 0
@@ -306,16 +319,31 @@ created_at     DATETIME(6)        -- microsecond precision for ordering
   `machine_event_write_failed` (500); the audit-only path (`log_event()`) reports it as a
   flag, because its caller has already tossed a real coin by then. `record()` still returns
   0 for both and stays for callers that do not care which.
+- **`toss_no_movement` is a finding, not a report from the machine.** Every other type
+  describes something the machine did; this one describes something it did *not* do —
+  a toss it answered 200 to and then did not act on, found by `Realtime_Toss_Watch`
+  (`realtime` Sprint 3 Step 2) by asking Home Assistant's history what the coin counter
+  did in the `pc_realtime_toss_window_seconds` after the toss. It is written only when
+  the counter stood above zero at the toss and never moved: the machine resets the
+  counter to 0 within ~2 s of accepting one, and a toss at a counter already showing 0
+  re-writes 0, which Home Assistant does not record at all (`DECISIONS.md` 2026-09-18).
+  So a toss that cannot be judged is counted and not recorded — a row here always means
+  the same thing. `event_key` is `toss:{toss row id}:no-movement`, `user_id` the player,
+  `correlation_id` the session, and the payload carries the room, the session, the toss
+  row, the window and the counter's reading on both sides of it. The ingest endpoint's
+  `type` enum does **not** accept it: no outside caller may file a finding about a toss.
 - **Machine credits do not write `wp_pc_transactions`.** They insert a coin lot and
   move `balance_coins`; this table is their audit trail. The ledger stays the money
   trail, which is what the player's history view shows. Payouts are priced at the
   player's FIFO-head lot price — the price of the next coin they would spend —
   falling back to `pc_coin_price_default` for an empty wallet
   (`Machine_Ingest_Service::payout_unit_price`).
-- `correlation_id` is only passed through from the ingest `$context` and no caller
-  supplies it, so it is NULL on every row. The event → session link is recorded on
-  the *session* side instead. The column stays reserved for a transport that wants a
-  row-level back-reference.
+- `correlation_id` holds `wp_pc_bet_sessions.id` — the turn an event belongs to. It is
+  passed through from the ingest `$context` by both `settle()` and `log_event()`, and
+  since `realtime` Sprint 3 Step 2 one caller supplies it: a `toss_no_movement` row
+  carries the session the disputed toss was part of, so the record can be read back
+  against the turn without parsing the payload. Every other row still has it NULL, and
+  the event → session link for those is recorded on the *session* side.
 
 ### `wp_pc_bet_sessions`
 
@@ -517,7 +545,27 @@ at `pc_db_version` `1.11.0`. WordPress polls Home Assistant's history for what
 | `pc_realtime_poll_machine_id` | string | `''` | Which machine the polled events carry, matched against rooms' `pc_room_machine_id` to find the player holding the turn. **Required:** while it is empty the poller records `machine_poll_unconfigured`, holds its cursor and credits nothing, rather than logging every real payout as belonging to nobody. |
 | `pc_realtime_poll_backfill_seconds` | int | `3600` | How far back a poller with no cursor looks — the first run ever, or after an evicted object cache. Bounded on purpose: a cursorless read of the whole ten-day retention would spend the ingest rate limit re-delivering events credited long ago (they would all answer `already_recorded`, but the window would be gone). Floors at 60. |
 | `pc_realtime_poll_last_run` | array | *(unset)* | **Written at runtime, not seeded.** The last pass's finish time, row and delivery counts, stop reason and what the relay watch saw — how "is the schedule actually ticking?" and "is the machine in service?" get answered on a host where nobody has a shell. |
+| `pc_realtime_outage_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'down_since' => ISO, 'failures' => int, 'incident_at' => ?ISO, 'notified' => bool, 'code' => ?string ]` — the machine's current outage, or absent when it is answering. Written only while something is wrong and **deleted** on recovery, so a working machine costs no write per pass. `incident_at` is set once the outage outlives `pc_realtime_outage_grace_seconds`; `notified` is a separate fact from `incident_at`, because an outage that starts outside a broadcast window and is still there when one opens is alerted then, not when it began. |
 | `pc_realtime_relay_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'locked' => bool, 'at' => ISO-8601 ]` — the last known state of `sensor.relay_on`, written only when it *changes*, so a machine that is simply working costs no write per pass. It is what `GET /rooms/{id}/queue` answers `machine_locked` from, so the room screen needs no Home Assistant call. Rebuildable by definition (the next pass re-reads the machine) and **never the authority for a toss**, which reads Home Assistant itself. Unset means unlocked. |
+| `pc_realtime_toss_window_seconds` | int | `30` | How long after a toss the coin counter is given to move before the toss is judged. Sized from the spike (`DECISIONS.md` 2026-09-18): the machine resets the counter 0.09–1.98 s after accepting a toss, the first coin of a payout landed 1–12 s after the press, and a payout kept counting for up to ~20 s. Floors at 5. A desk guess with a margin, and an option so the venue can widen it without a deploy. Seeded at `pc_db_version` `1.15.0`. |
+| `pc_realtime_toss_max_age_seconds` | int | `604800` | How far back the watch will still judge a toss. Home Assistant keeps ten days of history, so beyond that there is nothing left to judge against and every old toss would read as a fault; seven days leaves the margin. A toss older than this is retired unjudged and audited `machine_toss_expired` — a gap that is written down, never silent. Floors at the window. Seeded at `pc_db_version` `1.15.0`. |
+| `pc_realtime_toss_cursor` | string | *(unset)* | **Written at runtime, not seeded.** The `created_at` (UTC, microseconds kept) of the last toss the watch judged; the next pass reads only what is newer. Unset means "start one `pc_realtime_toss_max_age_seconds` ago". It advances only past a toss actually judged, so a failed history read re-reads the same toss on the next pass; and because every record carries `event_key` `toss:{id}:no-movement`, even a rewound cursor cannot write a second row for one toss. |
+
+**Realtime — operator alerts.** Owned by `realtime`; seeded by `Install_Schema` at
+`pc_db_version` `1.14.0`. One channel for every alarm the feature raises, decided once
+(`DECISIONS.md` 2026-09-21): plain-text email through `Realtime_Alerts::send()`. The
+`pc_realtime_*` prefix rather than a new `pc_alert_*` namespace because `realtime` owns
+the sender, even where the thing it reports on (Sprint 3 Step 3's withdrawals) belongs
+to `core`.
+
+| Option key | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `pc_realtime_alert_email` | string | `''` | Where operator alerts go. Empty falls back to `pc_support_email`, then to `admin_email`, then to nothing at all — a fresh install still reaches somebody, and an operator who does not read the support inbox can point alerts elsewhere without redirecting support mail with them. An address that is not a valid email is skipped rather than attempted. |
+| `pc_realtime_outage_grace_seconds` | int | `300` | How long the machine must stay unreachable before it is an incident rather than a blip — five passes of the 60-second poll. Below it, a failed probe is remembered and nothing else happens. Floors at 0, which makes the first failed pass an incident (what the checks use). A desk guess, to be tuned after a week of real traffic. |
+| `pc_realtime_withdrawal_alert_count` | int | `10` | More than this many `pending` `withdraw` rows in `wp_pc_transactions` raises the backlog alert. Strictly greater, as the sprint words it ("exceed a configured count"). `0` switches this threshold off. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_age_seconds` | int | `86400` | Or an oldest pending withdrawal older than this — a day. Either threshold alone is enough. One player may have one request open at a time (`DOMAIN.md`), so this reads "somebody has been waiting a whole day to be paid". The age is computed through `current_time( 'mysql' )` on both sides, because `created_at` is written in the site's local time, not UTC. `0` switches this threshold off; with both at `0` the watch reports `disabled` and does nothing. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_period_seconds` | int | `86400` | The hard ceiling: at most one withdrawal alert per this many seconds, counted from the last one **sent** and remembered across a clearing. It is a second gate, not a replacement for the once-per-crossing latch — both must allow an alert for one to go out, so a backlog hovering on the threshold cannot clear and re-cross its way into a stream of mail. Nothing re-sends or escalates while a backlog persists. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'alerting' => bool, 'alerted_at' => ?ISO, 'last_alert_at' => ?ISO, 'count' => int, 'oldest_age' => ?int ]` — whether the backlog is currently latched, and when the last alert actually went out. Written only when something changes (a crossing, a clearing), so an install with a healthy queue costs no write per pass. `last_alert_at` deliberately **survives** a clearing: it is what the period ceiling is measured from. Deleting the option re-arms the alert immediately, which is how a check or an operator forces one. |
 
 **Realtime — the push channel out to the browsers.** Owned by `realtime`; seeded by
 `Install_Schema` at `pc_db_version` `1.12.0`. WordPress publishes machine events to

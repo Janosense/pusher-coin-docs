@@ -19,7 +19,7 @@
 
 ## Steps
 
-### [ ] Step 1 — The machine is unreachable during a broadcast window
+### [x] Step 1 — The machine is unreachable during a broadcast window
 - **Tasks:**
   - Decide the delivery channel and record it as a `DECISIONS.md` entry before writing code: email to `pc_support_email` reuses what `Support_Service` already does, but an operator who does not read that inbox gains nothing. The step plan puts the question to the user.
   - Detect the transition to unreachable from what already exists — `Machine_Service::is_online()`, the typed `machine_offline` errors, the absence of expected events — **and gate it on the room's current schedule window**: unreachable outside a window is the daily power-off and is recorded, not alerted.
@@ -29,7 +29,7 @@
 - **Docs to update:** `docs/DECISIONS.md` (the delivery channel); `docs/DATA-MODEL.md` (new audit event types, new options); `docs/ARCHITECTURE.md` (the alerting flow).
 - **Depends on:** —
 
-### [ ] Step 2 — A toss that moved nothing
+### [x] Step 2 — A toss that moved nothing
 - **Tasks:**
   - After a successful toss, the coin sensor is expected to move within a bounded window, as Sprint 1 Step 2 measured. If it does not, record it — the machine answered 200 but nothing physical happened, which is the case a player will dispute.
   - The window and the threshold are configuration, not constants.
@@ -39,7 +39,7 @@
 - **Docs to update:** `docs/DATA-MODEL.md` (the options and the event type); `docs/DOMAIN.md` if this gives the operator a term they use.
 - **Depends on:** Step 1
 
-### [ ] Step 3 — Withdrawals piling up
+### [x] Step 3 — Withdrawals piling up
 - **Tasks:**
   - Alert when pending withdrawals exceed a configured count, or when the oldest pending one exceeds a configured age. Both thresholds are configuration.
   - Alert at most once per period, so a busy day does not become a stream of notifications; re-alert only after dropping below and crossing again.

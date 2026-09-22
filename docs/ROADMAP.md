@@ -337,19 +337,32 @@ thin backend service so the rest of the app never talks to it directly.
      profile page).
    - **Still open:** what a bonus looks like, and whether its coins also
      pass through `sensor.coin`. No bonus was seen in ten days.
-7. **Machine-event channel** `[todo]` — websocket / SSE feed from the backend
-   so the SPA reflects coin drops, bonus events, and relay state without
-   polling. Ably, decided 2026-09-15; `realtime` Sprint 2 builds it.
+7. **Machine-event channel** `[done]` — *re-tagged 2026-09-22 by `realtime`
+   Sprint 3 Step 3, which re-read this phase against reality as its own
+   step text asks. The item had said `[todo]` through all five steps of
+   Sprint 2, which built it.* Ably, decided 2026-09-15.
    **The inbound half is no longer part of this item:** events reach
    WordPress by themselves as of `realtime` Sprint 1 Step 5 (§3
-   *Crediting*). What is still open here is the *outbound* half — pushing
-   them to the browser instead of the SPA's 3-second polls.
+   *Crediting*). The outbound half is Sprint 2: `Realtime_Publisher`
+   posts a `credit` to the room's channel after the wallet has moved
+   (S2.1), `GET /realtime/token` hands a signed-in SPA a scoped pass and
+   never the key (S2.1), the queue store subscribes and keeps the 3-second
+   poll only as a fallback (S2.2), the relay lock travels the same channel
+   (S2.3), and chat and moderation ride one connection with it (S2.4).
+   **Caveat, and it is a large one: no Ably account has ever existed.**
+   Every publish in five steps ran against a stub, the two-browser checks
+   have never been run, and the concurrency ceiling in `TECH-STACK.md` is
+   arithmetic rather than an observation. The code is written and checked;
+   the channel has never carried a real message.
 
 Exit criteria: the backend mediates every machine call, players see
-real-time machine events, and bonuses settle automatically. **Met except
-for "real-time" in the browser**: events now arrive from the machine on
-their own and settle to the right player within about 65 s, but the SPA
-still learns about it by polling — §7 is what closes that.
+real-time machine events, and bonuses settle automatically. **Met in the
+code, unobserved end to end.** Events arrive from the machine on their own
+and settle to the right player within about 65 s, and the browser is
+pushed to rather than polling — but the push has never run against a real
+Ably app, and no bonus has ever been seen (§6), so "bonuses settle
+automatically" rests on the map being right about a payout nobody has
+watched. Both are named in the `realtime` worklog entries as open.
 
 ---
 
@@ -465,13 +478,39 @@ Customer-facing support form and the admin tooling around it.
    "aggregate everything into one operations dashboard" half is not
    done — machine, withdrawals, pricing, and schedules remain separate
    views.
-4. **Ops alerts** `[todo]` — alert when machine offline, when coin sensor
-   doesn't change after a toss, when an unusual number of withdrawals queue
-   up. Blocked on Phase 5 Step 6/7: "machine offline" and "sensor didn't
-   move" are only observable once events (or polls) actually arrive.
+4. **Ops alerts** `[done]` — *re-tagged 2026-09-22 by `realtime` Sprint 3,
+   which built all three.* The block was real: nothing could be observed
+   until events arrived by themselves, which Sprint 1 Step 5 fixed.
+   - *Machine offline* `[done]` — `Realtime_Outage_Watch` (S3.1). One
+     email per incident, and **only while the room carrying that machine
+     is inside a broadcast window**: the machine is switched off by hand
+     every evening (`DECISIONS.md` 2026-09-18), so an alert on silence
+     alone would fire nightly and be ignored within a week. Outside a
+     window it is recorded and nobody is disturbed.
+   - *The coin sensor did not change after a toss* `[done]`, with one
+     honest limit — `Realtime_Toss_Watch` (S3.2). It is a **record**, not
+     an alert: one `toss_no_movement` row naming the player, the turn, the
+     toss and the counter on both sides, which is what answers a dispute.
+     A toss at a counter already reading 0 cannot be judged at all and is
+     counted rather than written down (`DECISIONS.md` 2026-09-21).
+   - *An unusual number of withdrawals queued up* `[done]` —
+     `Realtime_Withdrawal_Watch` (S3.3). Either too many waiting or one
+     waiting too long; one alert per pile-up and never more than one per
+     period (`DECISIONS.md` 2026-09-22).
+   All three ride the poll pass that already exists — no new cron, no new
+   dependency, no new secret — and leave through one sender,
+   `Realtime_Alerts`, so a second channel (Telegram) is a task rather than
+   a rewrite. **Caveat:** whether `wp_mail` delivers from the production
+   FTP host is still unproven, for these and for the support-ticket
+   notifications that already depend on it, and `pc_realtime_alert_email`
+   must be set by hand there or alerts land in the support inbox these
+   exist to stop depending on.
 
 Exit criteria: support tickets flow into the admin, machine and revenue
 events are observable, and the admin can run the business day-to-day.
+**Met except for the aggregated view** — §3's operations dashboard is
+still five separate screens, and is a future `ops` feature rather than a
+gap in this phase.
 
 ---
 
@@ -512,7 +551,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 3 | Player account page | 2 |
 | 4 | Guest main screen / room schedule | 3 |
 | 5 | Player main screen | 6 |
-| 6 | Physical machine integration | 5 — step 3 crediting closed 2026-09-21 by the `realtime` ingest endpoint + transport; step 4 closed by Phase 6; **step 5 closed 2026-09-21** by `realtime` Sprint 2 Step 3, which also corrected an inverted server-side lock that refused every toss; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); 7 open — inbound done, browser push is `realtime` Sprint 2 |
+| 6 | Physical machine integration | 5 — step 3 crediting closed 2026-09-21 by the `realtime` ingest endpoint + transport; step 4 closed by Phase 6; **step 5 closed 2026-09-21** by `realtime` Sprint 2 Step 3, which also corrected an inverted server-side lock that refused every toss; 6 partial (replaced by the `realtime` spike 2026-09-18; the bonus is unobserved); **step 7 closed 2026-09-22** — inbound by Sprint 1, the browser push by all five steps of Sprint 2, with no Ably account ever created |
 | 7 | Queue UX | 6 — done |
 | 8 | Coin pricing & wallet | 4 |
 | 9 | Guest can browse rooms | 3 |
@@ -523,7 +562,7 @@ Cross-cutting items that keep cropping up but don't fit a single phase.
 | 14 | Verification gates play / top-up | 2 |
 | 15 | Player transaction history (data) | 4 |
 | 16 | History view (top-ups & withdrawals only) | 4 |
-| 17 | Support form + admin subjects | 7 |
+| 17 | Support form + admin subjects | 7 — the form and the subject list are done; **§4 ops alerts closed 2026-09-22** by `realtime` Sprint 3 (machine offline, a toss that moved nothing, withdrawals piling up), all by email through one sender. The aggregated operations dashboard remains a future `ops` feature |
 
 ---
 
