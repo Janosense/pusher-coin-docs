@@ -232,7 +232,10 @@ themes/pc/
 │   ├── realtime-chat.php    # `ddev wp eval-file` check: chat rides the channel; moderation travels as an id and a state (DDEV only)
 │   ├── queue-sessions.php   # `ddev wp eval-file` check: one open bet session per room, enforced; the orphan cleanup (DDEV only)
 │   ├── realtime-outage.php  # `ddev wp eval-file` check: the outage incident, its grace period and its window gate (DDEV only)
+│   ├── realtime-toss.php    # `ddev wp eval-file` check: a toss the machine did not act on, and the one it cannot be asked about (DDEV only)
+│   ├── realtime-withdrawals.php # `ddev wp eval-file` check: the backlog reading, its clock, and the two gates on its alert (DDEV only)
 │   ├── stripe-client.php    # `ddev wp eval-file` check: kopiyka conversion, mode / configuration, webhook signature scheme (DDEV only)
+│   ├── stripe-webhook.php   # `ddev wp eval-file` check: settlement, replay, signatures, amount mismatch, expiry (DDEV only)
 │   └── wallet-rollback.php  # `ddev wp eval-file` check: every Wallet_Service write failure rolls back (DDEV only)
 └── app/
     ├── rest-api.php         # Wires controllers into `rest_api_init`
@@ -245,6 +248,7 @@ themes/pc/
     │   ├── relay-watch.php           # Realtime_Relay_Watch: reads the relay once per pass, announces a change, caches the state
     │   ├── outage-watch.php          # Realtime_Outage_Watch: is the machine answering? Unreachable inside a broadcast window is an incident
     │   ├── toss-watch.php            # Realtime_Toss_Watch: did the machine act on the toss it answered 200 to? The counter's reset is the evidence
+    │   ├── withdrawal-watch.php      # Realtime_Withdrawal_Watch: is anybody waiting to be paid? One alert per pile-up, one per period
     │   ├── alerts.php                # Realtime_Alerts: the one door an operator notification leaves through
     │   ├── machine-poll-command.php  # `wp pc machine-poll` — one pass by hand; `--dry-run` reads without crediting
     │   ├── queue-sessions-command.php # `wp pc queue-sessions` — open bet sessions, duplicates, and whether the unique key is in place
@@ -483,6 +487,27 @@ player's request; a failed history read holds `pc_realtime_toss_cursor` and the 
 re-reads, and a toss older than `pc_realtime_toss_max_age_seconds` is retired
 `machine_toss_expired`. It records and does not notify: the sender above is one call away
 when a step asks for it.
+
+**And the one fault no machine will ever report — `realtime` Sprint 3 Step 3.** Money leaves
+this system only by hand: a player asks for a withdrawal, the coins leave their wallet there
+and then, and the row sits `pending` until somebody at the venue pays out and approves it in
+the admin **Withdrawals** screen. Nothing breaks when nobody looks — no error, no failed
+call, no unhappy sensor — the queue simply grows, and the first anyone hears of it is a
+support ticket from a player who has been waiting three days. `Realtime_Withdrawal_Watch`
+(`app/realtime/withdrawal-watch.php`) is the fourth watch on the same poll pass and reads
+`Wallet_Service::pending_withdrawal_summary()`, one indexed aggregate over the ledger: more
+than `pc_realtime_withdrawal_alert_count` waiting, **or** an oldest older than
+`pc_realtime_withdrawal_alert_age_seconds`, is the alarm. The age goes through
+`current_time( 'mysql' )` on both sides, because `created_at` is written in the site's local
+time and not UTC. **Two gates gate the alert and both must open:** the *latch*, one alert per
+pile-up until the backlog falls under both thresholds (`withdrawal_backlog_cleared`, which
+arms the next one), and the *period ceiling*,
+`pc_realtime_withdrawal_alert_period_seconds` since the last alert actually sent —
+remembered across a clearing, so a backlog hovering on the threshold cannot clear and
+re-cross its way into a stream of mail. Nothing reminds and nothing escalates; a crossing the
+ceiling suppresses is delayed and not lost, exactly as an outage that begins outside a
+broadcast window is. It has no cron of its own for the same reason the others do not, and it
+calls Home Assistant not at all.
 
 **And out to the browsers.** `Machine_Ingest_Service` fires
 `pc_machine_event_credited` once the wallet has moved; `Realtime_Publisher`

@@ -61,6 +61,7 @@ same commit as this file. History:
 | 1.13.0 | `open_room_id` + `UNIQUE KEY open_room` on `wp_pc_bet_sessions`, and the one-off migration that closes the sessions the duplicate-session race left open |
 | 1.14.0 | `pc_realtime_alert_email` and `pc_realtime_outage_grace_seconds` (operator alerts) — no table change; the bump is what makes `install_default_options()` run again on an existing install |
 | 1.15.0 | `pc_realtime_toss_window_seconds` and `pc_realtime_toss_max_age_seconds` (the toss watch) — no table change, same reason |
+| 1.16.0 | `pc_realtime_withdrawal_alert_count`, `…_age_seconds` and `…_period_seconds` (the withdrawal backlog watch) — no table change, same reason |
 
 **Meta-key registries.** A meta key is never a string literal. User meta comes from
 `User_Meta_Keys` (`app/utils/user-meta-keys.php`), `pc_room` meta from
@@ -197,6 +198,7 @@ Event types written today, by owning area:
 | realtime — the machine's state | `machine_relay_read_failed`, `machine_outage_started`, `machine_outage_notified`, `machine_outage_recovered`, `machine_toss_read_failed`, `machine_toss_expired` |
 | realtime — the push channel | `realtime_publish_failed` |
 | realtime — operator alerts | `operator_alert_sent`, `operator_alert_failed` |
+| realtime — the withdrawal backlog | `withdrawal_backlog_alerted`, `withdrawal_backlog_cleared` |
 | queue | `queue_session_orphan_closed`, `queue_session_index_missing`, `queue_session_migration_failed` |
 
 Machine *events* (tosses, drops, bonuses) do not go here — they have their own table.
@@ -560,6 +562,10 @@ to `core`.
 | --- | --- | --- | --- |
 | `pc_realtime_alert_email` | string | `''` | Where operator alerts go. Empty falls back to `pc_support_email`, then to `admin_email`, then to nothing at all — a fresh install still reaches somebody, and an operator who does not read the support inbox can point alerts elsewhere without redirecting support mail with them. An address that is not a valid email is skipped rather than attempted. |
 | `pc_realtime_outage_grace_seconds` | int | `300` | How long the machine must stay unreachable before it is an incident rather than a blip — five passes of the 60-second poll. Below it, a failed probe is remembered and nothing else happens. Floors at 0, which makes the first failed pass an incident (what the checks use). A desk guess, to be tuned after a week of real traffic. |
+| `pc_realtime_withdrawal_alert_count` | int | `10` | More than this many `pending` `withdraw` rows in `wp_pc_transactions` raises the backlog alert. Strictly greater, as the sprint words it ("exceed a configured count"). `0` switches this threshold off. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_age_seconds` | int | `86400` | Or an oldest pending withdrawal older than this — a day. Either threshold alone is enough. One player may have one request open at a time (`DOMAIN.md`), so this reads "somebody has been waiting a whole day to be paid". The age is computed through `current_time( 'mysql' )` on both sides, because `created_at` is written in the site's local time, not UTC. `0` switches this threshold off; with both at `0` the watch reports `disabled` and does nothing. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_period_seconds` | int | `86400` | The hard ceiling: at most one withdrawal alert per this many seconds, counted from the last one **sent** and remembered across a clearing. It is a second gate, not a replacement for the once-per-crossing latch — both must allow an alert for one to go out, so a backlog hovering on the threshold cannot clear and re-cross its way into a stream of mail. Nothing re-sends or escalates while a backlog persists. Seeded at `pc_db_version` `1.16.0`. |
+| `pc_realtime_withdrawal_alert_state` | array | *(unset)* | **Written at runtime, not seeded.** `[ 'alerting' => bool, 'alerted_at' => ?ISO, 'last_alert_at' => ?ISO, 'count' => int, 'oldest_age' => ?int ]` — whether the backlog is currently latched, and when the last alert actually went out. Written only when something changes (a crossing, a clearing), so an install with a healthy queue costs no write per pass. `last_alert_at` deliberately **survives** a clearing: it is what the period ceiling is measured from. Deleting the option re-arms the alert immediately, which is how a check or an operator forces one. |
 
 **Realtime — the push channel out to the browsers.** Owned by `realtime`; seeded by
 `Install_Schema` at `pc_db_version` `1.12.0`. WordPress publishes machine events to

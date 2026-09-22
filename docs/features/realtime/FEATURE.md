@@ -61,7 +61,8 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
     - `app/utils/cli/machine-ingest.php` — today's only producer; calls all three ingest methods (`:50-58`), so S1.4's change to `ingest_coins_dropped` reaches it.
     - `app/rest-api/RoomQueueController.php` — the toss: relay check → 423 (`:129-135`), debit, `toss_coin`, `refund():187` with its result ignored, toss logged `:223`. S2.3. **S3.2 does not touch it:** the toss row it already writes carries the player, the room and the session, which is everything the watch needs, so nothing was added to the path a player waits on.
     - `app/rest-api/AdminRoomController.php` — `create_room:105` and `update_room:135` both write status and machine id in `write_room_meta:352`: where S1.3's refusal goes.
-    - `app/utils/install-schema.php` — `DB_VERSION` is `1.15.0` since S3.2 (`1.9.0` at the audit), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/install-schema.php` — `DB_VERSION` is `1.16.0` since S3.3 (`1.9.0` at the audit), `install_default_options:253`. Seeds **no** `pc_machine_*` option: the bonus map, relay count and entity ids are code defaults, though TECH-STACK → ANTI-PATTERNS says they are seeded here. S1.4, S2.1, Sprint 3.
+    - `app/utils/wallet-service.php` — the money tables' only owner. **S3.3, additive:** `pending_withdrawal_summary()`, one read-only aggregate over `type = withdraw AND status = pending` (count, oldest, its age, the total as a decimal string) for the backlog watch — no lock, no write, and the age taken through `current_time( 'mysql' )` on both sides because `created_at:396` is site-local, not UTC. Nothing else here changes: `realtime` still only *calls* `credit_lot:256`.
     - `app/utils/rate-limiter.php` — `check:21`; `client_ip:42` trusts `X-Forwarded-For` (review item 5, open), so S1.4 must not key the ingest limit on the caller's IP alone.
     - `app/utils/audit-log.php` — `record:21` into `wp_pc_auth_audit_log`, insert unchecked. S1.4 audits every call; Sprint 3 reads it.
     - `app/utils/room-schedule-calculator.php` — `compute:43`, site timezone: how S3.1 tells the daily power-off from an outage.
@@ -77,7 +78,7 @@ beyond §10, §12 and §15, which goes through `/adhoc`. See Roadmap for where e
 - **Conflicts with the siblings' invariants:**
   - `core` 2 / root invariant 8 (`Machine_Service` is the only caller of Home Assistant): S1.5's WebSocket-worker option would be a second client outside WordPress; the HA-automation option (HA calls WordPress) is not. S1.2's entry answers it if it picks the worker.
   - `core` 3 (one open session per room makes a payout attributable): **enforced since S2.5** — `wp_pc_bet_sessions.open_room_id` under `UNIQUE KEY open_room`, plus a one-off cleanup of the sessions the race left open and `wp pc queue-sessions` to see the state of it. The head's `session_id` and the room's open session are now kept identical, which is the half that made the race cost money. Still true: the last-coin handover above sends a late payout to the next player, against the Sprint 1 goal "the player who holds the turn". **No step names it**; S1.2's latency says how often it bites.
-  - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`). `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
+  - `stripe`: none. `realtime` never writes the ledger or a transaction status; it only calls `Wallet_Service::credit_lot()` (`wallet-service.php:256`) and, since S3.3, *reads* the withdrawal half of `wp_pc_transactions` through `pending_withdrawal_summary()` — which filters on `type = withdraw`, so `stripe`'s top-ups are outside it. `stripe`'s FEATURE.md expects `realtime` in `stores/wallet.js` in "their Sprint 2"; no `realtime` step names that file — the path to it is `stores/queue.js`.
 
 ## Data
 Owns no table. It writes `wp_pc_machine_events` **only through
@@ -101,7 +102,11 @@ to `core` (`docs/DATA-MODEL.md`). Since S3.2 it writes one type of its own there
   only while the machine is unreachable and deleted on recovery; and
   `pc_realtime_toss_window_seconds` (30) with `pc_realtime_toss_max_age_seconds`
   (604800), the toss watch (S3.2), plus `pc_realtime_toss_cursor`, written at runtime and
-  holding the `created_at` of the last toss judged.
+  holding the `created_at` of the last toss judged; and
+  `pc_realtime_withdrawal_alert_count` (10), `pc_realtime_withdrawal_alert_age_seconds`
+  (86400) and `pc_realtime_withdrawal_alert_period_seconds` (86400), the withdrawal backlog
+  (S3.3), plus `pc_realtime_withdrawal_alert_state`, written at runtime only when the backlog
+  crosses or clears — and holding the `last_alert_at` the period is measured from.
 - Transients `pc_realtime_cursor_*` — last-seen sensor state; the spike picked
   polling, so `pc_realtime_cursor_sensor_coin` holds the `last_updated` of the last
   row delivered. Rebuildable; never a source of truth for money — `event_key` is.
@@ -156,8 +161,18 @@ to `core` (`docs/DATA-MODEL.md`). Since S3.2 it writes one type of its own there
    raised it — the rule publishing already follows (#2): `Realtime_Alerts::send()`
    returns a bool on every path including the ones that caught a `Throwable`, and an
    install with no address is a silent no-op.
+9. **An operator alert fires once per thing, and never faster than its period.** Every
+   alarm this feature raises latches on the fact it reports — an outage incident, a
+   withdrawal backlog — and stays quiet until that fact goes away and comes back; the
+   clearing is audited, and it is what arms the next alert. Where a period also applies
+   (`pc_realtime_withdrawal_alert_period_seconds`) both gates must open, so the quieter
+   rule always wins. A suppressed crossing is **delayed, not dropped**: the watch keeps
+   looking and alerts on the first pass that is allowed to. And the latch records the
+   decision to alert, never the delivery — a mailer that is refusing everything must not
+   become one attempt a minute.
 
 ## Interfaces
+
 - `POST /pc/v1/machine/events` — the ingest endpoint, whatever transport calls it.
   Shipped S1.4: `type` (`coins_dropped` | `bonus` | `relay_closed`), `event_key`,
   `machine_id`, plus `coins` or `bonus_number`; answers 200 with a `status`
@@ -211,6 +226,21 @@ to `core` (`docs/DATA-MODEL.md`). Since S3.2 it writes one type of its own there
   `pc_realtime_toss_max_age_seconds` is retired `machine_toss_expired`. **It records and
   does not notify:** the step asks for a record, and `Realtime_Alerts` is one call away
   when a step asks for more.
+- **`Realtime_Withdrawal_Watch`** (S3.3) — the fourth watch on the same poll pass, and the
+  only one that is not about the machine at all. Money leaves this system only by hand, so a
+  pile of `pending` `withdraw` rows is an operator who has stopped looking, and **nothing
+  anywhere raises an error about it**: no failed call, no unhappy sensor, just players
+  waiting. It reads `Wallet_Service::pending_withdrawal_summary()` — one indexed aggregate,
+  no lock, no write — and alarms on either threshold: more than
+  `pc_realtime_withdrawal_alert_count` waiting, or an oldest older than
+  `pc_realtime_withdrawal_alert_age_seconds`. **Two gates, and an alert needs both:** the
+  latch (one alert per pile-up, cleared and re-armed by the backlog falling back under both
+  thresholds, audited `withdrawal_backlog_cleared`) and the period ceiling
+  (`pc_realtime_withdrawal_alert_period_seconds` since the last alert *sent*, remembered
+  across a clearing). Nothing reminds and nothing escalates; a crossing the ceiling
+  suppresses is delayed, not lost. It is on the poll pass because that is the only schedule
+  this product has on every host — a cron of its own would tick through WP-Cron only, i.e.
+  on exactly the installs that have no real cron.
 - **`Realtime_Alerts`** (S3.1) — the one door an operator notification leaves through,
   for every alarm this feature raises. Plain-text email to `pc_realtime_alert_email`,
   falling back to `pc_support_email` then `admin_email` (`DECISIONS.md` 2026-09-21):

@@ -259,3 +259,161 @@ is a variable each check sets.
 - **(a) — recommended. Record only the case that is evidence; count the rest.** A `toss_no_movement` row is written only when the counter was non-zero at the toss and did not reset. The unobservable case is counted as `unconfirmed` in the pass summary and on `wp pc machine-poll --status`, so it is visible and never silent, but it puts no row on the file. This keeps the record meaning one thing — "the machine answered 200 and did not act" — which is the only version that settles a dispute. *The tasks above are written to this.* Honest cost: the check is blind on a run of fruitless tosses, and that blindness is a property of the machine, not of the code.
 - **(b) Record every toss with no movement, as the step reads literally.** One rule, no sub-cases, and nothing is ever missed. But at this venue's rhythm most tosses would carry a record, the type would become the most common row in `wp_pc_machine_events`, and a support answer built on it would be wrong more often than right — the alarm-every-evening failure, moved into a table.
 - **(c) Record both, distinguished by an `outcome` field in the payload.** Everything is on file and a dispute can be answered either way. It costs the same row volume as (b) and asks whoever reads the table to know which outcome means what; the ops dashboard that would make that legible is explicitly a future feature, not this sprint.
+
+---
+
+## Plan — Sprint 3, Step 3: Withdrawals piling up   (status: closed)
+
+### Branch
+`realtime/sprint-3-withdrawals` ← `realtime/sprint-3` ← `main`
+(git model in root `CLAUDE.md`. Read live at plan time: the sprint branch is docs `c466ca4`
+and backend `44128410`, Steps 1 and 2 both merged into it. The same branch name in
+`backend/` and the docs repository; `frontend/` (`main` `2d525d4`) and `admin/` are **not
+touched** — no screen, no REST response, no error code. **This is the last step of the
+sprint**, so its `/close-step` merges `realtime/sprint-3` into `main` in both repositories;
+the merge is local, and the backend deploy happens when the user pushes `main`.)
+
+### What is settled before this step starts
+- **Thresholds are configuration**, with defaults in `Install_Schema` — the sprint's Fixed decisions and root `CLAUDE.md` core rule 3.
+- **Alerting never blocks a money path** — `FEATURE.md` → Invariants #2. The watch runs on the poll pass, next to the crediting path, so every failure is audited and swallowed.
+- **The channel is email through `Realtime_Alerts::send()`** — `DECISIONS.md` 2026-09-21, decided in Step 1 before any alert existed, precisely so the third alarm would be a call site rather than a decision. This step adds the second call site; it does not re-open the channel.
+- **Operator-facing events live in `wp_pc_auth_audit_log`** — the sprint's Fixed decisions. No third store, no new table.
+- **No new operator screen** — the sprint's Fixed decisions. None is needed: the admin SPA's **Withdrawals** screen (`admin/src/views/WithdrawalsView.vue`) already lists the pending queue and approves or rejects it, which is exactly what clears the backlog this step alerts on.
+- **A player may have one withdrawal request open at a time** — `DOMAIN.md`. So a count of pending withdrawals is also a count of players waiting to be paid, which is what makes a count worth alerting on at all.
+- **Every money mutation goes through `Wallet_Service`** — root `CLAUDE.md` invariant 3 and the `TECH-STACK.md` anti-pattern. **This step writes nothing to a money table**; it reads one aggregate.
+
+### What already exists, and what it gives this step
+- **A pending withdrawal is a row in `wp_pc_transactions`** with `type = 'withdraw'` and `status = 'pending'` (`Wallet_Service::TYPE_WITHDRAW` / `STATUS_PENDING`). It is created by `Wallet_Service::request_withdrawal()` (`wallet-service.php:368`), which FIFO-debits the coins inside a transaction, and it leaves `pending` only through `AdminWithdrawalController::approve` → `completed` or `reject` → `refunded` (`AdminWithdrawalController.php:99,113`). So "pending withdrawals" is a single, exact query and needs nothing invented.
+- **The table is indexed for it.** `wp_pc_transactions` carries `KEY status (status)` (`install-schema.php`), so the count and the oldest row are cheap even once the ledger is long.
+- **`created_at` is written with `current_time( 'mysql' )`** — the site's *local* time, not UTC (`wallet-service.php:396`). An age computed against `time()` would be wrong by the site's offset. The idiom already in this codebase for exactly this is `Queue_Service::prune()` (`queue-service.php:735`): `gmdate( 'Y-m-d H:i:s', strtotime( current_time( 'mysql' ) ) - $seconds )` — both sides of the comparison pass through the same clock. This step reuses it rather than inventing a second way. **The local install is on UTC** (`gmt_offset` `0`), so a mixup would be invisible in the checks; section 8 of the test script therefore switches the site timezone to `Europe/Kyiv` for one section and asserts a withdrawal created *now* still reports an age of seconds, not hours.
+- **The poll pass already carries three watches.** `Machine_Poller::run()` calls `Realtime_Relay_Watch`, `Realtime_Outage_Watch` and `Realtime_Toss_Watch` in that order, **inside the `try` and before the machine-id / ingest-secret guards** (`machine-poller.php:90-113`), so a transport that cannot run stops none of them. The event is scheduled unconditionally on `init` (`ensure_scheduled()`, `machine-poller.php:396`) — it does not depend on a machine id — so a fourth watch there ticks on any install. **No second cron**, which is also what the `TECH-STACK.md` anti-pattern on cron jobs points at, and nothing new to deploy.
+- **`Realtime_Alerts::send()`** (`alerts.php`) — plain-text email to `pc_realtime_alert_email` → `pc_support_email` → `admin_email`, returning a bool on every path including the ones that caught a `Throwable`. DDEV runs Mailpit at `https://pusher-coin.ddev.site:8026`, so the whole channel is checkable locally.
+- **`wp pc machine-poll` and `--status`** already print one line per watch (`machine-poll-command.php:71-73,101-103`) and `pc_realtime_poll_last_run` already carries a per-watch summary, which is how a host with no shell sees any of this. The fourth watch gets the same line, in the same two places.
+
+### The alert rule
+**Two thresholds, either one fires.** More than `pc_realtime_withdrawal_alert_count` pending
+withdrawals, **or** an oldest pending one older than
+`pc_realtime_withdrawal_alert_age_seconds`. Both are "exceeds", strictly greater, as the
+step words it. Setting either to `0` switches that threshold off; both `0` switches the
+watch off entirely and it reports `stopped: 'disabled'` — the same shape as every other
+"the empty configuration *is* the off switch" in this codebase.
+
+**Two gates, and an alert needs both.** The step says two things in one breath — "alert at
+most once per period" and "re-alert only after dropping below and crossing again" — and the
+honest reading is that both hold at once:
+- **the latch** — one alert per crossing. Once alerted, the watch stays quiet however long
+  the backlog lasts, until the count and the age both fall back under their thresholds. That
+  clearing is recorded (`withdrawal_backlog_cleared`) and is what arms the next alert;
+- **the period ceiling** — at most one withdrawal alert per
+  `pc_realtime_withdrawal_alert_period_seconds`, counted from the last one **sent**, and
+  therefore remembered across a clearing. Without this, a backlog hovering on the threshold
+  could clear and re-cross all afternoon and send an email each time, which is the stream of
+  notifications the step exists to prevent.
+
+The alternative reading — the period as a *reminder*, re-alerting while the backlog persists
+— is ruled out by the step's own second sentence ("re-alert **only** after dropping below and
+crossing again"), so nothing reminds and nothing escalates. Where the two rules disagree the
+watch stays quiet, which is the same direction every judgement in Step 2 was taken in.
+
+**The latch records the decision to alert, not the delivery.** As in the outage watch, it is
+set whether or not `wp_mail` accepted the message; `Realtime_Alerts` audits a failed send as
+`operator_alert_failed`. A mailer that is refusing everything must not turn into one attempt
+a minute for as long as the backlog lasts.
+
+**What the email has to be worth reading on a phone**, which is the standard Step 1 set: how
+many are waiting, how long the oldest has waited, how much money that is in total, which
+threshold was crossed, and that approving or rejecting them in the admin **Withdrawals**
+screen is what clears it. No link is invented — the admin SPA has no deploy target and no
+URL to name (`ROADMAP.md` Phase 8).
+
+### Tasks (ordered)
+- [x] **1. What "piling up" is, and the three settings that decide it.** Add
+  `Wallet_Service::pending_withdrawal_summary(): array{count:int, oldest_at:?string, oldest_age_seconds:?int, total_money:string}` — one aggregate `SELECT COUNT(*), MIN(created_at), COALESCE(SUM(amount_money),'0.00')` over `type = withdraw AND status = pending`, with the age taken through the `current_time( 'mysql' )` clock as `Queue_Service::prune()` does, and the money kept as a decimal string. Seed
+  `pc_realtime_withdrawal_alert_count` (10), `pc_realtime_withdrawal_alert_age_seconds` (86400) and `pc_realtime_withdrawal_alert_period_seconds` (86400) in `install_default_options()`, and bump `DB_VERSION` `1.15.0` → `1.16.0` — no table change; the bump is what makes the defaults appear on an existing install. Create `tests/realtime-withdrawals.php` with its first two sections (the aggregate over a mixed ledger; the clock). Update `docs/DATA-MODEL.md` in the same commit: the `1.16.0` row, the three option rows and the runtime state option.
+  **Touches shared code (`core`) — may affect other features:** `app/utils/wallet-service.php` and `app/utils/install-schema.php`, both purely additive (a new read-only method; three `add_option` lines). Consumers of `Wallet_Service`, checked by grep rather than by the audit (`LEARNINGS.md` 2026-09-21): `WalletController`, `TransactionsController`, `AdminWithdrawalController`, `AdminTopupController`, `RoomQueueController`, `Machine_Ingest_Service`, `Stripe_Webhook_Controller` and `wp pc machine-ingest` — **no existing signature changes**, so none of them is affected. `stripe` reads the same table for top-ups and is untouched: the new method filters on `type = withdraw`.
+  → commit `feat(core): a reading of the pending-withdrawal backlog, and what counts as too much`
+- [x] **2. The fourth watch, and the operator's email.** New `app/realtime/withdrawal-watch.php` — `final class Realtime_Withdrawal_Watch` with `run( bool $dry_run = false ): array{pending:int, oldest_age:?int, breached:bool, alerted:bool, cleared:bool, stopped:?string}`, the latch-and-period rule above, state in `pc_realtime_withdrawal_alert_state` (written only when something changes, `autoload` false), audit rows `withdrawal_backlog_alerted` and `withdrawal_backlog_cleared`, and the notification through `Realtime_Alerts::send()`. Wire it: one `require_once` in `app/realtime/bootstrap.php`; the call in `Machine_Poller::run()` after the toss watch, inside the `try` and before the guards, with `'withdrawals'` in the result shape and in the `pc_realtime_poll_last_run` summary; a `withdrawals:` line in both `wp pc machine-poll` and `--status`. Sections 3–10 of `tests/realtime-withdrawals.php` (below). Update `docs/ARCHITECTURE.md` (the alerting flow paragraph and two tree lines), `docs/PROJECT-TREE.md` (the two new files) and `docs/features/realtime/FEATURE.md` (Data, Interfaces, a ninth invariant, and the shared-code delta notes) in the same commit.
+  **Touches shared code (`core`):** none in this task — `app/realtime/` only.
+  → commit `feat(realtime): tell the operator when withdrawals pile up, once per pile`
+- [x] **3. The operator's own words, and the status board.** `docs/DOMAIN.md` — the term **Withdrawal backlog** in the glossary and one rule saying what the operator is told and when. `docs/DECISIONS.md` — one entry for the two-gate rule (a crossing *and* the period, never a reminder) and for putting the watch on the poll pass rather than a cron of its own. `docs/ROADMAP.md` — Phase 7 §4 **Ops alerts** `[todo]` → `[done]` with the three alarms named, the tracking matrix row for item 17, and Phase 5 re-read against reality as the step asks: §7 **Machine-event channel** is `[todo]` but was built by `realtime` Sprint 2, so it is re-tagged with the honest caveat that no Ably account has ever existed, and the phase's exit criteria ("Met except for 'real-time' in the browser") is rewritten to match.
+  → commit `docs(realtime): withdrawals piling up, and the phases this sprint finishes`
+
+### Files to create/change
+**Create (backend):**
+- `backend/wp-content/themes/pc/app/realtime/withdrawal-watch.php` — `Realtime_Withdrawal_Watch`
+- `backend/wp-content/themes/pc/tests/realtime-withdrawals.php` — the checks
+
+**Change (backend):**
+- `app/utils/wallet-service.php` — **shared `core`, additive**: `pending_withdrawal_summary()`
+- `app/utils/install-schema.php` — **shared `core`, additive**: three options, `DB_VERSION` → `1.16.0`
+- `app/realtime/bootstrap.php` — one `require_once`
+- `app/realtime/machine-poller.php` — the fourth watch in `run()`, the result shape, the `last_run` summary
+- `app/realtime/machine-poll-command.php` — the `withdrawals:` line in the pass output and in `--status`
+
+**Change (docs):** `DATA-MODEL.md`, `ARCHITECTURE.md`, `PROJECT-TREE.md`, `DOMAIN.md`, `DECISIONS.md`, `ROADMAP.md`, `features/realtime/FEATURE.md`, this plan file.
+
+**Not changed:** `frontend/`, `admin/`, `CONTRACTS.md` (no endpoint, payload or error code), `DESIGN.md` and `FEATURE.md` → UI (no screen), `TECH-STACK.md` (no dependency).
+
+### Tests to write
+`backend/wp-content/themes/pc/tests/realtime-withdrawals.php`, a WP-CLI `eval-file` script
+in the shape of `tests/realtime-outage.php` (DDEV guard, `$check`, before/after row tally,
+everything restored in a `finally`). Mail is stubbed with `pre_wp_mail`, so nothing leaves
+the box and the message body is a variable the checks read. Fixtures are **real money
+paths**: a throwaway user per pending withdrawal (`DOMAIN.md` allows one open request per
+player), each credited a lot through `Wallet_Service::credit_lot()` and requesting through
+`Wallet_Service::request_withdrawal()`. Only a fixture's `created_at` is set directly, to
+age it — no service method can make a row older — and the script says so where it does it.
+**Cleanup names the tables the code under test and its fixtures write** (`LEARNINGS.md`
+2026-09-21), following `tests/wallet-rollback.php`, which is the one existing script that
+deletes money rows: `pc_transactions`, `pc_coin_lots`, `pc_wallets` for the throwaway users,
+the users themselves, `pc_auth_audit_log` above the floor, and every option saved at the top.
+
+1. **The reading.** A ledger holding pending withdrawals, an approved one, a rejected one and a pending *top-up* → the summary counts only pending withdrawals, `oldest_at` is the oldest of those, `total_money` is their sum as a decimal string, and an empty backlog reports `0` / `null` / `'0.00'`.
+2. **The clock.** With the site timezone switched to `Europe/Kyiv`, a withdrawal created now reports an age of seconds, not of the offset — the check the UTC-only local install cannot make by itself.
+3. **Quiet below both thresholds.** Pending withdrawals under the count and under the age: no mail, no audit row, no state written.
+4. **Crossing the count alerts exactly once.** One more pending withdrawal than the threshold → one mail, one `withdrawal_backlog_alerted`, and the body names the count, the age of the oldest and the total.
+5. **Staying above is silent.** Three further passes with the backlog unchanged, and with one *more* withdrawal added: still one mail in total.
+6. **Crossing the age alone alerts**, with the count left under its threshold — one backdated pending withdrawal, and the body says it is the age that was crossed.
+7. **Clearing is recorded.** Approving the backlog through `Wallet_Service::approve_withdrawal()` drops it under both thresholds → `withdrawal_backlog_cleared`, no mail.
+8. **The period ceiling holds.** A second crossing inside the period sends nothing, though the latch has been cleared.
+9. **And releases.** With `last_alert_at` rewound past the period, the same second crossing sends exactly one.
+10. **Configuration decides.** Changing `pc_realtime_withdrawal_alert_count` alone flips the verdict on an unchanged backlog; both thresholds at `0` report `stopped: 'disabled'` and send nothing however many are pending.
+11. **An alert can never cost anything.** A `pre_wp_mail` that returns false still latches and is audited `operator_alert_failed`; one that *throws* leaves `run()` returning normally, and a following `Machine_Poller::run()` still completes its own pass.
+12. **`--dry-run` reads and writes nothing** — no mail, no audit row, no state option.
+13. **Cleanup:** every counted table back to its starting count.
+
+**Test-critical zones** (project profile): money — this step's code performs **no** wallet
+mutation, and section 1's fixtures go through `Wallet_Service` precisely so nothing in the
+check bypasses it; the checks assert that a pass leaves `pc_wallets`, `pc_coin_lots` and
+`pc_transactions` row counts and balances unchanged.
+
+### Docs to update
+- **`docs/DATA-MODEL.md`** — the `1.16.0` row in the version table; three option rows in *Realtime — operator alerts* (`pc_realtime_withdrawal_alert_count`, `…_age_seconds`, `…_period_seconds`) plus `pc_realtime_withdrawal_alert_state` as a runtime-written option; and `withdrawal_backlog_alerted` / `withdrawal_backlog_cleared` in the audit event-type table, as a new `realtime — the withdrawal backlog` row. *(Named explicitly because this table enumerates and has no owner in the close checklist — `LEARNINGS.md` 2026-09-21.)*
+- **`docs/ARCHITECTURE.md`** — a paragraph after the toss-watch one for the fourth watch, and the two new files in the tree.
+- **`docs/PROJECT-TREE.md`** — the two new files. *(Same reason: an enumerating document with no owner.)*
+- **`docs/DOMAIN.md`** — **Withdrawal backlog** in the glossary, and one rule in the operator's terms.
+- **`docs/DECISIONS.md`** — the two-gate alert rule and the choice of the existing poll pass over a cron of its own.
+- **`docs/ROADMAP.md`** — Phase 7 §4 → `[done]`; the tracking matrix row for item 17; Phase 5 §7 and the phase's exit criteria re-read against what Sprint 2 actually shipped, as the step asks.
+- **`docs/features/realtime/FEATURE.md`** — Data (the four options), Interfaces (a `Realtime_Withdrawal_Watch` bullet), a ninth invariant (one alert per crossing and never more than one per period), and the shared-code notes for `wallet-service.php` and `install-schema.php`.
+- **`SPRINT-3-PLAN.md`** — checkboxes and status.
+
+### Checks
+- **ANTI-PATTERNS:** none violated. No `ENUM` — the new audit types are strings in an existing `VARCHAR(64)` column and the thresholds are options; **no money column is touched** — the watch reads one aggregate and writes nothing to `pc_transactions`, `pc_wallets` or `pc_coin_lots`; `$wpdb` is not expected to throw — the only writes are `update_option` and `Audit_Log::record`, and the aggregate read is checked for `null`; **no float** — the total stays a decimal string from MySQL to the email body; no machine payout in the ledger; no REST route, so no `permission_callback` question; nothing is hard-deleted; **no new cron job** — the watch rides the pass that already exists; no secret in an option; **no hardcoded operator-tunable value** — all three thresholds are options with defaults in `Install_Schema`; no new plugin, no new dependency.
+- **Docs vs reality:** mismatch, three, all resolved in the tasks above.
+  1. **`wp_pc_transactions.created_at` is local time, and the local install is UTC.** Nothing in `DATA-MODEL.md` → Conventions says which clock a `DATETIME` is in, and `current_time( 'mysql' )` is the site's, not UTC. A check written on this machine cannot tell the two apart (`gmt_offset` is `0`), so the age arithmetic reuses the existing `Queue_Service::prune()` idiom and section 2 flips the site timezone to make the trap reachable. Same class as `LEARNINGS.md` 2026-09-21 ("a plan listed a check the test harness itself makes impossible to write"), caught at plan time and made reachable rather than dropped.
+  2. **The step's manual verification says "Approve them in the admin Withdrawals screen".** That screen exists and works, but it is behind the admin SPA's two-step sign-in, whose code arrives by email — and this agent does not sign into it or place a token in a browser (`LEARNINGS.md` 2026-09-18). So the guide will carry both: the `ddev wp eval` route the agent can run and verify, and the admin-screen route for the user, marked as the user's own check. Nothing in the tasks depends on the answer.
+  3. **The step's Docs-to-update asks for "Phase 5's exit criteria re-read against reality", and reality has moved twice.** Phase 5 §7 (the machine-event channel) still reads `[todo]` although Sprint 2 built it, and the exit criteria still says the SPA polls. Both are corrected in task 3 with the caveat that no Ably account has ever existed, so nothing has been observed end to end. This is the step's own instruction, not scope growth.
+  **Observations that change no task:** the carried `/adhoc` items are unchanged — the late-payout handover, the two unassigned `BACKEND-REVIEW.md` §10 bullets, `settle()`'s unchecked `mark()`, the stale `TECH-STACK.md` eval-script list, the two test scripts that leave a row behind per run, and the fifth copy of the schedule-rules query. One more joins them: `AdminWithdrawalController::list_withdrawals` queries `wp_pc_transactions` directly rather than through `Wallet_Service`, which is the drift this step's new method deliberately does not extend.
+- **Design:** n/a — no screen, component, token or string. The sprint's Fixed decisions forbid a new operator screen, and the one that clears a backlog already exists.
+- **Check command:** `backend/bin/check` (`docs/TECH-STACK.md` → Check command). DDEV is running, so stage 2 executes all fourteen `tests/*.php` including the new one. `frontend/bin/check` is not run: `frontend/` is not touched. After the step's merge, the check must also exit 0 on `realtime/sprint-3` and then on `main`, because this close merges the sprint.
+- **Not locally verifiable:** **whether `wp_mail` actually delivers from the production host.** Locally Mailpit catches everything, and the shared host's own mail path has never been confirmed — the open question Step 1 raised and Step 2 carried. The one real run that verifies it is **the next deploy from `main` followed by a real backlog crossing the threshold** (or, cheaper, the test support ticket Step 1's guide already names). Nothing in this step can close it.
+
+### Questions / ambiguities
+none.
+
+### Execution notes
+- **Three commits, as planned.** Backend `74a5bf96` `364aa020`; docs `d252aee` `24b8770` `09f605a`. `backend/bin/check` exits 0 on the task branch: 75 files linted, all fourteen `tests/*.php` green, `tests/realtime-withdrawals.php` at **68 checks**.
+- **One deviation, disclosed rather than folded in.** Checking the two tree maps *mechanically* (every file under `tests/` and `app/realtime/` grepped against both) rather than by eye found **`tests/realtime-toss.php` in neither map** — Step 2's own file, one step old — and **`tests/stripe-webhook.php` missing from `ARCHITECTURE.md`**. Fourth and fifth occurrence of the failure mode `LEARNINGS.md` 2026-09-21 names. Both corrected in the same commit as this step's two files and stated in its body; every file in both directories now appears in both maps. This is a `/close-step` LEARNINGS item, not a scope change.
+- **Two checks were wrong before the code was.** A count threshold of `0` means *off*, so "narrow the threshold to the baseline" proved nothing on a database whose baseline is `0` — two sections were rewritten to create a real backlog and move the threshold across it. The failures were the harness working, not the watch.
+- **`pc_wallets` has 238 orphaned rows from earlier steps' scripts**, and this run's `before` count was 8 higher than the previous one — i.e. the existing `tests/` scripts leave wallet rows behind, alongside the queue and bet-session rows already carried. `tests/realtime-withdrawals.php` itself leaves nothing: its before/after tally over `pc_transactions`, `pc_coin_lots`, `pc_wallets`, `pc_auth_audit_log`, users and options is equal, and is a check. The existing leak stays an `/adhoc`, now with wallets named.
+- **The local install is left as found:** every option the script touches is restored (including the site timezone), `pc_db_version` is `1.16.0`, and the three new settings are seeded at their defaults.

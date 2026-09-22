@@ -39,7 +39,7 @@
 - **Docs to update:** `docs/DATA-MODEL.md` (the options and the event type); `docs/DOMAIN.md` if this gives the operator a term they use.
 - **Depends on:** Step 1
 
-### [ ] Step 3 — Withdrawals piling up
+### [x] Step 3 — Withdrawals piling up
 - **Tasks:**
   - Alert when pending withdrawals exceed a configured count, or when the oldest pending one exceeds a configured age. Both thresholds are configuration.
   - Alert at most once per period, so a busy day does not become a stream of notifications; re-alert only after dropping below and crossing again.
