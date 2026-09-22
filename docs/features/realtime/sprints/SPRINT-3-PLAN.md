@@ -262,7 +262,7 @@ is a variable each check sets.
 
 ---
 
-## Plan — Sprint 3, Step 3: Withdrawals piling up   (status: approved, in progress)
+## Plan — Sprint 3, Step 3: Withdrawals piling up   (status: implemented, awaiting close)
 
 ### Branch
 `realtime/sprint-3-withdrawals` ← `realtime/sprint-3` ← `main`
@@ -410,3 +410,10 @@ check bypasses it; the checks assert that a pass leaves `pc_wallets`, `pc_coin_l
 
 ### Questions / ambiguities
 none.
+
+### Execution notes
+- **Three commits, as planned.** Backend `74a5bf96` `364aa020`; docs `d252aee` `24b8770` `09f605a`. `backend/bin/check` exits 0 on the task branch: 75 files linted, all fourteen `tests/*.php` green, `tests/realtime-withdrawals.php` at **68 checks**.
+- **One deviation, disclosed rather than folded in.** Checking the two tree maps *mechanically* (every file under `tests/` and `app/realtime/` grepped against both) rather than by eye found **`tests/realtime-toss.php` in neither map** — Step 2's own file, one step old — and **`tests/stripe-webhook.php` missing from `ARCHITECTURE.md`**. Fourth and fifth occurrence of the failure mode `LEARNINGS.md` 2026-09-21 names. Both corrected in the same commit as this step's two files and stated in its body; every file in both directories now appears in both maps. This is a `/close-step` LEARNINGS item, not a scope change.
+- **Two checks were wrong before the code was.** A count threshold of `0` means *off*, so "narrow the threshold to the baseline" proved nothing on a database whose baseline is `0` — two sections were rewritten to create a real backlog and move the threshold across it. The failures were the harness working, not the watch.
+- **`pc_wallets` has 238 orphaned rows from earlier steps' scripts**, and this run's `before` count was 8 higher than the previous one — i.e. the existing `tests/` scripts leave wallet rows behind, alongside the queue and bet-session rows already carried. `tests/realtime-withdrawals.php` itself leaves nothing: its before/after tally over `pc_transactions`, `pc_coin_lots`, `pc_wallets`, `pc_auth_audit_log`, users and options is equal, and is a check. The existing leak stays an `/adhoc`, now with wallets named.
+- **The local install is left as found:** every option the script touches is restored (including the site timezone), `pc_db_version` is `1.16.0`, and the three new settings are seeded at their defaults.
