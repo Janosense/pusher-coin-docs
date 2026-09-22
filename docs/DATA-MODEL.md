@@ -198,6 +198,7 @@ Event types written today, by owning area:
 | realtime — the machine's state | `machine_relay_read_failed`, `machine_outage_started`, `machine_outage_notified`, `machine_outage_recovered`, `machine_toss_read_failed`, `machine_toss_expired` |
 | realtime — the push channel | `realtime_publish_failed` |
 | realtime — operator alerts | `operator_alert_sent`, `operator_alert_failed` |
+| realtime — the withdrawal backlog | `withdrawal_backlog_alerted`, `withdrawal_backlog_cleared` |
 | queue | `queue_session_orphan_closed`, `queue_session_index_missing`, `queue_session_migration_failed` |
 
 Machine *events* (tosses, drops, bonuses) do not go here — they have their own table.
