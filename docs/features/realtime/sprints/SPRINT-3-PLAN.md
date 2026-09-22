@@ -262,7 +262,7 @@ is a variable each check sets.
 
 ---
 
-## Plan — Sprint 3, Step 3: Withdrawals piling up   (status: implemented, awaiting close)
+## Plan — Sprint 3, Step 3: Withdrawals piling up   (status: closed)
 
 ### Branch
 `realtime/sprint-3-withdrawals` ← `realtime/sprint-3` ← `main`
