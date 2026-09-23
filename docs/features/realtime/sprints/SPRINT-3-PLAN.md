@@ -1,7 +1,7 @@
 # Sprint 3 — step plans (`realtime`)
 
 <!-- Written by /plan-step, one section per step. A section's status moves
-     awaiting approval → approved, in progress → implemented, awaiting close →
+     awaiting approval → approved, in progress → implemented, awaiting verification →
      closed. Never edit another step's section. -->
 
 ## Plan — Sprint 3, Step 1: The machine is unreachable during a broadcast window   (status: closed)

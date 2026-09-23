@@ -1,6 +1,6 @@
 # {{PROJECT_NAME}} — {{one-line description}}
 
-<!-- playbook: v1.21 — Core rules and Step protocol are verbatim copies of
+<!-- playbook: v1.25 — Core rules and Step protocol are verbatim copies of
      templates/CLAUDE.md; never edit them here. -->
 
 {{2–4 sentences: what the product does, who uses it, the one platform-level
@@ -24,7 +24,7 @@ truth if there is one (e.g. "HubSpot is the source of truth for CRM data").}}
 | File | When to read |
 |---|---|
 | `docs/ARCHITECTURE.md` | Before structural work: new modules, endpoints, integrations, deploy questions |
-| `docs/TECH-STACK.md` | Before adding dependencies or choosing an approach. Contains the ANTI-PATTERNS section — mandatory |
+| `docs/TECH-STACK.md` | Before adding dependencies or choosing an approach. Contains the ANTI-PATTERNS and CONVENTIONS sections — mandatory |
 | `docs/DATA-MODEL.md` | Before any schema change, migration, query, or API response shape |
 | `docs/DOMAIN.md` | Before implementing or changing any domain logic: the customer's terms, rules, invariants |
 | `docs/CONTRACTS.md` (if present) | Before touching any endpoint, event, or payload shape |
@@ -34,7 +34,6 @@ truth if there is one (e.g. "HubSpot is the source of truth for CRM data").}}
 | `docs/features/{feature}/FEATURE.md` | Before any work in a feature: its scope, data ownership, invariants, interfaces |
 | `docs/features/{feature}/sprints/SPRINT-N.md` | Current sprint scope and steps |
 | `docs/WORKLOG.md` | At session start: latest 5 entries (top of file) = project memory |
-| `docs/LEARNINGS.md` | When something went wrong before — check if it's a known failure mode |
 | {{project-specific docs, e.g. spike notes, client-plans}} | {{when}} |
 
 ## Core rules
@@ -43,11 +42,11 @@ truth if there is one (e.g. "HubSpot is the source of truth for CRM data").}}
 3. Never hardcode business values. Prices, limits, intervals, texts that the business may change are configuration, not constants.
 4. Secrets only via environment config. Never commit keys, never log secret values.
 5. Documentation is part of the task. Docs that describe changed code are updated in the same commit as the change; a schema change without a `docs/DATA-MODEL.md` update is an unfinished task.
-6. Project state is derived, never asked for: the newest `docs/WORKLOG.md` entry names the feature, sprint and step; that feature's `sprints/SPRINT-N.md` shows which steps are ticked, `SPRINT-N-PLAN.md` the step in flight (awaiting approval / in progress / implemented / closed). Derive it before any work on the project — not before answering a question. No WORKLOG entries = the project has not started.
+6. Project state is derived, never asked for: the newest `docs/WORKLOG.md` entry names the feature, sprint and step; that feature's `sprints/SPRINT-N.md` shows which steps are ticked, `SPRINT-N-PLAN.md` the step in flight (awaiting approval / in progress / awaiting verification / closed). Derive it before any work on the project — not before answering a question. No WORKLOG entries = the project has not started.
 
 ## Step protocol
-- Code is changed only inside a step (`/plan-step` → `/do-step`) or an
-  `/adhoc`. The unit of work is **one Step** of the feature's `SPRINT-N.md` —
+- Code is changed only inside a step (`/plan-step` → `/do-step`, a
+  `/fix-step`) or an `/adhoc`. The unit of work is **one Step** of the feature's `SPRINT-N.md` —
   never a whole sprint. If the user asks to "do the sprint" or "start the sprint":
   do not execute it; propose `/plan-step` for the first incomplete step.
 - A step plan is produced only by `/plan-step` and executed only by
@@ -55,10 +54,15 @@ truth if there is one (e.g. "HubSpot is the source of truth for CRM data").}}
   user is never asked to say "approved"; any other message after the plan is
   a change request. Approval authorizes that step only — never the
   following steps.
-- An implemented step is closed with `/close-step` before any other work begins.
-- A closed step whose manual verification fails is re-opened only by
-  `/fix-step <what failed>` and re-closed by `/close-step`. A failure report
-  is never an instruction to patch the step directly.
+- An implemented step is verified by the user on its task branch, by the
+  verification guide `/do-step` wrote, and then closed with `/close-step` —
+  running it means verified. No other step begins before the close.
+- A failed item of a verification guide — reported in the chat or with
+  `/fix-step <what failed>` — is handled only by the fix procedure: Read
+  `.claude/commands/fix-step.md` and follow it, the report being its
+  argument. Before the close the fix lands on the step's task branch; after
+  it, on a fix branch. A failure report is never an instruction to patch
+  the step directly.
 - The next step begins only with a new `/plan-step` from the user.
 - A sprint is complete when `/close-step` ticks its last step: that run
   merges the sprint into `main` and says so; `/plan-step N+1 1` does not

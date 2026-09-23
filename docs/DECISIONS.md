@@ -11,7 +11,7 @@ Entry format:
 - **Context:** {{what forced the decision}}
 - **Decision:** {{what was decided, one sentence, imperative}}
 - **Alternatives rejected:** {{and the one-line reason each lost}}
-- **Consequences:** {{what this commits us to; what becomes an anti-pattern}}
+- **Consequences:** {{what this commits us to}}
 
 ---
 

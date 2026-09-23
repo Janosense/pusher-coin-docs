@@ -1,9 +1,10 @@
 # Worklog — Pusher Coin
 
 <!-- Add-only project memory for the agent: entries are never edited or
-     removed. Written ONLY by /close-step and /adhoc (off-cycle tasks),
-     newest entry at the TOP, directly under the entry format. A fresh Claude
-     Code session reads the latest 5 entries at start (CLAUDE.md core rule 6).
+     removed. Written ONLY by /close-step, /fix-step (a fix after a step's
+     close) and /adhoc (off-cycle tasks), newest entry at the TOP, directly
+     under the entry format. A fresh Claude Code session reads the latest 5
+     entries at start (CLAUDE.md core rule 6).
      Keep entries 3–6 lines; this is a memory index, not a diary — details live
      in commits and verification guides. -->
 
@@ -11,10 +12,20 @@ Entry format:
 
 ## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} Step {{M}} — {{title}}
 (ad-hoc tasks: `## {{YYYY-MM-DD}} — [adhoc] [{{feature}}] — {{title}}`;
-sprint closed: `## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} closed`)
+a fix after a step's close:
+`## {{YYYY-MM-DD}} — [{{feature}}] Sprint {{N}} Step {{M}} — fix: {{what failed}}`;
+the last step of a sprint ends its entry with `Sprint {{N}} complete — all
+steps closed, {{sprint branch}} merged into main`)
 - Changed: {{what, at module/feature level}}
 - Decisions: {{key ones made or DECISIONS.md entries added, or "—"}}
 - Open: {{unresolved questions carried forward, or "—"}}
+
+---
+
+## 2026-09-23 — [adhoc] — Playbook v1.25
+- Changed: `.claude/commands/` (plan-step, do-step, close-step, fix-step, adhoc) and `templates/` synced from the playbook (v1.21 → v1.25): a step now waits in `implemented, awaiting verification` until the user verifies it on its task branch, and `/fix-step` handles a failure before or after the close. Root `CLAUDE.md`: Core rules and Step protocol replaced verbatim; the TECH-STACK row names CONVENTIONS; the LEARNINGS and SPRINT-N-CLOSE rows dropped; the Git model gains the template's deploy sentence. `TECH-STACK.md` gains an empty CONVENTIONS section and the playbook's ANTI-PATTERNS comment. The WORKLOG, LEARNINGS and DECISIONS headers and entry formats and `features/README.md` come from the playbook. Every `SPRINT-*-PLAN.md` header comment says "awaiting verification"
+- Decisions: —
+- Open: existing LEARNINGS entries keep the pre-v1.25 shape under the new header; `docs/TECH-REQUEST.md` and `TECH-REQUEST-AUDIT.md` have no Documentation-table row in `CLAUDE.md`
 
 ---
 
