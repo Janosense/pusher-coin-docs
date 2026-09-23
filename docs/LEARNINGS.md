@@ -1,21 +1,26 @@
 # Learnings — Pusher Coin
 
-<!-- Harness defect log. Every time the agent did the wrong thing (overreach,
-     misread instruction, ignored a rule, broken assumption) — it goes here,
-     framed as a PROCESS defect, not a one-off annoyance. At sprint boundaries
-     the user reviews this file and transfers fixes into the playbook repo
-     (new playbook version). This is the improvement loop. At the retro every
-     entry's "Transferred to playbook" is filled: a version, "local" (fixed in
-     this project only) or "n/a" — "pending" survives only until the next
-     retro. -->
+<!-- Playbook system file: how the playbook itself failed in this project,
+     for the playbook's author. Not project documentation — its entries are
+     never applied to this project's work.
+
+     An entry is written when a playbook rule was missing, ambiguous,
+     contradicted another, or was broken — by /close-step, /fix-step (after
+     a step's close) or /adhoc, or when the user points one out. A playbook
+     rule says which command, file, branch or approval does what and when:
+     a section of .claude/commands/, a Core rule or Step protocol line of
+     CLAUDE.md, a template, DISCOVERY.md. How to write code or tests is not
+     one.
+
+     Newest entry at the TOP. The agent writes status [new] and never edits
+     an existing entry; only the user sets [closed]. -->
 
 Entry format:
 
-## {{YYYY-MM-DD}} — [{{feature}}] {{What happened, one line}}
-- **Incident:** {{what the agent did vs. what was expected}}
-- **Root cause:** {{which instruction was missing, ambiguous, or overridable}}
-- **Fix applied here:** {{change to this project's CLAUDE.md/commands/docs}}
-- **Transferred to playbook:** {{version, or "pending"}}
+## [new] {{YYYY-MM-DD}} — {{What happened, one line}}
+- **Playbook rule:** {{file → section where the rule is or should be}}
+- **What happened:** {{what the agent did vs. what the rule required or should have required; 1–3 sentences}}
+- **Suggested change:** {{one sentence, or "—"}}
 
 ---
 

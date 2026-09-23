@@ -1,13 +1,15 @@
 ---
-description: Plan ONE sprint step. Never writes code.
-argument-hint: [feature] <sprint> <step>   # e.g. "1 3" or "event-calendar 1 3"
+description: Plan one sprint step. Never writes code.
+argument-hint: [feature] <sprint> <step>
+disable-model-invocation: true
 ---
 
-You are planning exactly one step. In this command it is FORBIDDEN to write or
-edit application code, run migrations, or install anything. The only file you
-may write is the plan file.
+You are planning exactly one step. This command never writes or edits
+application code, runs migrations, or installs anything; the only file it
+writes is the plan file.
 
-1. **Parse arguments:** `$ARGUMENTS` → optional feature name, sprint number N, step number M.
+1. **Parse arguments:** `$ARGUMENTS` → optional feature name, sprint number
+   N, step number M (e.g. `1 3` or `event-calendar 1 3`).
    Resolve the feature through the Features table in root `CLAUDE.md` — it is
    the router; never guess from the file hierarchy. If no feature name was
    given: with exactly one row in the table, use it; with several, STOP and
@@ -22,16 +24,16 @@ may write is the plan file.
 
    If `docs/features/{feature}/sprints/SPRINT-{N}.md` does not exist — STOP.
    Never write a sprint file yourself; sprint files come only from discovery,
-   which writes one file per sprint of the plan (since playbook v1.10):
+   which writes one file per sprint of the plan. Do not offer to plan the
+   sprint here; tell the user what to do:
    - the feature has no `sprints/` at all (e.g. `core` registered by Adoption
      — it has no sprints by design) → a feature with sprints must be created
      first via discovery (DISCOVERY → Feature mode);
-   - the feature has earlier sprints but no Sprint {N}: if `FEATURE.md` →
-     Roadmap lists it, the file is missing (project started before v1.10, or
-     a Phase C defect) → a re-planning chat in the Cowork Project (DISCOVERY
-     → Feature mode, Re-planning) writes it; if the Roadmap does not list it,
-     the feature has no Sprint {N} → say so and stop.
-   Tell the user which chat to open; do not offer to plan the sprint here.
+   - the feature has earlier sprints and `FEATURE.md` → Roadmap lists
+     Sprint {N} → the file is missing: a re-planning chat in the Cowork
+     Project (DISCOVERY → Feature mode, Re-planning) writes it;
+   - the Roadmap does not list Sprint {N} → the feature has no Sprint {N}:
+     say so.
 
 2. **Read, in this order:**
    - the code area's `CLAUDE.md` (the feature's host directory), if the feature's Code path has one
@@ -52,46 +54,57 @@ may write is the plan file.
      files of that screen in `docs/features/{feature}/design/` — the plan
      names the screen as the design record does; design files are
      references, never files to copy into the code area
-   - `docs/TECH-STACK.md` → **ANTI-PATTERNS** — always, regardless of the step:
-     check every planned task against it and state in the plan that none is violated
-     (or flag the conflict explicitly)
+   - `docs/TECH-STACK.md` → **ANTI-PATTERNS** and **CONVENTIONS** — always,
+     regardless of the step: check every planned task against both and state
+     in the plan that none is violated (or flag the conflict explicitly)
    - the latest 5 entries of `docs/WORKLOG.md` (top of file)
    - for M = 1 and N > 1: the WORKLOG entry of Sprint {N-1}'s last step
      (it ends with `Sprint {N-1} complete`) — the open questions it carries
      are Docs vs reality input for this plan
-   - `docs/LEARNINGS.md` — check for known failure modes relevant to this step
 
 3. **Inspect the actual codebase state** relevant to the step. Do not trust the
-   docs blindly — if reality and docs disagree, say so explicitly in the plan.
+   docs blindly — if reality and docs disagree, say so explicitly in the plan
+   (Checks → Docs vs reality).
+
+   Always:
    - The check command named in `docs/TECH-STACK.md` → Check command exists
      and runs. If the project has none yet, the first task of this plan
-     creates it (one committed script: tests, lint, static analysis, build —
-     exit code non-zero on the first failure).
-   - A task that bootstraps a framework or skeleton into a non-empty
-     repository: list the skeleton's top-level files in the plan and state
-     what happens to each name that already exists (`CLAUDE.md`,
-     `README.md`, `.gitignore`, agent instruction files such as `AGENTS.md`).
-     A skeleton's agent file or bootstrap notes are never adopted; the
-     dependencies they ask for go through core rule 1 like any other.
-   - Versions in `docs/TECH-STACK.md` marked `(unverified — pinned at
-     bootstrap)`: verify each against the package registry and list in the
-     plan the locked version that TECH-STACK will record.
-   - A step that builds or changes a screen: extract the text of that
-     screen's artboards from the design export before listing strings. The
-     brief fixes what it spells out; every other string comes from the
-     artboard of the screen state; a difference between the two is a Docs vs
-     reality item, never a silent choice. What the artboard of the step's
-     screen state draws is the step's scope: a control or field the step
-     text does not list is planned, not deferred and not asked about —
-     unless another step or `FEATURE.md` → Roadmap names it.
+     creates it: one committed script that runs tests, lint, static analysis
+     and build and exits non-zero on the first failure.
+
+   Then each of these whose condition holds for this step:
+   - **A task bootstraps a framework or skeleton into a non-empty
+     repository** → list the skeleton's top-level files in the plan and, for
+     each name that already exists (`CLAUDE.md`, `README.md`, `.gitignore`,
+     agent instruction files such as `AGENTS.md`), state what happens to it.
+     Never adopt the skeleton's agent file or bootstrap notes; a dependency
+     they ask for needs explicit approval like any other (root `CLAUDE.md` →
+     Core rules).
+   - **`docs/TECH-STACK.md` has versions marked `(unverified — pinned at
+     bootstrap)`** → verify each against the package registry and list in
+     the plan the locked version that TECH-STACK will record.
+   - **The step builds or changes a screen** →
+     1. extract the text of that screen's artboards from the design export
+        before listing strings;
+     2. strings: the brief's wording wherever the brief spells it out, the
+        artboard of the screen state for every other string; record each
+        difference between the two under Checks → Docs vs reality — never a
+        silent choice;
+     3. scope: What the artboard of the step's screen state draws is the
+        step's scope. Plan every control or field it draws, including one
+        the step text does not list — do not defer it or ask about it —
+        unless another step or `FEATURE.md` → Roadmap names it.
 
 4. **Verify preconditions** — stop and report if any fails:
    - No step is in flight: neither this feature's `SPRINT-{N}-PLAN.md` nor
      the plan file named by the latest `docs/WORKLOG.md` entry (its feature
      and sprint) has a section in state `in progress` or
-     `implemented, awaiting close` — an implemented step is closed with `/close-step`
-     before any other work begins; steps are closed sequentially, never in
-     parallel sessions.
+     `implemented, awaiting verification`, and no task branch named in a
+     plan section's `### Branch` is left unmerged into its base
+     (`git branch --no-merged`) — the plan file on the base may not show a
+     step that awaits verification on its branch. An implemented step is
+     verified by the user and closed with `/close-step` before another step
+     is planned; steps are closed sequentially, never in parallel sessions.
    - All steps listed in Step {M} → "Depends on" are closed: their checkboxes
      in `SPRINT-{N}.md` are ticked (`### [x] Step … `).
    - Sprints run in order: for N > 1, every step of `SPRINT-{N-1}.md` is
@@ -100,7 +113,8 @@ may write is the plan file.
      branches, the branch of `SPRINT-{N-1}.md` is merged into `main`
      (`git branch --merged main` lists it) — `/close-step` of its last step
      does that. If not — stop: "Sprint {N-1} is not merged into `main` —
-     re-run `/close-step` for its last step". Never merge it here.
+     run `/close-step`: it resumes the unfinished merge". Never merge it
+     here.
    - Step {M} itself is not already closed. If it is — say so; rework of a
      closed step goes through `/fix-step <what failed>`, not a new plan.
 
@@ -108,34 +122,44 @@ may write is the plan file.
    subsections are the source:
    - **Tasks** → the plan's tasks: the same work, made concrete against the
      real codebase — split into commit-sized ordered tasks with exact files
-   - **Tests** (+ the profile's test-critical zones) → the plan's tests
+   - **Tests** (+ the Test-critical zones of root `CLAUDE.md` → Project
+     profile) → the plan's tests
    - **Docs to update** → the plan's docs list
    - **Verification (manual)** → what the tasks must make possible
    Check the derived tasks and tests against the real code, not only against
-   the step text:
-   - Every task leaves the branch green on its own. When tasks build screens
-     or modules that link to each other, register the routes / contracts in
-     the first of them, or state in the plan how a link to a not-yet-existing
+   the step text.
+
+   Always:
+   - Every task leaves the branch green on its own. Tasks that build screens
+     or modules linking to each other register the routes / contracts in the
+     first of them, or the plan states how a link to a not-yet-existing
      target is written until it exists.
-   - A step that adds, narrows or conditions on a rule other code depends on
-     (permission / Policy, validation, invariant): read the whole rule set,
-     not the diff. List the existing tests whose actor loses an ability and
-     what each becomes; for every screen state conditioned on an ability,
-     name the ability that already admitted the reader to the screen and how
-     the two differ — if they cannot differ, the state is unreachable: no
-     fallback task, no test.
-   - A UI step: the plan says which component's DOM renders each pinned,
-     conditional or interactive control, and at least one test asserts the
-     state the user sees after the interaction (enabled / disabled, rendered
-     / hidden), not only the markup at first paint.
-   - An artefact the check command cannot execute (deploy script, cron line,
-     server or hosting config): no invented local test — name in Checks →
-     Not locally verifiable the one real run that verifies it. Deploying an
-     environment is never a task of a step: environments track `main` (git
-     model in root `CLAUDE.md`), so the first run of deploy tooling is the
-     next deploy from `main`, done by the user; a step task that says
-     "deploy" goes to Questions / ambiguities with the recommendation to
-     drop it from the step.
+
+   Then each of these whose condition holds for this step:
+   - **The step adds, narrows or conditions on a rule other code depends
+     on** (permission / Policy, validation, invariant) → read the whole rule
+     set, not the diff, and put in the plan:
+     1. every existing test whose actor loses an ability, and what that test
+        becomes;
+     2. for every screen state conditioned on an ability: the ability that
+        already admitted the reader to the screen, and how the two differ.
+        If they cannot differ, the state is unreachable — no fallback task,
+        no test.
+   - **The step builds or changes UI** → the plan names the component whose
+     DOM renders each pinned, conditional or interactive control, and at
+     least one test asserts the state the user sees after the interaction
+     (enabled / disabled, rendered / hidden), not only the markup at first
+     paint.
+   - **The step creates an artefact the check command cannot execute**
+     (deploy script, cron line, server or hosting config) → no invented
+     local test; name under Checks → Not locally verifiable the one real run
+     that verifies it — for deploy tooling, the next deploy from `main`,
+     done by the user.
+   - **A step task says "deploy"** → Deploying an environment is never a
+     task of a step: environments track `main` (git model in root
+     `CLAUDE.md`). Put the task under Questions / ambiguities with the
+     recommendation to drop it from the step.
+
    The plan never adds work the step does not name (what the artboard of the
    step's screen draws is named by the step — §3). Work that turns out
    necessary but is missing from the step → "Questions / ambiguities" (the
@@ -181,7 +205,7 @@ may write is the plan file.
    ### Tests to write
    ### Docs to update
    ### Checks
-   - ANTI-PATTERNS: none violated | conflict: …
+   - ANTI-PATTERNS / CONVENTIONS: none violated | conflict: …
    - Docs vs reality: match | mismatch: …
    - Design: n/a | matches `{screen}` in DESIGN.md / FEATURE.md → UI | deviation: …
    - Check command: `{command}` (docs/TECH-STACK.md → Check command) | missing — created in task 1
@@ -191,7 +215,8 @@ may write is the plan file.
    without a recommendation makes the plan NOT approvable until answered)
    ```
 
-7. **Print the plan in the chat** (plain language if profile = user-verified), then **STOP** with exactly this closing line:
+7. **Print the plan in the chat** (plain language if the profile says
+   `user-verified`), then **STOP** with exactly this closing line:
 
    > Plan for **Step {M}** written. `/do-step` runs it as written — running it is the approval, and it authorizes Step {M} only. Anything else you write is a change request to the plan.
 
@@ -208,4 +233,6 @@ may write is the plan file.
    `/do-step` (answers to the questions, objections, edits — even a short
    one) is a change request: fold it into the plan file (status stays
    `awaiting approval`), print the plan again and stop with the same closing
-   line. Approval always refers to the written plan, never to the chat.
+   line. Approval always refers to the written plan, never to the chat. A
+   report that an item of a step's verification guide fails is not a change
+   request: Read `.claude/commands/fix-step.md` and follow it.

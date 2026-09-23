@@ -1,6 +1,6 @@
 # Feature — {{FEATURE_NAME}}
 
-<!-- playbook: v1.21. Lightweight ARCHITECTURE + DATA-MODEL for one
+<!-- playbook: v1.25. Lightweight ARCHITECTURE + DATA-MODEL for one
      feature. Lives at docs/features/{{name}}/FEATURE.md next to its
      sprints/. Root ARCHITECTURE.md holds only one row + a link here.
      Keep ≤80 lines. -->

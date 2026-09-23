@@ -1,7 +1,7 @@
 # Sprint 2 — step plans (`stripe`)
 
 <!-- Written by /plan-step, one section per step. A section's status moves
-     awaiting approval → approved, in progress → implemented, awaiting close →
+     awaiting approval → approved, in progress → implemented, awaiting verification →
      closed. Never edit another step's section. -->
 
 ## Plan — Sprint 2, Step 1: `GET /admin/topups` and `GET /admin/stripe/status`   (status: closed)

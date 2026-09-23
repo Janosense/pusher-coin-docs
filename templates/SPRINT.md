@@ -1,6 +1,6 @@
 # SPRINT {{N}} — {{Name}} ({{date range}})
 
-<!-- playbook: v1.21. Written by discovery (Phase C) together with every
+<!-- playbook: v1.25. Written by discovery (Phase C) together with every
      other sprint of the plan — never by Claude Code. Rewritten by a
      re-planning chat only while no step is closed; afterwards steps may
      only be appended. This file
